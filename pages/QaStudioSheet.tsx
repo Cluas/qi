@@ -10,12 +10,15 @@ import {
   loadPersona,
   ocrSampleFixtureLab,
   probeCapabilities,
+  purchaseHearthGiftPass,
   reseedDemoData,
+  restoreApplePurchases,
   runDataIntegrityAudit,
   setEntitlementSandbox,
   setHardwareTier,
   setShowAtelierModal,
   setShowQaStudio,
+  toggleAppLocale,
   updateAiConfig,
 } from "../store";
 import {
@@ -30,12 +33,7 @@ import {
   VitalBadge,
 } from "../ui/components";
 import { QiIcon } from "../ui/icons";
-
-const TIER_OPTIONS = [
-  { id: "tier_a", label: "Tier A 全穿戴" },
-  { id: "tier_b", label: "Tier B 基础手环" },
-  { id: "tier_c", label: "Tier C 纯手机" },
-];
+import { tr } from "../ui/i18n";
 
 export function QaStudioSheet() {
   const state = () => getState();
@@ -44,29 +42,72 @@ export function QaStudioSheet() {
   const auditReport = () => getLastAuditReport();
   const personas = () => getPersonas();
 
+  const tierOptions = () => [
+    { id: "tier_a", label: tr("qa.tier_a") },
+    { id: "tier_b", label: tr("qa.tier_b") },
+    { id: "tier_c", label: tr("qa.tier_c") },
+  ];
+
+  const sandboxTiers = () => [
+    { id: "free", label: tr("atelier.tier_free_label") },
+    { id: "pro_monthly", label: tr("atelier.tier_pro_monthly_label") },
+    { id: "seasonal", label: tr("atelier.tier_seasonal_label") },
+    { id: "pro_annual", label: tr("atelier.tier_pro_annual_label") },
+    { id: "duo", label: tr("atelier.tier_duo_label") },
+    { id: "family", label: tr("atelier.tier_family_label") },
+    { id: "lifetime_local", label: tr("atelier.tier_lifetime_local_label") },
+  ];
+
+  const sandboxStates = () => [
+    { id: "active", label: tr("qa.state_active") },
+    { id: "offline_grace", label: tr("qa.state_grace") },
+    { id: "expired_read_only_vault", label: tr("qa.state_expired") },
+  ];
+
   return (
     <SheetDialog
       open={getShowQaStudio()}
-      title="知气验真与数据工坊"
+      title={tr("qa.title")}
       onClose={() => setShowQaStudio(false)}
     >
-      {/* 1. 端侧数据完整性实时自检 */}
+      {/* Quick locale & seed controls */}
+      <Card>
+        <SectionHeader title={tr("qa.title")} subtitle={tr("qa.subtitle")} />
+        <View class="flex-row flex-wrap gap-2">
+          <ActionButton
+            title={tr("qa.switch_locale_btn")}
+            icon="globe"
+            size="sm"
+            variant="outline"
+            onPress={() => toggleAppLocale()}
+          />
+          <ActionButton
+            title={tr("qa.seed_sample")}
+            icon="refresh"
+            size="sm"
+            variant="secondary"
+            onPress={() => reseedDemoData()}
+          />
+        </View>
+      </Card>
+
+      {/* 1. Data integrity invariant audit */}
       <Card>
         <SectionHeader
-          title="端侧数据完整性自检"
-          subtitle="实时校验统计边界、RMSSD/SDNN 口径隔离、硬件契约、化验单趋势与 PII 脱敏"
+          title={tr("qa.audit_title")}
+          subtitle={tr("qa.audit_subtitle")}
           right={
             <If when={auditReport() !== null}>
               <VitalBadge
                 tone={auditReport()!.passed ? "prime_ready" : "alert_high"}
-                label={auditReport()!.passed ? "全部通过" : "发现异常"}
+                label={auditReport()!.passed ? tr("qa.audit_ok") : tr("qa.audit_warn")}
               />
             </If>
           }
         />
 
         <ActionButton
-          title="运行全量数据自检"
+          title={tr("qa.audit_run_btn")}
           icon="check"
           onPress={() => runDataIntegrityAudit()}
         />
@@ -79,15 +120,21 @@ export function QaStudioSheet() {
                   auditReport()!.passed ? "text-vital-prime" : "text-vital-recover"
                 }`}
               >
-                {auditReport()!.passed ? "所有 6 项不变量校验通过" : "存在未通过的校验项"}
+                {auditReport()!.passed ? tr("toast.audit_passed") : tr("toast.audit_failed")}
               </Text>
               <Text class="text-xs text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
-                {`画像：${auditReport()!.active_persona}`}
+                {auditReport()!.active_persona}
               </Text>
             </View>
 
             <Text class="text-xs text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
-              {`指标 ${auditReport()!.metric_rows} 条 · 覆盖 ${auditReport()!.distinct_days} 天 · 饮食 ${auditReport()!.intake_rows} 条 · 化验 ${auditReport()!.lab_rows} 条 · 实验 ${auditReport()!.experiment_rows} 项`}
+              {tr("qa.audit_counts", {
+                metrics: auditReport()!.metric_rows,
+                days: auditReport()!.distinct_days,
+                intakes: auditReport()!.intake_rows,
+                labs: auditReport()!.lab_rows,
+                exps: auditReport()!.experiment_rows,
+              })}
             </Text>
 
             <View class="gap-0 pt-1">
@@ -115,12 +162,12 @@ export function QaStudioSheet() {
         </If>
       </Card>
 
-      {/* 2. 6 大真实测试画像一键切换 */}
+      {/* 2. 6 longitudinal personas */}
       <Card>
         <SectionHeader
-          title="6 大纵向测试画像一键切换"
-          subtitle="切换后清空业务表并注入确定性纵向数据，保留云会话与 12 词恢复密钥"
-          right={<VitalBadge tone="neutral" label={`${personas().length} 套画像`} />}
+          title={tr("qa.personas_title")}
+          subtitle={tr("qa.personas_subtitle")}
+          right={<VitalBadge tone="neutral" label={`${personas().length}`} />}
         />
 
         <View class="gap-2.5">
@@ -131,11 +178,11 @@ export function QaStudioSheet() {
                   <View class="flex-1 gap-0.5">
                     <Text class="text-sm font-semibold text-foreground">{p().name}</Text>
                     <Text class="text-xs text-muted-foreground">
-                      {`${p().badge} · ${p().hardware_tier} · ${p().primary_goal} · ${p().days_count} 天`}
+                      {`${p().badge} · ${p().hardware_tier} · ${p().primary_goal} · ${p().days_count}d`}
                     </Text>
                   </View>
                   <If when={settings().active_persona === p().id}>
-                    <VitalBadge tone="prime_ready" label="当前活跃" />
+                    <VitalBadge tone="prime_ready" label={tr("common.active")} />
                   </If>
                 </View>
 
@@ -152,7 +199,11 @@ export function QaStudioSheet() {
                 </View>
 
                 <ActionButton
-                  title={settings().active_persona === p().id ? `重新载入：${p().id}` : `切换画像：${p().id}`}
+                  title={
+                    settings().active_persona === p().id
+                      ? tr("qa.persona_reload", { id: p().id })
+                      : tr("qa.persona_switch", { id: p().id })
+                  }
                   variant={settings().active_persona === p().id ? "secondary" : "outline"}
                   onPress={() => loadPersona(p().id)}
                 />
@@ -162,19 +213,19 @@ export function QaStudioSheet() {
         </View>
       </Card>
 
-      {/* 3. 硬件与端侧算力边界工坊 */}
+      {/* 3. Hardware tiers & edge compute boundary */}
       <Card>
         <SectionHeader
-          title="硬件与端侧算力边界工坊"
-          subtitle="验证 Tier A/B/C 降级、4GB/8GB 内存门禁、发热降频、离线 OCR 样张与 XChaCha20 分片"
+          title={tr("qa.hardware_title")}
+          subtitle={tr("qa.hardware_subtitle")}
         />
 
         <View class="gap-2">
           <Text class="text-xs font-semibold text-foreground">
-            {`当前硬件档位覆盖：${state().snapshot.hardware_tier_label}`}
+            {state().snapshot.hardware_tier_label}
           </Text>
           <View class="flex-row flex-wrap gap-2">
-            <Each of={TIER_OPTIONS} key={(t) => t.id}>
+            <Each of={tierOptions()} key={(t) => t.id}>
               {(opt) => (
                 <SelectChip
                   label={opt().label}
@@ -187,10 +238,10 @@ export function QaStudioSheet() {
         </View>
 
         <SunkenBox>
-          <Text class="text-xs font-semibold text-foreground">端侧大模型内存门禁与发热降频模拟</Text>
+          <Text class="text-xs font-semibold text-foreground">{tr("qa.ram_guard_title")}</Text>
           <View class="flex-row flex-wrap gap-2">
             <SelectChip
-              label="模拟 4GB 机型 (<6GB 禁载)"
+              label={tr("qa.ram_4gb")}
               selected={settings().simulated_ram_gb < 6}
               onPress={() =>
                 updateAiConfig(
@@ -204,7 +255,7 @@ export function QaStudioSheet() {
               }
             />
             <SelectChip
-              label="模拟 8GB 旗舰机型"
+              label={tr("qa.ram_8gb")}
               selected={settings().simulated_ram_gb >= 6}
               onPress={() =>
                 updateAiConfig(
@@ -219,8 +270,8 @@ export function QaStudioSheet() {
             />
           </View>
           <SwitchRow
-            title="模拟设备发热降频"
-            subtitle="开启后自动退回 Rust 确定性精简解读"
+            title={tr("qa.thermal_title")}
+            subtitle={tr("qa.thermal_subtitle")}
             checked={settings().thermal_throttled}
             onChange={(checked) =>
               updateAiConfig(
@@ -237,14 +288,14 @@ export function QaStudioSheet() {
 
         <View class="flex-row flex-wrap gap-2">
           <ActionButton
-            title="探测本机与局域网算力"
+            title={tr("qa.probe_btn")}
             icon="sliders"
             variant="outline"
             onPress={() => probeCapabilities()}
             class="flex-1"
           />
           <ActionButton
-            title="实测离线 OCR 样张"
+            title={tr("qa.ocr_sample_btn")}
             icon="camera"
             variant="outline"
             onPress={() => ocrSampleFixtureLab()}
@@ -254,51 +305,39 @@ export function QaStudioSheet() {
 
         <If when={probe() !== null}>
           <SunkenBox>
-            <Text class="text-xs font-semibold text-primary">{`运行平台：${probe()!.platform}`}</Text>
+            <Text class="text-xs font-semibold text-primary">{probe()!.platform}</Text>
             <Text class="text-xs text-foreground">{probe()!.summary}</Text>
             <Text class="text-xs text-muted-foreground">
-              {`Apple Vision OCR: ${probe()!.vision_ocr_available ? `就绪 (Rev.${probe()!.vision_revision})` : "不可用"} · FoundationModels: ${probe()!.foundation_models_status}`}
-            </Text>
-            <Text class="text-xs text-muted-foreground">
-              {probe()!.ollama_reachable
-                ? `局域网 Ollama 模型：${probe()!.ollama_models.join("、") || "已连通"}`
-                : "局域网 Ollama 未检测到响应"}
+              {`Apple Vision OCR: ${
+                probe()!.vision_ocr_available ? `Rev.${probe()!.vision_revision}` : tr("common.disabled")
+              } · FoundationModels: ${probe()!.foundation_models_status}`}
             </Text>
           </SunkenBox>
         </If>
 
-        <View class="flex-row flex-wrap gap-2">
-          <ActionButton
-            title="生成 XChaCha20 加密同步包预览"
-            icon="cloud_lock"
-            variant="secondary"
-            onPress={() => generateEncryptedPreview()}
-            class="flex-1"
-          />
-          <ActionButton
-            title="重载 35 天演示数据"
-            icon="refresh"
-            variant="secondary"
-            onPress={() => reseedDemoData()}
-          />
-        </View>
+        <ActionButton
+          title={tr("qa.xchacha_btn")}
+          icon="cloud_lock"
+          variant="secondary"
+          onPress={() => generateEncryptedPreview()}
+        />
 
         <If when={Boolean(getEncryptedBatchPreview())}>
           <SunkenBox>
             <View class="flex-row items-center gap-2">
               <QiIcon name="cloud_lock" size={14} color={token("primary")} />
-              <Text class="text-xs font-semibold text-primary">设备隔离追加分片与 AEAD 验签往返成功</Text>
+              <Text class="text-xs font-semibold text-primary">{tr("qa.xchacha_ok")}</Text>
             </View>
             <Text class="text-xs text-muted-foreground">{getEncryptedBatchPreview()!}</Text>
           </SunkenBox>
         </If>
       </Card>
 
-      {/* 4. v4.0 知气雅集离线状态机与 7 档位权益沙盒 */}
+      {/* 4. Atelier offline state machine & 7-tier sandbox */}
       <Card>
         <SectionHeader
-          title="知气雅集 · 离线状态机与 7 档位沙盒"
-          subtitle="直接以本机 Ed25519 私钥签发测试 OSET 通行证，验证 Active / 7天宽限 / 只读保险箱与 30 天陪伴礼遇"
+          title={tr("qa.sandbox_title")}
+          subtitle={tr("qa.sandbox_subtitle")}
           right={
             <VitalBadge
               tone={state().entitlements.is_atelier_unlocked ? "prime_ready" : "neutral"}
@@ -309,24 +348,15 @@ export function QaStudioSheet() {
 
         <SunkenBox>
           <Text class="text-xs font-semibold text-foreground">
-            {`${state().entitlements.tier_display} · 有效签名：${state().entitlements.valid_signature ? "Ed25519 通过" : "无/素心免费"}`}
+            {`${state().entitlements.tier_display} · ${
+              state().entitlements.valid_signature ? tr("common.verified") : tr("common.free")
+            }`}
           </Text>
           <Text class="text-xs text-muted-foreground">{state().entitlements.status_banner}</Text>
         </SunkenBox>
 
         <View class="flex-row flex-wrap gap-1.5">
-          <Each
-            of={[
-              { id: "free", label: "素心免费" },
-              { id: "pro_monthly", label: "月雅 ¥18" },
-              { id: "seasonal", label: "季卡 ¥38" },
-              { id: "pro_annual", label: "年卡 ¥98" },
-              { id: "duo", label: "双人 ¥168" },
-              { id: "family", label: "家书 ¥228" },
-              { id: "lifetime_local", label: "买断 ¥368" },
-            ]}
-            key={(t) => t.id}
-          >
+          <Each of={sandboxTiers()} key={(t) => t.id}>
             {(t) => (
               <SelectChip
                 label={t().label}
@@ -349,14 +379,7 @@ export function QaStudioSheet() {
         </View>
 
         <View class="flex-row flex-wrap gap-1.5">
-          <Each
-            of={[
-              { id: "active", label: "状态：ActiveAtelier" },
-              { id: "offline_grace", label: "状态：7天离线宽限" },
-              { id: "expired_read_only_vault", label: "状态：到期只读保险箱" },
-            ]}
-            key={(st) => st.id}
-          >
+          <Each of={sandboxStates()} key={(st) => st.id}>
             {(st) => (
               <SelectChip
                 label={st().label}
@@ -376,20 +399,45 @@ export function QaStudioSheet() {
 
         <View class="flex-row flex-wrap gap-2">
           <ActionButton
-            title={settings().guardian_sponsor ? "取消添柴计划" : "模拟+¥12窗台添柴人"}
+            title={tr("qa.simulate_pro")}
+            size="sm"
+            variant="outline"
+            onPress={() => setEntitlementSandbox("pro_annual", "active", settings().guardian_sponsor, 32)}
+          />
+          <ActionButton
+            title={tr("qa.simulate_expired_vault")}
             size="sm"
             variant="outline"
             onPress={() =>
               setEntitlementSandbox(
-                state().entitlements.tier === "free" ? "pro_annual" : state().entitlements.tier,
-                "active",
-                !settings().guardian_sponsor,
+                "pro_annual",
+                "expired_read_only_vault",
+                settings().guardian_sponsor,
                 32,
               )
             }
           />
           <ActionButton
-            title="打开知气雅集会员弹窗"
+            title={tr("qa.simulate_restore")}
+            size="sm"
+            variant="outline"
+            onPress={() => void restoreApplePurchases()}
+          />
+          <ActionButton
+            title={tr("atelier.hearth_gift_single_btn")}
+            icon="hearth_ember"
+            size="sm"
+            variant="outline"
+            onPress={() => purchaseHearthGiftPass()}
+          />
+          <ActionButton
+            title={tr("qa.reset_free")}
+            size="sm"
+            variant="ghost"
+            onPress={() => clearEntitlementToken()}
+          />
+          <ActionButton
+            title={tr("today.open_atelier")}
             icon="sparkles"
             size="sm"
             variant="secondary"

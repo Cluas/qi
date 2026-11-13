@@ -1,7 +1,7 @@
 //! 服务端内存级 ZDR 安全纵深防御（仅在 RAM 流转，绝不落盘任何健康文本）。
 
 pub const SERVER_WELLNESS_DISCLAIMER: &str =
-    "由「知气 · Qi」Zero-Data-Retention 网关内存流转生成，仅供日常健康作息参考，不构成医疗诊断。";
+    "由「知气」Zero-Data-Retention 网关内存流转生成，仅供日常健康作息参考，不构成医疗诊断。";
 
 /// 剥离推理模型的 `<think>...</think>` 思考过程
 pub fn strip_think_tags(input: &str) -> String {

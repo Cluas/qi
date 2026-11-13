@@ -36,7 +36,13 @@ export type QiIconName =
   | "widget"
   | "handscroll"
   | "badge_ceramic"
-  | "family_heart";
+  | "family_heart"
+  | "globe"
+  | "custom_pet"
+  | "starlight"
+  | "hearth_ember"
+  | "restore_arrow"
+  | "motion_toggle";
 
 /** Retina 2D 矢量线性图标（零外部字体依赖，动态读取主题 Token） */
 export function QiIcon(props: {
@@ -693,6 +699,117 @@ export function QiIcon(props: {
             cx.stroke();
             break;
           }
+          case "globe": {
+            // 界面语言地球仪
+            cx.beginPath();
+            cx.arc(12, 12, 8.8, 0, Math.PI * 2);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(3.2, 12);
+            cx.lineTo(20.8, 12);
+            cx.moveTo(5.2, 7.6);
+            cx.bezierCurveTo(9, 8.8, 15, 8.8, 18.8, 7.6);
+            cx.moveTo(5.2, 16.4);
+            cx.bezierCurveTo(9, 15.2, 15, 15.2, 18.8, 16.4);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(12, 3.2);
+            cx.bezierCurveTo(8.3, 7, 8.3, 17, 12, 20.8);
+            cx.moveTo(12, 3.2);
+            cx.bezierCurveTo(15.7, 7, 15.7, 17, 12, 20.8);
+            cx.stroke();
+            break;
+          }
+          case "custom_pet": {
+            // 自定陪伴工坊：窗台猫耳剪影与印记点
+            cx.beginPath();
+            cx.moveTo(5.4, 19.2);
+            cx.lineTo(5.4, 9.8);
+            cx.lineTo(6.6, 5.2);
+            cx.lineTo(10.1, 8.1);
+            cx.bezierCurveTo(11.3, 7.7, 12.7, 7.7, 13.9, 8.1);
+            cx.lineTo(17.4, 5.2);
+            cx.lineTo(18.6, 9.8);
+            cx.lineTo(18.6, 19.2);
+            cx.closePath();
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(9.8, 12.6, 0.9, 0, Math.PI * 2);
+            cx.arc(14.2, 12.6, 0.9, 0, Math.PI * 2);
+            cx.fill();
+            cx.beginPath();
+            cx.moveTo(10.8, 15.2);
+            cx.bezierCurveTo(11.4, 16.1, 12.6, 16.1, 13.2, 15.2);
+            cx.stroke();
+            break;
+          }
+          case "starlight": {
+            // 星光纪念守候星芒
+            cx.beginPath();
+            cx.moveTo(12, 3.4);
+            cx.bezierCurveTo(12.8, 9.1, 14.9, 11.2, 20.6, 12);
+            cx.bezierCurveTo(14.9, 12.8, 12.8, 14.9, 12, 20.6);
+            cx.bezierCurveTo(11.2, 14.9, 9.1, 12.8, 3.4, 12);
+            cx.bezierCurveTo(9.1, 11.2, 11.2, 9.1, 12, 3.4);
+            cx.closePath();
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(18.2, 6, 1.1, 0, Math.PI * 2);
+            cx.arc(6.2, 17.8, 0.85, 0, Math.PI * 2);
+            cx.fill();
+            break;
+          }
+          case "hearth_ember": {
+            // 窗台添柴微火
+            cx.beginPath();
+            cx.moveTo(12, 3.6);
+            cx.bezierCurveTo(16.6, 7.4, 18.2, 11.3, 16.8, 14.8);
+            cx.bezierCurveTo(15.8, 17, 14, 17.8, 12, 17.8);
+            cx.bezierCurveTo(9.8, 17.8, 7.8, 16.6, 7.2, 14.3);
+            cx.bezierCurveTo(6.4, 11.2, 8.6, 8, 12, 3.6);
+            cx.closePath();
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(12, 10.2);
+            cx.bezierCurveTo(13.6, 12.1, 13.8, 14.2, 12, 15.4);
+            cx.bezierCurveTo(10.2, 14.2, 10.4, 12.1, 12, 10.2);
+            cx.closePath();
+            cx.fill();
+            cx.beginPath();
+            cx.moveTo(5.8, 20.4);
+            cx.lineTo(18.2, 20.4);
+            cx.stroke();
+            break;
+          }
+          case "restore_arrow": {
+            // App Store 恢复购买回溯环
+            cx.beginPath();
+            cx.arc(12.2, 12, 7.5, -Math.PI * 0.72, Math.PI * 0.88);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(6.4, 4.9);
+            cx.lineTo(6.1, 9);
+            cx.lineTo(10.2, 8.6);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(9.4, 12.3);
+            cx.lineTo(11.3, 14.2);
+            cx.lineTo(15.2, 10.1);
+            cx.stroke();
+            break;
+          }
+          case "motion_toggle": {
+            // 动效韵律双波纹
+            cx.beginPath();
+            cx.moveTo(3.5, 9.5);
+            cx.bezierCurveTo(6.8, 5.8, 10.2, 5.8, 13.4, 9.5);
+            cx.bezierCurveTo(16.1, 12.6, 18.6, 12.6, 20.6, 9.5);
+            cx.moveTo(3.5, 15.4);
+            cx.bezierCurveTo(6.8, 11.8, 10.2, 11.8, 13.4, 15.4);
+            cx.bezierCurveTo(16.1, 18.4, 18.6, 18.4, 20.6, 15.4);
+            cx.stroke();
+            break;
+          }
         }
 
         cx.restore();
@@ -737,4 +854,28 @@ export function BadgeCeramicIcon(props: QiIconHelperProps) {
 
 export function FamilyHeartIcon(props: QiIconHelperProps) {
   return <QiIcon name="family_heart" {...props} />;
+}
+
+export function GlobeIcon(props: QiIconHelperProps) {
+  return <QiIcon name="globe" {...props} />;
+}
+
+export function CustomPetIcon(props: QiIconHelperProps) {
+  return <QiIcon name="custom_pet" {...props} />;
+}
+
+export function StarlightIcon(props: QiIconHelperProps) {
+  return <QiIcon name="starlight" {...props} />;
+}
+
+export function HearthEmberIcon(props: QiIconHelperProps) {
+  return <QiIcon name="hearth_ember" {...props} />;
+}
+
+export function RestoreArrowIcon(props: QiIconHelperProps) {
+  return <QiIcon name="restore_arrow" {...props} />;
+}
+
+export function MotionToggleIcon(props: QiIconHelperProps) {
+  return <QiIcon name="motion_toggle" {...props} />;
 }

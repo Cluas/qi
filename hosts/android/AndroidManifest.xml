@@ -12,7 +12,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="知气 · Qi"
+        android:label="知气"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true">
         <activity

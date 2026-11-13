@@ -1,4 +1,4 @@
-//! 「知气 · Qi」端侧 Rust 核心引擎，导出给 TSX 视图层 (`qi/native`)。
+//! 「知气」端侧 Rust 核心引擎，导出给 TSX 视图层 (`qi/native`)。
 
 pub mod ai_provider;
 pub mod analytics;
@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use nsh_core::prelude::*;
 use serde::Serialize;
 
-use crate::ai_provider::generate_live_briefing;
+use crate::ai_provider::generate_live_briefing_localized;
 use crate::analytics::{
     AnalyticsSnapshot, HardwareTier, IntakeLogRow, LabBiomarkerRow, MultiLagImpactItem,
     build_daily_records, compute_multi_lag_radar, compute_snapshot, resolve_canonical_metrics,
@@ -31,9 +31,11 @@ use crate::apple_native::{
 };
 use crate::crypto_sync::{decrypt_sync_batch, derive_master_key, encrypt_sync_batch};
 use crate::entitlements::{
-    EntitlementCatalog, EntitlementVerificationResult, LOYALTY_MIN_CHECKIN_DAYS,
-    OfflineEntitlementState, SubscriptionTier, build_entitlement_catalog, has_feature,
-    mint_sandbox_oset, verify_oset_with_clock,
+    EntitlementCatalog, EntitlementVerificationResult, HEARTH_GIFT_PASS_PRODUCT_ID,
+    LOYALTY_MIN_CHECKIN_DAYS, OfflineEntitlementState, SubscriptionTier,
+    build_entitlement_catalog_localized, custom_pet_quota, has_feature, is_en_locale,
+    mint_sandbox_oset, normalize_locale, tier_from_apple_product_id,
+    verify_oset_with_clock_localized,
 };
 use crate::experiments::{
     EXPERIMENT_TEMPLATES, ExperimentEvaluation, ExperimentTemplate, PeriodComparison,
@@ -43,12 +45,17 @@ use crate::importers::{parse_apple_health_xml_snippet, parse_csv_metrics};
 use crate::nutrition_db::{FoodSearchHit, parse_natural_intake_text, search_foods};
 use crate::safety_ai::{
     BriefingResult, MultiProfileRecheckReminder, MultiProfileUlnPoint, ParentsPeaceLetter,
-    WELLNESS_DISCLAIMER, build_morning_briefing, build_parents_peace_letter, canonicalize_marker,
-    compute_multi_profile_uln_trends_at, enforce_wellness_guardrails, scrub_lab_text_pii,
+    WELLNESS_DISCLAIMER, biomarker_plain_note_localized, build_morning_briefing_localized,
+    build_parents_peace_letter_localized, canonicalize_marker,
+    compute_multi_profile_uln_trends_at_localized, contains_cjk, enforce_wellness_guardrails,
+    localized_marker_name, scrub_lab_text_pii, wellness_disclaimer_for_locale,
 };
 use crate::solar_atelier::{
-    MAX_EQUIPPED_KEEPSAKES, SolarAtelierPayload, build_seasonal_pass, build_solar_atelier_payload,
-    compute_solar_term_state, infer_sticker_nutrition_hint, normalize_weather_mood,
+    CustomPetCompanion, MAX_EQUIPPED_KEEPSAKES, SolarAtelierPayload, build_seasonal_pass_localized,
+    build_solar_atelier_payload_v5, compute_custom_pet_quota, compute_solar_term_state_localized,
+    generate_pet_weekly_letter_draft, infer_sticker_nutrition_hint_localized,
+    normalize_die_cut_frame, normalize_pet_species, normalize_weather_mood,
+    validate_pet_photo_data_url,
 };
 use crate::storage::{AppSettings, VaultDatabase};
 use crate::sync_engine::{
@@ -57,6 +64,362 @@ use crate::sync_engine::{
     push_envelope_to_byo, push_envelope_to_dir, push_envelope_to_webdav,
     resolve_icloud_vault_dir,
 };
+
+const EXPERIMENT_TEMPLATES_EN: &[ExperimentTemplate] = &[
+    ExperimentTemplate {
+        id: "no_caffeine_after_15",
+        title: "No caffeine after 15:00",
+        hypothesis: "Lower late-day caffeine half-life overlap to observe deep sleep and next-morning HRV",
+        target_days: 7,
+    },
+    ExperimentTemplate {
+        id: "screen_off_60m",
+        title: "Screens off 60m before bed",
+        hypothesis: "Reduce evening blue light and arousal to observe resting HR easing and sleep latency",
+        target_days: 7,
+    },
+    ExperimentTemplate {
+        id: "early_dinner_1930",
+        title: "Finish dinner before 19:30",
+        hypothesis: "Lighten overnight digestive load to watch resting HR and overnight HRV stability",
+        target_days: 14,
+    },
+    ExperimentTemplate {
+        id: "morning_sunlight_15m",
+        title: "15m morning outdoor light",
+        hypothesis: "Anchor circadian daylight timing for steadier evening wind-down and vitamin D support",
+        target_days: 14,
+    },
+];
+
+fn tag_display_en(tag: &str) -> String {
+    match tag.trim() {
+        "晚咖啡" | "caffeine_late" | "coffee" => "Late caffeine".to_owned(),
+        "晚睡" | "late_sleep" => "Late bedtime".to_owned(),
+        "饮酒" | "alcohol" | "beer" => "Alcohol".to_owned(),
+        "夜宵" | "heavy_dinner" => "Late heavy dinner".to_owned(),
+        "高盐饮食" | "high_sodium" => "High sodium meal".to_owned(),
+        "高强度训练" | "intense_workout" => "High-load training".to_owned(),
+        "高强度" => "High load".to_owned(),
+        "午后咖啡因" => "Afternoon caffeine".to_owned(),
+        "清淡饮食" => "Light balanced meal".to_owned(),
+        "早睡" => "Early bedtime".to_owned(),
+        "日晒" => "Morning sunlight".to_owned(),
+        other if contains_cjk(other) => "Daily lifestyle factor".to_owned(),
+        other => other.replace('_', " "),
+    }
+}
+
+fn outcome_label_en(key: &str, raw_label: &str) -> String {
+    match key.trim() {
+        "hrv_ms" | "hrv_rmssd_ms" => "Overnight HRV".to_owned(),
+        "hrv_sdnn_ms" => "Watch HRV".to_owned(),
+        "rhr_bpm" | "resting_heart_rate_bpm" => "Resting HR".to_owned(),
+        "sleep_minutes" => "Sleep duration".to_owned(),
+        "sleep_deep_minutes" | "deep_sleep_min" => "Deep sleep".to_owned(),
+        _ => {
+            if raw_label.contains("HRV") {
+                "Overnight HRV".to_owned()
+            } else if raw_label.contains("静息心率") || raw_label.contains("RHR") {
+                "Resting HR".to_owned()
+            } else if raw_label.contains("深睡") {
+                "Deep sleep".to_owned()
+            } else if raw_label.contains("睡眠") {
+                "Sleep duration".to_owned()
+            } else if contains_cjk(raw_label) {
+                "Rhythm metric".to_owned()
+            } else {
+                raw_label.to_owned()
+            }
+        }
+    }
+}
+
+fn localize_snapshot(snapshot: &mut AnalyticsSnapshot, locale: &str) {
+    if !is_en_locale(locale) {
+        return;
+    }
+    snapshot.hardware_tier_label = match snapshot.hardware_tier.as_str() {
+        "tier_b" => "Tier B · Fitness band (sleep duration + steps)".to_owned(),
+        "tier_c" => "Tier C · Phone-only (steps + morning check-in)".to_owned(),
+        _ => "Tier A · Full wearable (HRV + sleep stages)".to_owned(),
+    };
+    snapshot.state_badge = match snapshot.state.as_str() {
+        "prime_ready" => "Well rested".to_owned(),
+        "recovery_priority" => "Rest gently".to_owned(),
+        _ => "Balanced".to_owned(),
+    };
+    let sleep_desc = snapshot
+        .sleep_last_night_hours
+        .map(|h| format!("Last night's sleep was {h:.1}h"))
+        .unwrap_or_else(|| "Daily rhythm check-in is active".to_owned());
+    let acwr_desc = snapshot
+        .acwr
+        .map(|a| format!(" with load ratio {a:.2}"))
+        .unwrap_or_default();
+
+    snapshot.headline = match snapshot.state.as_str() {
+        "prime_ready" => format!(
+            "{sleep_desc}{acwr_desc}; autonomic recovery sits comfortably in your green zone today."
+        ),
+        "recovery_priority" => format!(
+            "{sleep_desc}{acwr_desc}; recovery markers favor lighter intensity and an earlier evening wind-down."
+        ),
+        _ => format!(
+            "{sleep_desc}{acwr_desc}; daily balance stays calm and responsive to light movement."
+        ),
+    };
+    snapshot.micro_action = match snapshot.state.as_str() {
+        "prime_ready" => {
+            "Take a 20-minute outdoor walk in daylight and keep hydration steady.".to_owned()
+        }
+        "recovery_priority" => {
+            "Swap high-intensity training for 10 minutes of gentle mobility and wind down 30 minutes earlier.".to_owned()
+        }
+        _ => {
+            "Take a short walk after lunch and step away from bright screens 30 minutes before bed.".to_owned()
+        }
+    };
+
+    let mut signals_en = Vec::new();
+    if let Some(h) = snapshot.sleep_last_night_hours {
+        signals_en.push(format!("Last night's sleep: {h:.1}h"));
+    }
+    if let Some(debt) = snapshot.sleep_debt_7d_hours {
+        signals_en.push(format!("7-day sleep balance debt: {debt:.1}h"));
+    }
+    if let Some(acwr) = snapshot.acwr {
+        signals_en.push(format!("7d:28d training load ratio (ACWR): {acwr:.2}"));
+    }
+    if let Some(hrv) = snapshot
+        .metrics
+        .get("hrv_rmssd_ms")
+        .or_else(|| snapshot.metrics.get("hrv_sdnn_ms"))
+        .and_then(|m| m.value)
+    {
+        signals_en.push(format!("Overnight HRV: {hrv:.0} ms"));
+    }
+    if signals_en.is_empty() {
+        signals_en.push(format!("Today's vitality score: {}", snapshot.qi_score));
+    }
+    snapshot.signals = signals_en;
+
+    for (key, summary) in snapshot.metrics.iter_mut() {
+        summary.label = match key.as_str() {
+            "sleep_minutes" => "Last night's sleep".to_owned(),
+            "sleep_deep_minutes" => "Deep sleep".to_owned(),
+            "sleep_rem_minutes" => "REM sleep".to_owned(),
+            "hrv_rmssd_ms" => "Nighttime HRV (RMSSD)".to_owned(),
+            "hrv_sdnn_ms" => "Watch HRV (SDNN)".to_owned(),
+            "resting_heart_rate_bpm" => "Resting HR (RHR)".to_owned(),
+            "steps" => "Steps today".to_owned(),
+            "active_zone_minutes" => "Active zone load".to_owned(),
+            "calories_active_kcal" => "Active energy".to_owned(),
+            _ => "Daily metric".to_owned(),
+        };
+        if summary.unit == "步" {
+            summary.unit = "steps".to_owned();
+        }
+    }
+
+    for imp in &mut snapshot.lagged_impacts {
+        let en_tag = tag_display_en(&imp.tag);
+        let en_outcome = outcome_label_en("", &imp.outcome_label);
+        let sign = if imp.delta_value >= 0.0 { "+" } else { "" };
+        imp.tag = en_tag.clone();
+        imp.outcome_label = en_outcome.clone();
+        imp.summary = format!(
+            "Across {} days tagged \"{}\", {} shifted by {}{:.1} {} next day.",
+            imp.event_days, en_tag, en_outcome, sign, imp.delta_value, imp.unit
+        );
+    }
+}
+
+fn localize_labs(labs: &mut [LabBiomarkerRow], locale: &str) {
+    if !is_en_locale(locale) {
+        return;
+    }
+    for row in labs.iter_mut() {
+        row.marker_name = localized_marker_name(&row.canonical_key, &row.marker_name, locale);
+        row.plain_note = biomarker_plain_note_localized(&row.canonical_key, &row.flag, locale);
+    }
+}
+
+fn localize_experiments(exps: &mut [ExperimentEvaluation], locale: &str) {
+    if !is_en_locale(locale) {
+        return;
+    }
+    for exp in exps.iter_mut() {
+        if exp.title.contains("咖啡因") {
+            exp.title = "No caffeine after 15:00".to_owned();
+            exp.hypothesis =
+                "Lower late-day caffeine overlap to watch deep sleep and next-morning HRV.".to_owned();
+        } else if exp.title.contains("屏幕") {
+            exp.title = "Screens off 60m before bed".to_owned();
+            exp.hypothesis =
+                "Ease evening visual stimulation to watch resting HR and sleep depth.".to_owned();
+        } else if exp.title.contains("晚餐") {
+            exp.title = "Finish dinner before 19:30".to_owned();
+            exp.hypothesis =
+                "Give digestion an earlier break to support calm overnight heart rate.".to_owned();
+        } else if exp.title.contains("日照") {
+            exp.title = "15m morning outdoor light".to_owned();
+            exp.hypothesis =
+                "Anchor circadian daylight cues for steadier evening wind-down.".to_owned();
+        } else if contains_cjk(&exp.title) {
+            exp.title = format!("N-of-1 Experiment #{}", exp.id);
+        }
+        if contains_cjk(&exp.hypothesis) {
+            exp.hypothesis =
+                "Observe personal sleep, HRV, and resting heart rate shifts across active days."
+                    .to_owned();
+        }
+
+        let hrv_part = exp
+            .hrv_delta_ms
+            .map(|d| format!("HRV {:+.1} ms", d))
+            .unwrap_or_else(|| "HRV collecting".to_owned());
+        let rhr_part = exp
+            .rhr_delta_bpm
+            .map(|d| format!("RHR {:+.1} bpm", d))
+            .unwrap_or_else(|| "RHR collecting".to_owned());
+        let outcome_phrase = match exp.outcome_verdict.as_str() {
+            "helpful" | "positive" => "Encouraging trend",
+            "neutral" | "disproved" => "No clear shift (neutral)",
+            "collecting" => "Still gathering baseline",
+            _ => "Observing trend",
+        };
+        exp.verdict_summary = format!(
+            "{outcome_phrase} ({}/{} days, washout {}d skipped) · {hrv_part}, {rhr_part}.",
+            exp.completed_days, exp.target_days, exp.washout_skipped_days
+        );
+    }
+}
+
+fn localize_period_comparison(cmp: &mut PeriodComparison, locale: &str) {
+    if !is_en_locale(locale) {
+        return;
+    }
+    let hrv_txt = match (cmp.hrv_current, cmp.hrv_prev) {
+        (Some(c), Some(p)) => format!("HRV {c:.1} vs {p:.1} ms ({:+.1} ms)", c - p),
+        _ => "HRV comparing".to_owned(),
+    };
+    let rhr_txt = match (cmp.rhr_current, cmp.rhr_prev) {
+        (Some(c), Some(p)) => format!("RHR {c:.1} vs {p:.1} bpm ({:+.1} bpm)", c - p),
+        _ => "RHR comparing".to_owned(),
+    };
+    let sleep_txt = match (cmp.sleep_current_h, cmp.sleep_prev_h) {
+        (Some(c), Some(p)) => format!("Sleep {c:.1}h vs {p:.1}h ({:+.1}h)", c - p),
+        _ => "Sleep comparing".to_owned(),
+    };
+    cmp.summary = format!("Recent 7d vs previous 7d: {hrv_txt}; {rhr_txt}; {sleep_txt}.");
+}
+
+fn localize_multi_lag_radar(radar: &mut [MultiLagImpactItem], locale: &str) {
+    if !is_en_locale(locale) {
+        return;
+    }
+    for item in radar.iter_mut() {
+        let tag_en = tag_display_en(&item.tag);
+        let outcome_en = outcome_label_en(&item.outcome_key, &item.outcome_label);
+        item.tag = tag_en.clone();
+        item.outcome_label = outcome_en.clone();
+        item.lag_label = match item.lag_days {
+            0 => "Same evening (D+0)".to_owned(),
+            1 => "Next morning (D+1)".to_owned(),
+            n => format!("D+{n} carry-over"),
+        };
+        if contains_cjk(&item.confounder_note) {
+            item.confounder_note = if item.confounder_note.contains("晚睡") {
+                "Controlled for late bedtime confounding days.".to_owned()
+            } else {
+                "Compared against your non-tagged baseline days.".to_owned()
+            };
+        }
+        item.summary = format!(
+            "{} on {}: {} {:+.1}% (n={} vs {}, Cohen's d={:.2}). {}",
+            tag_en,
+            item.lag_label,
+            outcome_en,
+            item.delta_pct,
+            item.sample_n,
+            item.control_n,
+            item.cohen_d,
+            item.confounder_note
+        );
+    }
+}
+
+fn localize_intakes_display(intakes: &mut [IntakeLogRow], locale: &str) {
+    if !is_en_locale(locale) {
+        return;
+    }
+    for row in intakes.iter_mut() {
+        if row.notes.contains("演示") {
+            row.notes = "Sample journal note".to_owned();
+        }
+        for t in &mut row.tags {
+            if contains_cjk(t) {
+                *t = tag_display_en(t);
+            }
+        }
+    }
+}
+
+fn localize_probe(probe: &mut LocalAiCapabilityProbe, locale: &str) {
+    if !is_en_locale(locale) {
+        return;
+    }
+    if contains_cjk(&probe.foundation_models_status) {
+        probe.foundation_models_status = if probe.foundation_models_supported {
+            "Supported".to_owned()
+        } else {
+            "Unavailable (using deterministic Rust engine)".to_owned()
+        };
+    }
+    if contains_cjk(&probe.summary) {
+        probe.summary = format!(
+            "Platform: {} · Apple Vision OCR: {} · Local Ollama: {}",
+            probe.platform,
+            if probe.vision_ocr_available { "ready" } else { "unavailable" },
+            if probe.ollama_reachable {
+                format!("connected ({} models)", probe.ollama_models.len())
+            } else {
+                "not running".to_owned()
+            }
+        );
+    }
+}
+
+fn localize_settings_display(settings: &mut AppSettings) {
+    if !is_en_locale(&settings.locale) {
+        return;
+    }
+    if settings.last_sync_summary == "尚未执行跨端加密同步" {
+        settings.last_sync_summary = "No cross-device E2EE sync run yet".to_owned();
+    } else if settings.last_sync_summary == "本机与会话凭证已物理清空" {
+        settings.last_sync_summary = "Local vault and session credentials cleared".to_owned();
+    }
+}
+
+fn localize_dew_ledger_if_en(solar_atelier: &mut SolarAtelierPayload, locale: &str) {
+    if !is_en_locale(locale) {
+        return;
+    }
+    for entry in &mut solar_atelier.dew_ledger {
+        if contains_cjk(&entry.note) {
+            entry.note = match entry.source.as_str() {
+                "recovery_priority_bonus" => "Recovery Mode double dew bonus (+3 dew)".to_owned(),
+                "food_sticker" => "Food polaroid sticker moment (+1 dew)".to_owned(),
+                "co_sanctuary" => "Co-window warm interaction (+1 dew)".to_owned(),
+                "seasonal_pass_claim" => {
+                    format!("Redeemed seasonal keepsake ({})", entry.reward_id)
+                }
+                _ => "Daily gentle rhythm dew entry".to_owned(),
+            };
+        }
+    }
+}
 
 #[native_module("qi/native")]
 fn native(registry: &mut Registry) {
@@ -132,6 +495,31 @@ impl QiMeta {
         WELLNESS_DISCLAIMER.to_owned()
     }
 
+    /// 按语言返回非医疗器械合规声明（`zh-CN` / `en`）。
+    pub fn disclaimer_for_locale(locale: String) -> String {
+        wellness_disclaimer_for_locale(&locale).to_owned()
+    }
+
+    /// 返回对齐 StoreKit 2 与云端控制面的 Apple IAP 商品 ID 清单 JSON。
+    pub fn apple_catalog_product_ids_json() -> String {
+        serde_json::json!({
+            "subscriptions": [
+                { "product_id": "com.qi.atelier.pro_monthly", "tier": "pro_monthly" },
+                { "product_id": "com.qi.atelier.seasonal", "tier": "seasonal" },
+                { "product_id": "com.qi.atelier.pro_annual", "tier": "pro_annual" },
+                { "product_id": "com.qi.atelier.duo", "tier": "duo" },
+                { "product_id": "com.qi.atelier.family", "tier": "family" }
+            ],
+            "non_consumables": [
+                { "product_id": "com.qi.atelier.lifetime_local", "tier": "lifetime_local" }
+            ],
+            "consumables": [
+                { "product_id": HEARTH_GIFT_PASS_PRODUCT_ID, "kind": "hearth_gift_pass" }
+            ]
+        })
+        .to_string()
+    }
+
     /// 模糊搜索 60+ 中式高频餐饮与补剂词典。
     pub fn search_foods_json(query: String, limit: u32) -> String {
         let hits: Vec<FoodSearchHit> = search_foods(&query, limit as usize);
@@ -186,7 +574,15 @@ impl QiEngine {
 
     fn evaluate_entitlement(&self, settings: &AppSettings) -> EntitlementVerificationResult {
         let now = Self::current_epoch();
-        verify_oset_with_clock(&settings.entitlement_token, now, settings.max_seen_epoch, None)
+        let mut res = verify_oset_with_clock_localized(
+            &settings.entitlement_token,
+            now,
+            settings.max_seen_epoch,
+            None,
+            &settings.locale,
+        );
+        res.guardian_sponsor = res.guardian_sponsor || settings.guardian_sponsor;
+        res
     }
 
     fn award_recovery_dew_if_needed(&self, snapshot: &AnalyticsSnapshot) {
@@ -196,34 +592,48 @@ impl QiEngine {
     }
 
     fn build_payload(&self) -> Result<String, String> {
-        let settings = self.db.load_settings()?;
+        let mut settings = self.db.load_settings()?;
+        let locale = normalize_locale(&settings.locale).to_owned();
+        settings.locale = locale.clone();
         let metrics = self.db.load_metrics()?;
         let workouts = self.db.load_workouts()?;
-        let intakes = self.db.load_intakes()?;
-        let labs = self.db.load_labs()?;
+        let mut intakes = self.db.load_intakes()?;
+        let mut labs = self.db.load_labs()?;
         let experiments_raw = self.db.load_experiments()?;
         let tier = HardwareTier::from_str(&settings.hardware_tier);
 
-        let snapshot = compute_snapshot(
+        let mut snapshot = compute_snapshot(
             &metrics,
             &workouts,
             &intakes,
             tier,
             settings.morning_feeling,
         );
-        let experiments = evaluate_experiments(&metrics, &experiments_raw, &snapshot.target_date);
-        let period_comparison = compute_period_comparison(&metrics, &snapshot.target_date);
+        let mut experiments =
+            evaluate_experiments(&metrics, &experiments_raw, &snapshot.target_date);
+        let mut period_comparison = compute_period_comparison(&metrics, &snapshot.target_date);
+        let daily_records = build_daily_records(&metrics, &intakes);
+        let mut multi_lag_radar = compute_multi_lag_radar(&daily_records);
+
+        localize_snapshot(&mut snapshot, &locale);
+        localize_labs(&mut labs, &locale);
+        localize_experiments(&mut experiments, &locale);
+        localize_period_comparison(&mut period_comparison, &locale);
+        localize_multi_lag_radar(&mut multi_lag_radar, &locale);
+        localize_intakes_display(&mut intakes, &locale);
+        localize_settings_display(&mut settings);
 
         let briefing = if let Some(ref over) = self.live_briefing_override {
             over.clone()
         } else {
-            build_morning_briefing(
+            build_morning_briefing_localized(
                 &snapshot,
                 &labs,
                 &settings.ai_mode,
                 &settings.lan_ai_url,
                 settings.thermal_throttled,
                 settings.simulated_ram_gb,
+                &locale,
             )
         };
 
@@ -232,7 +642,7 @@ impl QiEngine {
         let loyalty_eligible = settings.companion_loyalty_days >= LOYALTY_MIN_CHECKIN_DAYS
             || distinct_metric_days.len() as i64 >= LOYALTY_MIN_CHECKIN_DAYS
             || entitlements.companion_loyalty_eligible;
-        let entitlement_catalog = build_entitlement_catalog(loyalty_eligible);
+        let entitlement_catalog = build_entitlement_catalog_localized(loyalty_eligible, &locale);
 
         let dew_balance = self.db.get_dew_balance()?;
         let dew_ledger = self.db.list_dew_ledger(24)?;
@@ -241,8 +651,10 @@ impl QiEngine {
         let stickers = self.db.list_stickers()?;
         let ym: String = snapshot.target_date.chars().take(7).collect();
         let used_stickers_in_month = self.db.count_stickers_in_month(&ym)?;
+        let custom_pets = self.db.list_custom_pets()?;
+        let pet_weekly_letters = self.db.list_pet_weekly_letters()?;
 
-        let solar_atelier = build_solar_atelier_payload(
+        let mut solar_atelier = build_solar_atelier_payload_v5(
             &settings,
             &snapshot,
             &entitlements,
@@ -255,14 +667,33 @@ impl QiEngine {
             &experiments,
             intakes.len(),
             distinct_metric_days.len(),
+            custom_pets,
+            pet_weekly_letters,
         );
+        localize_dew_ledger_if_en(&mut solar_atelier, &locale);
 
-        let daily_records = build_daily_records(&metrics, &intakes);
-        let multi_lag_radar = compute_multi_lag_radar(&daily_records);
         let (multi_profile_uln_trends, recheck_reminders) =
-            compute_multi_profile_uln_trends_at(&labs, &snapshot.target_date);
-        let parents_peace_letter_preview =
-            build_parents_peace_letter("爸妈", &snapshot, &recheck_reminders);
+            compute_multi_profile_uln_trends_at_localized(&labs, &snapshot.target_date, &locale);
+        let default_recipient = if is_en_locale(&locale) {
+            "Mom & Dad"
+        } else {
+            "爸妈"
+        };
+        let parents_peace_letter_preview = build_parents_peace_letter_localized(
+            default_recipient,
+            &snapshot,
+            &recheck_reminders,
+            &locale,
+        );
+        let experiment_templates = if is_en_locale(&locale) {
+            EXPERIMENT_TEMPLATES_EN.to_vec()
+        } else {
+            EXPERIMENT_TEMPLATES.to_vec()
+        };
+        let capability_probe = self.last_probe.clone().map(|mut p| {
+            localize_probe(&mut p, &locale);
+            p
+        });
 
         let payload = UiStatePayload {
             settings,
@@ -271,10 +702,10 @@ impl QiEngine {
             intakes,
             labs,
             experiments,
-            experiment_templates: EXPERIMENT_TEMPLATES.to_vec(),
+            experiment_templates,
             period_comparison,
             last_lab_import: self.last_lab_import.clone(),
-            capability_probe: self.last_probe.clone(),
+            capability_probe,
             entitlements,
             entitlement_catalog,
             solar_atelier,
@@ -528,11 +959,13 @@ impl QiEngine {
         let metrics = self.db.load_metrics()?;
         let workouts = self.db.load_workouts()?;
         let intakes = self.db.load_intakes()?;
-        let labs = self.db.load_labs()?;
+        let mut labs = self.db.load_labs()?;
         let tier = HardwareTier::from_str(&s.hardware_tier);
-        let snapshot = compute_snapshot(&metrics, &workouts, &intakes, tier, s.morning_feeling);
+        let mut snapshot = compute_snapshot(&metrics, &workouts, &intakes, tier, s.morning_feeling);
+        localize_snapshot(&mut snapshot, &s.locale);
+        localize_labs(&mut labs, &s.locale);
 
-        let res = generate_live_briefing(
+        let res = generate_live_briefing_localized(
             &snapshot,
             &labs,
             &s.ai_mode,
@@ -542,6 +975,7 @@ impl QiEngine {
             &s.cloud_token,
             s.thermal_throttled,
             s.simulated_ram_gb,
+            &s.locale,
         )?;
         self.live_briefing_override = Some(res);
         self.build_payload()
@@ -889,7 +1323,13 @@ impl QiEngine {
         s.guardian_sponsor = guardian_sponsor;
         s.companion_loyalty_days = loyalty_days.max(0);
         s.entitlement_token = token;
-        let res = verify_oset_with_clock(&s.entitlement_token, now, s.max_seen_epoch, None);
+        let res = verify_oset_with_clock_localized(
+            &s.entitlement_token,
+            now,
+            s.max_seen_epoch,
+            None,
+            &s.locale,
+        );
         s.max_seen_epoch = res.new_max_seen_epoch;
         self.db.save_settings(&s)?;
         self.build_payload()
@@ -899,6 +1339,7 @@ impl QiEngine {
     pub fn apply_entitlement_token(&mut self, token: String) -> Result<String, String> {
         let trimmed = token.trim().to_owned();
         let mut s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
         let now = Self::current_epoch();
         if trimmed.is_empty() {
             s.entitlement_token.clear();
@@ -906,9 +1347,15 @@ impl QiEngine {
             self.db.save_settings(&s)?;
             return self.build_payload();
         }
-        let res = verify_oset_with_clock(&trimmed, now, s.max_seen_epoch, None);
+        let res =
+            verify_oset_with_clock_localized(&trimmed, now, s.max_seen_epoch, None, &s.locale);
         if !res.valid_signature {
-            return Err("雅集通行证签名校验失败，请确认令牌完整无篡改".to_owned());
+            return Err(if en {
+                "Atelier pass signature check failed. Verify the token is complete and unmodified."
+                    .to_owned()
+            } else {
+                "雅集通行证签名校验失败，请确认令牌完整无篡改".to_owned()
+            });
         }
         s.entitlement_token = trimmed;
         s.sandbox_tier = res.tier;
@@ -931,38 +1378,62 @@ impl QiEngine {
     /// 领取或兑换岁时风物季票节点（清欢轨永久免费，雅集轨需有效会员，兑换扣减晨露）。
     pub fn claim_seasonal_reward(&mut self, reward_id: String) -> Result<String, String> {
         let s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
         let ent = self.evaluate_entitlement(&s);
         let claimed = self.db.list_claimed_pass_rewards()?;
-        let pass = build_seasonal_pass(&ent, &claimed);
+        let pass = build_seasonal_pass_localized(&ent, &claimed, &s.locale);
         let node = pass
             .into_iter()
             .find(|n| n.id == reward_id || n.reward_id == reward_id)
-            .ok_or_else(|| format!("未找到季票风物节点: {reward_id}"))?;
+            .ok_or_else(|| {
+                if en {
+                    format!("Seasonal keepsake not found: {reward_id}")
+                } else {
+                    format!("未找到季票风物节点: {reward_id}")
+                }
+            })?;
         if node.claimed {
-            return Err("该岁时风物已收入行囊，无需重复兑换".to_owned());
+            return Err(if en {
+                "This seasonal keepsake is already in your collection.".to_owned()
+            } else {
+                "该岁时风物已收入行囊，无需重复兑换".to_owned()
+            });
         }
         if !node.unlocked_by_tier {
-            return Err("该风物属于「知气雅集」限定轨，开启雅集后即可用晨露兑换".to_owned());
+            return Err(if en {
+                "This keepsake belongs to the Atelier track. Unlock Qi Atelier to redeem it with dew.".to_owned()
+            } else {
+                "该风物属于「知气雅集」限定轨，开启雅集后即可用晨露兑换".to_owned()
+            });
         }
         let balance = self.db.get_dew_balance()?;
         if balance < node.cost_dew {
-            return Err(format!(
-                "晨露不足：需要 {} 💧，当前拥有 {} 💧",
-                node.cost_dew, balance
-            ));
+            return Err(if en {
+                format!(
+                    "Not enough morning dew: requires {}, you have {}.",
+                    node.cost_dew, balance
+                )
+            } else {
+                format!(
+                    "晨露不足：需要 {} 💧，当前拥有 {} 💧",
+                    node.cost_dew, balance
+                )
+            });
         }
-        self.db.add_dew_entry(
-            -node.cost_dew,
-            "seasonal_pass_claim",
-            &format!("兑换岁时风物：{}", node.title),
-            &node.reward_id,
-        )?;
+        let note = if en {
+            format!("Redeemed seasonal keepsake: {}", node.title)
+        } else {
+            format!("兑换岁时风物：{}", node.title)
+        };
+        self.db
+            .add_dew_entry(-node.cost_dew, "seasonal_pass_claim", &note, &node.reward_id)?;
         self.build_payload()
     }
 
     /// 手动领取今日「安心静养 · 睡饱双倍露 (+3 💧)」（仅在静养日触发，永久免费）。
     pub fn claim_recovery_dew(&mut self) -> Result<String, String> {
         let s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
         let snap = compute_snapshot(
             &self.db.load_metrics()?,
             &self.db.load_workouts()?,
@@ -971,7 +1442,11 @@ impl QiEngine {
             s.morning_feeling,
         );
         if snap.state != "recovery_priority" {
-            return Err("今日状态稳健，仅在「调养 · 蓄能」静养日自动触发双倍晨露".to_owned());
+            return Err(if en {
+                "Your rhythm looks steady today. Double recovery dew activates automatically on Rest Gently days.".to_owned()
+            } else {
+                "今日状态稳健，仅在「调养 · 蓄能」静养日自动触发双倍晨露".to_owned()
+            });
         }
         self.db.ensure_daily_recovery_dew(&snap.target_date)?;
         self.build_payload()
@@ -988,6 +1463,7 @@ impl QiEngine {
     /// 装卸窗台珍藏风物摆件（素心清欢 2 槽，雅集解锁第 3 槽）。
     pub fn toggle_equipped_keepsake(&mut self, keepsake_id: String) -> Result<String, String> {
         let mut s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
         let ent = self.evaluate_entitlement(&s);
         let max_slots = if has_feature(&ent, "keepsake_slot_3") {
             MAX_EQUIPPED_KEEPSAKES
@@ -1001,7 +1477,13 @@ impl QiEngine {
         } else {
             if equipped.len() >= max_slots {
                 return Err(if max_slots < MAX_EQUIPPED_KEEPSAKES {
-                    "素心清欢最多陈列 2 件风物，升级知气雅集解锁第 3 个珍藏陈列位".to_owned()
+                    if en {
+                        "Free keepsake shelf holds up to 2 items. Unlock Qi Atelier for a 3rd window slot.".to_owned()
+                    } else {
+                        "素心清欢最多陈列 2 件风物，升级知气雅集解锁第 3 个珍藏陈列位".to_owned()
+                    }
+                } else if en {
+                    "Up to 3 keepsakes can be arranged on the windowsill at once.".to_owned()
                 } else {
                     "窗台最多同时陈列 3 件风物摆件".to_owned()
                 });
@@ -1016,6 +1498,7 @@ impl QiEngine {
     /// 切换日签印泥（`cinnabar` 朱砂 / `gold` 泥金 / `lapis` 青金石）。
     pub fn set_seal_ink(&mut self, seal_ink: String) -> Result<String, String> {
         let mut s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
         let ink = match seal_ink.trim() {
             "gold" => "gold",
             "lapis" => "lapis",
@@ -1025,7 +1508,11 @@ impl QiEngine {
             let ent = self.evaluate_entitlement(&s);
             let claimed = self.db.list_claimed_pass_rewards()?;
             if !has_feature(&ent, "poster_custom_seals") && !claimed.iter().any(|c| c == ink) {
-                return Err("泥金/青金石印泥属于知气雅集专属（或先在季票兑换）".to_owned());
+                return Err(if en {
+                    "Song Gold and Lapis seal inks belong to Qi Atelier (or redeem via Seasonal Pass).".to_owned()
+                } else {
+                    "泥金/青金石印泥属于知气雅集专属（或先在季票兑换）".to_owned()
+                });
             }
         }
         s.active_seal_ink = ink.to_owned();
@@ -1035,24 +1522,33 @@ impl QiEngine {
 
     /// 保存当前书房预设（素心清欢最多 2 套，雅集无限）。
     pub fn save_sanctuary_preset(&mut self, name: String) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
         let trimmed = name.trim();
         if trimmed.is_empty() {
-            return Err("请输入书房预设名称".to_owned());
+            return Err(if en {
+                "Please enter a preset name.".to_owned()
+            } else {
+                "请输入书房预设名称".to_owned()
+            });
         }
-        let s = self.db.load_settings()?;
         let ent = self.evaluate_entitlement(&s);
         let existing_presets = self.db.list_presets()?;
         let is_overwrite = existing_presets.iter().any(|p| p.name == trimmed);
         if !is_overwrite && !has_feature(&ent, "preset_slots_unlimited") && existing_presets.len() >= 2
         {
-            return Err("素心清欢最多保存 2 套书房预设，升级知气雅集解锁无限预设位".to_owned());
+            return Err(if en {
+                "Free tier stores up to 2 sanctuary presets. Unlock Qi Atelier for unlimited presets.".to_owned()
+            } else {
+                "素心清欢最多保存 2 套书房预设，升级知气雅集解锁无限预设位".to_owned()
+            });
         }
         let metrics = self.db.load_metrics()?;
         let target_date = metrics
             .last()
             .map(|r| r.date.clone())
             .unwrap_or_else(|| "2026-11-13".to_owned());
-        let solar = compute_solar_term_state(&target_date, &s.weather_mood);
+        let solar = compute_solar_term_state_localized(&target_date, &s.weather_mood, &s.locale);
         self.db.save_preset(
             trimmed,
             &solar.active_world,
@@ -1065,11 +1561,15 @@ impl QiEngine {
 
     /// 一键套用已保存的书房预设。
     pub fn apply_sanctuary_preset(&mut self, preset_id: i64) -> Result<String, String> {
-        let preset = self
-            .db
-            .get_preset(preset_id)?
-            .ok_or_else(|| format!("未找到书房预设 #{preset_id}"))?;
         let mut s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
+        let preset = self.db.get_preset(preset_id)?.ok_or_else(|| {
+            if en {
+                format!("Sanctuary preset #{preset_id} not found")
+            } else {
+                format!("未找到书房预设 #{preset_id}")
+            }
+        })?;
         s.weather_mood = preset.weather_mood;
         s.active_seal_ink = preset.seal_ink;
         s.equipped_keepsakes_json = preset.keepsakes_json;
@@ -1086,9 +1586,15 @@ impl QiEngine {
         note: String,
         image_ref: String,
     ) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
         let trimmed_title = title.trim();
         if trimmed_title.is_empty() {
-            return Err("请输入饮食贴纸名称".to_owned());
+            return Err(if en {
+                "Please enter a meal sticker title.".to_owned()
+            } else {
+                "请输入饮食贴纸名称".to_owned()
+            });
         }
         let use_date = if date.trim().is_empty() {
             self.db
@@ -1100,18 +1606,21 @@ impl QiEngine {
             date.trim().to_owned()
         };
         let ym: String = use_date.chars().take(7).collect();
-        let s = self.db.load_settings()?;
         let ent = self.evaluate_entitlement(&s);
         let used = self.db.count_stickers_in_month(&ym)?;
         if !has_feature(&ent, "unlimited_stickers") && used >= 5 {
-            return Err("本月素心清欢 5 张食光贴纸额度已用完，升级知气雅集解锁无限手账".to_owned());
+            return Err(if en {
+                "You have reached the 5-sticker monthly free quota. Unlock Qi Atelier for unlimited meal stickers.".to_owned()
+            } else {
+                "本月素心清欢 5 张食光贴纸额度已用完，升级知气雅集解锁无限手账".to_owned()
+            });
         }
         let clean_filter = match filter.trim() {
             "watercolor" => "watercolor",
             "celadon" => "celadon",
             _ => "polaroid",
         };
-        let hint = infer_sticker_nutrition_hint(trimmed_title);
+        let hint = infer_sticker_nutrition_hint_localized(trimmed_title, &s.locale);
         self.db.insert_sticker(
             &use_date,
             trimmed_title,
@@ -1120,12 +1629,13 @@ impl QiEngine {
             &hint,
             image_ref.trim(),
         )?;
-        self.db.add_dew_entry(
-            1,
-            "food_sticker",
-            &format!("定格食光贴纸：{trimmed_title}"),
-            "",
-        )?;
+        let dew_note = if en {
+            format!("Captured food sticker: {trimmed_title}")
+        } else {
+            format!("定格食光贴纸：{trimmed_title}")
+        };
+        self.db
+            .add_dew_entry(1, "food_sticker", &dew_note, "")?;
         self.build_payload()
     }
 
@@ -1149,6 +1659,7 @@ impl QiEngine {
         pair_code: Option<String>,
     ) -> Result<String, String> {
         let mut s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
         if let Some(pn) = partner_name
             && !pn.trim().is_empty()
         {
@@ -1162,9 +1673,21 @@ impl QiEngine {
 
         let act = action.trim();
         let note = match act {
-            "warm_tea" => Some("同窗串门：给好友递上一盏热茶 +1 💧"),
-            "tuck_blanket" => Some("同窗串门：替好友盖好薄被 +1 💧"),
-            "paw_stamp" => Some("同窗串门：在窗台按下暖心爪印 +1 💧"),
+            "warm_tea" => Some(if en {
+                "Co-window visit: shared a cup of warm tea +1 dew"
+            } else {
+                "同窗串门：给好友递上一盏热茶 +1 💧"
+            }),
+            "tuck_blanket" => Some(if en {
+                "Co-window visit: tucked in a cozy blanket +1 dew"
+            } else {
+                "同窗串门：替好友盖好薄被 +1 💧"
+            }),
+            "paw_stamp" => Some(if en {
+                "Co-window visit: pressed a gentle paw tap +1 dew"
+            } else {
+                "同窗串门：在窗台按下暖心爪印 +1 💧"
+            }),
             _ => None,
         };
         if let Some(desc) = note {
@@ -1197,8 +1720,13 @@ impl QiEngine {
         target_days: u32,
         washout_days: i64,
     ) -> Result<String, String> {
+        let s = self.db.load_settings()?;
         if title.trim().is_empty() {
-            return Err("请输入实验标题".to_owned());
+            return Err(if is_en_locale(&s.locale) {
+                "Please enter an experiment title.".to_owned()
+            } else {
+                "请输入实验标题".to_owned()
+            });
         }
         let start_date = self
             .db
@@ -1222,16 +1750,27 @@ impl QiEngine {
         let metrics = self.db.load_metrics()?;
         let workouts = self.db.load_workouts()?;
         let intakes = self.db.load_intakes()?;
-        let labs = self.db.load_labs()?;
-        let snapshot = compute_snapshot(
+        let mut labs = self.db.load_labs()?;
+        let mut snapshot = compute_snapshot(
             &metrics,
             &workouts,
             &intakes,
             HardwareTier::from_str(&s.hardware_tier),
             s.morning_feeling,
         );
-        let (_, reminders) = compute_multi_profile_uln_trends_at(&labs, &snapshot.target_date);
-        let letter = build_parents_peace_letter(&recipient_label, &snapshot, &reminders);
+        localize_snapshot(&mut snapshot, &s.locale);
+        localize_labs(&mut labs, &s.locale);
+        let (_, reminders) = compute_multi_profile_uln_trends_at_localized(
+            &labs,
+            &snapshot.target_date,
+            &s.locale,
+        );
+        let letter = build_parents_peace_letter_localized(
+            &recipient_label,
+            &snapshot,
+            &reminders,
+            &s.locale,
+        );
         serde_json::to_string(&letter).map_err(|e| e.to_string())
     }
 
@@ -1247,8 +1786,13 @@ impl QiEngine {
         ref_low: Option<f64>,
         ref_high: Option<f64>,
     ) -> Result<String, String> {
+        let s = self.db.load_settings()?;
         if marker_name.trim().is_empty() || !value.is_finite() {
-            return Err("请输入有效的检验指标名称与数值".to_owned());
+            return Err(if is_en_locale(&s.locale) {
+                "Please provide a valid biomarker name and numeric value.".to_owned()
+            } else {
+                "请输入有效的检验指标名称与数值".to_owned()
+            });
         }
         let pid = match profile_id.trim() {
             "partner" => "partner",
@@ -1271,6 +1815,443 @@ impl QiEngine {
             ref_low,
             ref_high,
         )?;
+        self.build_payload()
+    }
+
+    /// 读取当前持久化界面语言设置（`{ "locale": "zh-CN" | "en" }`）。
+    pub fn get_locale(&self) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        Ok(serde_json::json!({ "locale": normalize_locale(&s.locale) }).to_string())
+    }
+
+    /// 切换界面语言（`"zh-CN"` | `"en"`）并持久化至 SQLite，清空旧缓存简报并输出最新状态快照。
+    pub fn set_locale(&mut self, locale: String) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        s.locale = normalize_locale(&locale).to_owned();
+        self.live_briefing_override = None;
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 列出已保存的所有「自家灵宠」及当前配额与周信归档 JSON。
+    pub fn list_custom_pets(&self) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let ent = self.evaluate_entitlement(&s);
+        let pets = self.db.list_custom_pets()?;
+        let active_pet = pets.iter().find(|p| p.is_active).cloned();
+        let quota = compute_custom_pet_quota(pets.len(), &ent);
+        let letters = self.db.list_pet_weekly_letters()?;
+        Ok(serde_json::json!({
+            "pets": pets,
+            "active_pet": active_pet,
+            "quota": quota,
+            "letters": letters,
+        })
+        .to_string())
+    }
+
+    /// 新增或更新「自家灵宠入驻」配置（免费版永久 1 位，雅集至多 3 位 + 专属爪印藏书票；到期进入只读保险箱绝不删除/锁定已有灵宠）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_custom_pet(
+        &mut self,
+        name: String,
+        species: String,
+        persona: String,
+        photo_data_url: String,
+        die_cut_frame: String,
+        starlight_memorial: bool,
+        paw_stamp_title: String,
+        is_active: bool,
+        pet_id: Option<String>,
+    ) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
+        let clean_name = name.trim().to_owned();
+        if clean_name.is_empty() {
+            return Err(if en {
+                "Please enter a name for your custom pet.".to_owned()
+            } else {
+                "请填写自家灵宠的名字".to_owned()
+            });
+        }
+
+        let validated_photo = validate_pet_photo_data_url(&photo_data_url, &s.locale)?;
+        let clean_species = normalize_pet_species(&species).to_owned();
+        let clean_frame = normalize_die_cut_frame(&die_cut_frame).to_owned();
+        let clean_persona = persona.trim().to_owned();
+        let clean_stamp = paw_stamp_title.trim().to_owned();
+
+        let ent = self.evaluate_entitlement(&s);
+        let now_iso = chrono::Utc::now().to_rfc3339();
+        let requested_id = pet_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(ToOwned::to_owned);
+        let existing = match &requested_id {
+            Some(id) => self.db.get_custom_pet(id)?,
+            None => None,
+        };
+
+        let pet_record = if let Some(prev) = existing {
+            // 伦理红线：已保存的灵宠在免费/到期只读模式下永远可编辑非 Pro 字段与保留；仅变更设置新的 Pro 专属藏书票印记需要雅集权限
+            let stamp_changed = clean_stamp != prev.paw_stamp_title && !clean_stamp.is_empty();
+            if stamp_changed && !has_feature(&ent, "custom_pet_ex_libris") {
+                return Err(if en {
+                    "Custom Ex Libris paw stamp titles require an active Qi Atelier plan; your existing pet profile remains editable.".to_owned()
+                } else {
+                    "定制爪印藏书票印记需开启「知气雅集」（已有灵宠本体与纪念设置不受影响，可随时保存）。".to_owned()
+                });
+            }
+            CustomPetCompanion {
+                id: prev.id,
+                name: clean_name,
+                species: clean_species,
+                persona: clean_persona,
+                photo_data_url: validated_photo,
+                die_cut_frame: clean_frame,
+                starlight_memorial,
+                paw_stamp_title: clean_stamp,
+                is_active,
+                created_at: prev.created_at,
+                updated_at: now_iso,
+            }
+        } else {
+            let count = self.db.count_custom_pets()?;
+            let limit = custom_pet_quota(&ent);
+            if count >= limit {
+                return Err(if en {
+                    format!(
+                        "Current tier includes {limit} custom pet slot ({count}/{limit} used). Your existing pets stay saved forever; unlock Qi Atelier to host up to 3."
+                    )
+                } else {
+                    format!(
+                        "当前方案至多入驻 {limit} 位自家灵宠（已有 {count}/{limit} 位，原有灵宠永久保留不锁）；升级「知气雅集」可扩展至 3 位。"
+                    )
+                });
+            }
+            if !clean_stamp.is_empty() && !has_feature(&ent, "custom_pet_ex_libris") {
+                return Err(if en {
+                    "Custom Ex Libris paw stamp titles require an active Qi Atelier plan. Leave blank to save your free custom pet.".to_owned()
+                } else {
+                    "定制爪印藏书票印记属于知气雅集专属（留空即可免费保存 1 位自家灵宠）。".to_owned()
+                });
+            }
+            let new_id = requested_id.unwrap_or_else(|| self.db.next_custom_pet_id());
+            CustomPetCompanion {
+                id: new_id,
+                name: clean_name,
+                species: clean_species,
+                persona: clean_persona,
+                photo_data_url: validated_photo,
+                die_cut_frame: clean_frame,
+                starlight_memorial,
+                paw_stamp_title: clean_stamp,
+                is_active: is_active || count == 0,
+                created_at: now_iso.clone(),
+                updated_at: now_iso,
+            }
+        };
+
+        self.db.upsert_custom_pet(&pet_record)?;
+        self.build_payload()
+    }
+
+    /// 切换窗台当前上阵的「自家灵宠」（传空字符串恢复默认岁时灵宠；所有已存灵宠任何档位均可自由点选切换）。
+    pub fn set_active_custom_pet(&mut self, pet_id: String) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
+        self.db.set_active_custom_pet(&pet_id).map_err(|e| {
+            if e == "custom_pet_not_found" {
+                if en {
+                    format!("Custom pet not found: {pet_id}")
+                } else {
+                    format!("未找到自家灵宠: {pet_id}")
+                }
+            } else {
+                e
+            }
+        })?;
+        self.build_payload()
+    }
+
+    /// 删除指定「自家灵宠」及其名下自动周信归档。
+    pub fn delete_custom_pet(&mut self, pet_id: String) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
+        let removed = self.db.delete_custom_pet(&pet_id)?;
+        if !removed {
+            return Err(if en {
+                format!("Custom pet not found: {pet_id}")
+            } else {
+                format!("未找到可移除的自家灵宠: {pet_id}")
+            });
+        }
+        self.build_payload()
+    }
+
+    /// 为指定自家灵宠生成一封第一人称周信并持久化归档（需有效雅集；过期后已生成信件仍永久可读）。
+    pub fn generate_pet_weekly_letter(
+        &mut self,
+        pet_id: String,
+        week_number: Option<u32>,
+    ) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
+        let ent = self.evaluate_entitlement(&s);
+        if !has_feature(&ent, "pet_weekly_letters") {
+            return Err(if en {
+                "Generating new custom pet weekly letters requires an active Qi Atelier plan (previously saved letters remain readable forever).".to_owned()
+            } else {
+                "生成新的灵宠第一人称周信需开启「知气雅集」（既往已生成周信永久保留可读）。".to_owned()
+            });
+        }
+        let pet = self.db.get_custom_pet(pet_id.trim())?.ok_or_else(|| {
+            if en {
+                format!("Custom pet not found: {pet_id}")
+            } else {
+                format!("未找到自家灵宠: {pet_id}")
+            }
+        })?;
+
+        let metrics = self.db.load_metrics()?;
+        let workouts = self.db.load_workouts()?;
+        let intakes = self.db.load_intakes()?;
+        let mut snapshot = compute_snapshot(
+            &metrics,
+            &workouts,
+            &intakes,
+            HardwareTier::from_str(&s.hardware_tier),
+            s.morning_feeling,
+        );
+        localize_snapshot(&mut snapshot, &s.locale);
+        let solar = compute_solar_term_state_localized(
+            &snapshot.target_date,
+            &s.weather_mood,
+            &s.locale,
+        );
+        let existing_for_pet = self
+            .db
+            .list_pet_weekly_letters()?
+            .into_iter()
+            .filter(|l| l.pet_id == pet.id)
+            .count();
+        let wk = week_number.unwrap_or((existing_for_pet as u32) + 1).max(1);
+        let now_iso = chrono::Utc::now().to_rfc3339();
+        let draft = generate_pet_weekly_letter_draft(
+            &pet,
+            &snapshot,
+            &solar,
+            wk,
+            &s.locale,
+            &now_iso,
+        );
+        self.db.insert_pet_weekly_letter(&draft)?;
+        self.build_payload()
+    }
+
+    /// 核验 StoreKit 2 / Apple IAP 交易（优先调用云端 `/v1/billing/apple/verify`，本地 Xcode/Sandbox 环境支持确定性离线沙盒兜底），并刷新权益与徽章状态。
+    pub fn verify_apple_iap_transaction(
+        &mut self,
+        product_id: String,
+        transaction_id: String,
+        original_transaction_id: String,
+        environment: String,
+        jws_representation: Option<String>,
+        expires_date_epoch: Option<i64>,
+    ) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
+        let clean_pid = product_id.trim().to_owned();
+        if clean_pid.is_empty() {
+            return Err(if en {
+                "Apple product_id is required.".to_owned()
+            } else {
+                "缺少 Apple 商品 ID（product_id）".to_owned()
+            });
+        }
+
+        let clean_tx = if transaction_id.trim().is_empty() {
+            format!("tx_{}", Self::current_epoch())
+        } else {
+            transaction_id.trim().to_owned()
+        };
+        let clean_orig_tx = if original_transaction_id.trim().is_empty() {
+            clean_tx.clone()
+        } else {
+            original_transaction_id.trim().to_owned()
+        };
+        let env_clean = if environment.trim().is_empty() {
+            "Sandbox".to_owned()
+        } else {
+            environment.trim().to_owned()
+        };
+
+        let c_base = s.cloud_url.trim().trim_end_matches('/');
+        if !c_base.is_empty() && !s.cloud_token.trim().is_empty() {
+            let endpoint = format!("{c_base}/v1/billing/apple/verify");
+            let agent = ureq::AgentBuilder::new()
+                .timeout_connect(std::time::Duration::from_secs(3))
+                .timeout_read(std::time::Duration::from_secs(12))
+                .build();
+            let req_body = serde_json::json!({
+                "jws_representation": jws_representation.clone().unwrap_or_default(),
+                "product_id": clean_pid,
+                "transaction_id": clean_tx,
+                "original_transaction_id": clean_orig_tx,
+                "environment": env_clean,
+                "bundle_id": "eu.org.cluas.qi",
+                "expires_date_epoch": expires_date_epoch,
+                "quantity": 1,
+                "companion_loyalty_days": s.companion_loyalty_days,
+            });
+            let resp = agent
+                .post(&endpoint)
+                .set("Authorization", &format!("Bearer {}", s.cloud_token.trim()))
+                .set("Content-Type", "application/json")
+                .send_json(req_body)
+                .map_err(|e| {
+                    if en {
+                        format!("Apple receipt verification failed: {e}")
+                    } else {
+                        format!("Apple 凭证校验请求失败: {e}")
+                    }
+                })?;
+            let val: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+            if !val["verified"].as_bool().unwrap_or(false) {
+                return Err(if en {
+                    "Apple receipt verification returned unverified status.".to_owned()
+                } else {
+                    "Apple 交易未能通过核验".to_owned()
+                });
+            }
+            if clean_pid == HEARTH_GIFT_PASS_PRODUCT_ID || val["seats_credited"].as_i64().unwrap_or(0) > 0 {
+                s.guardian_sponsor = true;
+            }
+            if let Some(tok) = val["entitlement_token"].as_str()
+                && !tok.trim().is_empty()
+            {
+                let res = verify_oset_with_clock_localized(
+                    tok.trim(),
+                    Self::current_epoch(),
+                    s.max_seen_epoch,
+                    None,
+                    &s.locale,
+                );
+                if res.valid_signature {
+                    s.entitlement_token = tok.trim().to_owned();
+                    s.sandbox_tier = res.tier;
+                    s.guardian_sponsor = s.guardian_sponsor || res.guardian_sponsor;
+                    s.max_seen_epoch = res.new_max_seen_epoch;
+                }
+            }
+            self.db.save_settings(&s)?;
+            return self.build_payload();
+        }
+
+        // 仅允许 Xcode / Sandbox 本地开发态在未绑定云端会话时执行本地可信沙盒签发；Production 必须经云端或 StoreKit 2 验签
+        let env_lower = env_clean.to_ascii_lowercase();
+        if env_lower != "sandbox" && env_lower != "xcode" {
+            return Err(if en {
+                "Sign in to Qi Cloud first to verify Production App Store receipts.".to_owned()
+            } else {
+                "生产环境 Apple 票据校验需先连接云端账号会话".to_owned()
+            });
+        }
+
+        let now = Self::current_epoch();
+        if clean_pid == HEARTH_GIFT_PASS_PRODUCT_ID {
+            s.guardian_sponsor = true;
+            if !s.entitlement_token.trim().is_empty() {
+                let current = self.evaluate_entitlement(&s);
+                if current.is_atelier_unlocked {
+                    let tier_enum = SubscriptionTier::from_str(&current.tier);
+                    let (_c, refreshed) = crate::entitlements::mint_oset_for_tier(
+                        &s.device_id,
+                        tier_enum,
+                        now,
+                        true,
+                        s.companion_loyalty_days >= LOYALTY_MIN_CHECKIN_DAYS,
+                    )?;
+                    s.entitlement_token = refreshed;
+                }
+            }
+            self.db.save_settings(&s)?;
+            return self.build_payload();
+        }
+
+        let tier_enum = tier_from_apple_product_id(&clean_pid).ok_or_else(|| {
+            if en {
+                format!("Unsupported Apple product_id: {clean_pid}")
+            } else {
+                format!("未识别的 Apple 商品 ID: {clean_pid}")
+            }
+        })?;
+        let token = mint_sandbox_oset(
+            &s.device_id,
+            tier_enum.as_str(),
+            "active",
+            s.guardian_sponsor,
+            s.companion_loyalty_days,
+            now,
+        )?;
+        let res =
+            verify_oset_with_clock_localized(&token, now, s.max_seen_epoch, None, &s.locale);
+        s.entitlement_token = token;
+        s.sandbox_tier = tier_enum.as_str().to_owned();
+        s.sandbox_state = "active".to_owned();
+        s.max_seen_epoch = res.new_max_seen_epoch;
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 批量恢复 Apple IAP 已购权益（接收 StoreKit `Transaction.currentEntitlements` JSON 数组）。
+    pub fn restore_apple_iap_purchases(
+        &mut self,
+        transactions_json: String,
+    ) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&transactions_json).map_err(|e| {
+            if en {
+                format!("Invalid StoreKit restore payload: {e}")
+            } else {
+                format!("恢复购买数据格式无效: {e}")
+            }
+        })?;
+
+        for item in arr {
+            let pid = item["product_id"]
+                .as_str()
+                .or_else(|| item["productId"].as_str())
+                .unwrap_or("")
+                .to_owned();
+            if pid.is_empty() {
+                continue;
+            }
+            let tx_id = item["transaction_id"]
+                .as_str()
+                .or_else(|| item["transactionId"].as_str())
+                .unwrap_or("")
+                .to_owned();
+            let orig_tx = item["original_transaction_id"]
+                .as_str()
+                .or_else(|| item["originalTransactionId"].as_str())
+                .unwrap_or(&tx_id)
+                .to_owned();
+            let env = item["environment"]
+                .as_str()
+                .unwrap_or("Sandbox")
+                .to_owned();
+            let jws = item["jws_representation"]
+                .as_str()
+                .or_else(|| item["jws"].as_str())
+                .map(ToOwned::to_owned);
+            let exp = item["expires_date_epoch"]
+                .as_i64()
+                .or_else(|| item["expiresDate"].as_i64());
+            let _ = self.verify_apple_iap_transaction(pid, tx_id, orig_tx, env, jws, exp)?;
+        }
         self.build_payload()
     }
 
@@ -1319,13 +2300,14 @@ impl QiEngine {
         );
         let experiments_eval = evaluate_experiments(&metrics, &experiments_raw, &snapshot.target_date);
         let period_cmp = compute_period_comparison(&metrics, &snapshot.target_date);
-        let briefing = build_morning_briefing(
+        let briefing = build_morning_briefing_localized(
             &snapshot,
             &labs,
             &settings.ai_mode,
             &settings.lan_ai_url,
             settings.thermal_throttled,
             settings.simulated_ram_gb,
+            &settings.locale,
         );
 
         let distinct_days: BTreeSet<&str> = metrics.iter().map(|m| m.date.as_str()).collect();
@@ -1512,15 +2494,17 @@ impl QiEngine {
             && !has_leak_in_records;
 
         // 6. 实验、滞后归因数值有限性 + 保险箱永不锁死契约校验
+        let en = is_en_locale(&settings.locale);
         let current_ent = self.evaluate_entitlement(&settings);
         let expired_probe_token =
             mint_sandbox_oset("audit_probe", "pro_monthly", "expired", false, 0, Self::current_epoch())
                 .unwrap_or_default();
-        let expired_probe = verify_oset_with_clock(
+        let expired_probe = verify_oset_with_clock_localized(
             &expired_probe_token,
             Self::current_epoch(),
             settings.max_seen_epoch,
             None,
+            &settings.locale,
         );
         let vault_non_lockout_verified = current_ent.can_read_history_vault
             && current_ent.can_export_vault
@@ -1530,7 +2514,8 @@ impl QiEngine {
             && has_feature(&expired_probe, "raw_biometrics")
             && has_feature(&expired_probe, "single_lab_parse")
             && has_feature(&expired_probe, "jsonl_export")
-            && has_feature(&expired_probe, "recovery_priority");
+            && has_feature(&expired_probe, "recovery_priority")
+            && has_feature(&expired_probe, "custom_pet_1");
 
         let experiments_ok = experiments_eval.iter().all(|e| {
             opt_finite(e.hrv_delta_ms)
@@ -1564,32 +2549,57 @@ impl QiEngine {
             AuditCheckItem {
                 name: "rmssd_sdnn_isolated".to_owned(),
                 passed: rmssd_sdnn_isolated,
-                detail: "RMSSD 与 SDNN 独立基线且多源按优先级消解".to_owned(),
+                detail: if en {
+                    "RMSSD and SDNN maintain isolated baselines with deterministic source priority.".to_owned()
+                } else {
+                    "RMSSD 与 SDNN 独立基线且多源按优先级消解".to_owned()
+                },
             },
             AuditCheckItem {
                 name: "tier_hrv_contract_held".to_owned(),
                 passed: tier_hrv_contract_held,
-                detail: format!("硬件档位 {} 指标与睡眠分期契约校验", settings.hardware_tier),
+                detail: if en {
+                    format!("Hardware tier {} metrics and sleep stage contract verified.", settings.hardware_tier)
+                } else {
+                    format!("硬件档位 {} 指标与睡眠分期契约校验", settings.hardware_tier)
+                },
             },
             AuditCheckItem {
                 name: "lab_trends_consistent".to_owned(),
                 passed: lab_trends_consistent,
-                detail: format!("已校验 {} 条化验单参考区间与纵向 delta/trend", labs.len()),
+                detail: if en {
+                    format!("Verified {} lab biomarker reference ranges and longitudinal deltas/trends.", labs.len())
+                } else {
+                    format!("已校验 {} 条化验单参考区间与纵向 delta/trend", labs.len())
+                },
             },
             AuditCheckItem {
                 name: "pii_guard_verified".to_owned(),
                 passed: pii_guard_verified,
-                detail: "端侧 PII 脱敏与 SaMD 合规护栏校验通过".to_owned(),
+                detail: if en {
+                    "On-device PII redaction and SaMD wellness guardrails passed.".to_owned()
+                } else {
+                    "端侧 PII 脱敏与 SaMD 合规护栏校验通过".to_owned()
+                },
             },
             AuditCheckItem {
                 name: "experiments_and_lagged_finite".to_owned(),
                 passed: experiments_ok,
-                detail: format!(
-                    "实验 {} 项、滞后归因 {} 项均无 NaN/越界；保险箱非锁死校验 vault_non_lockout_verified={}",
-                    experiments_eval.len(),
-                    snapshot.lagged_impacts.len(),
-                    vault_non_lockout_verified
-                ),
+                detail: if en {
+                    format!(
+                        "{} experiments and {} lag impacts finite; read-only vault non-lockout verified={}",
+                        experiments_eval.len(),
+                        snapshot.lagged_impacts.len(),
+                        vault_non_lockout_verified
+                    )
+                } else {
+                    format!(
+                        "实验 {} 项、滞后归因 {} 项均无 NaN/越界；保险箱非锁死校验 vault_non_lockout_verified={}",
+                        experiments_eval.len(),
+                        snapshot.lagged_impacts.len(),
+                        vault_non_lockout_verified
+                    )
+                },
             },
         ];
 

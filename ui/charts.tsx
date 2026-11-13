@@ -2,6 +2,7 @@ import { Canvas, colorScheme, signal, Text, token, View } from "nsh";
 import { Button } from "nsh/base";
 import { Area, Grid, Line, Plot, PlotAxis } from "nsh/base/plot";
 import type { TrendPoint } from "../store";
+import { isEnglishLocale, tr } from "./i18n";
 
 export type RhythmPoint = TrendPoint & {
   hrv_ms?: number | null;
@@ -164,7 +165,7 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
         when={props.points.length > 0}
         else={
           <View class="items-center justify-center rounded-xl border border-border/60 bg-surface-sunken py-7">
-            <Text class="text-xs text-muted-foreground">暂无近期节律变化数据</Text>
+            <Text class="text-xs text-muted-foreground">{tr("charts.no_rhythm_data")}</Text>
           </View>
         }
       >
@@ -176,12 +177,12 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
                   {pt().short_label || pt().date}
                 </Text>
                 <Text class="text-[11px] text-muted-foreground">
-                  {hoveredIdx() !== null ? "选中日读数" : "最新日读数"}
+                  {hoveredIdx() !== null ? tr("charts.selected_day") : tr("charts.latest_day")}
                 </Text>
               </View>
               <View class="flex-row items-center gap-2.5">
                 <Text class="text-xs font-bold text-primary" style={{ fontVariant: ["tabular-nums"] }}>
-                  {`元气 ${Math.round(pt().qi_score)}`}
+                  {tr("charts.vitality_readout", { score: Math.round(pt().qi_score) })}
                 </Text>
                 <If when={pt().hrv_ms !== undefined && pt().hrv_ms !== null}>
                   <Text class="text-[11px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
@@ -190,7 +191,7 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
                 </If>
                 <If when={pt().sleep_h !== undefined && pt().sleep_h !== null}>
                   <Text class="text-[11px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
-                    {`睡眠 ${pt().sleep_h!.toFixed(1)}h`}
+                    {tr("charts.sleep_readout", { hours: pt().sleep_h!.toFixed(1) })}
                   </Text>
                 </If>
               </View>
@@ -271,10 +272,10 @@ export function SleepArchitectureBar(props: {
   const total = () => deep() + core() + rem() + awake();
 
   const legendItems = () => [
-    { key: "deep", label: "深睡", min: deep(), tokenName: "sleep-deep" },
-    { key: "core", label: "浅睡", min: core(), tokenName: "sleep-core" },
-    { key: "rem", label: "眼动", min: rem(), tokenName: "sleep-rem" },
-    { key: "awake", label: "微醒", min: awake(), tokenName: "sleep-awake" },
+    { key: "deep", label: tr("charts.deep_sleep"), min: deep(), tokenName: "sleep-deep" },
+    { key: "core", label: tr("charts.light_sleep"), min: core(), tokenName: "sleep-core" },
+    { key: "rem", label: tr("charts.rem_sleep"), min: rem(), tokenName: "sleep-rem" },
+    { key: "awake", label: tr("charts.awake"), min: awake(), tokenName: "sleep-awake" },
   ];
 
   return (
@@ -283,7 +284,7 @@ export function SleepArchitectureBar(props: {
         when={total() > 0}
         else={
           <View class="items-center justify-center rounded-xl border border-border/60 bg-surface-sunken py-3">
-            <Text class="text-xs text-muted-foreground">暂无睡眠分期记录</Text>
+            <Text class="text-xs text-muted-foreground">{tr("charts.no_sleep_stages")}</Text>
           </View>
         }
       >
@@ -541,21 +542,27 @@ export function AcwrSweetSpotCanvas(props: { acwr: number | null }) {
         cx.restore();
 
         // 大众化区间文案
+        const axisFont500 = isEnglishLocale()
+          ? "500 10px -apple-system, sans-serif"
+          : '500 10px "PingFang SC", -apple-system, sans-serif';
+        const axisFont600 = isEnglishLocale()
+          ? "600 10px -apple-system, sans-serif"
+          : '600 10px "PingFang SC", -apple-system, sans-serif';
         cx.save();
-        cx.font = '500 10px "PingFang SC", -apple-system, sans-serif';
+        cx.font = axisFont500;
         cx.textBaseline = "top";
         cx.textAlign = "center";
 
         cx.fillStyle = token("muted-foreground");
-        cx.fillText("恢复期", padX + warmW / 2, barY + barH + 6);
+        cx.fillText(tr("charts.recovery_zone"), padX + warmW / 2, barY + barH + 6);
 
         cx.fillStyle = token("vital-prime");
-        cx.font = '600 10px "PingFang SC", -apple-system, sans-serif';
-        cx.fillText("黄金适度区", padX + warmW + sweetW / 2, barY + barH + 6);
+        cx.font = axisFont600;
+        cx.fillText(tr("charts.sweet_spot"), padX + warmW + sweetW / 2, barY + barH + 6);
 
         cx.fillStyle = token("muted-foreground");
-        cx.font = '500 10px "PingFang SC", -apple-system, sans-serif';
-        cx.fillText("偏累预警", padX + warmW + sweetW + overW / 2, barY + barH + 6);
+        cx.font = axisFont500;
+        cx.fillText(tr("charts.overreach_alert"), padX + warmW + sweetW + overW / 2, barY + barH + 6);
         cx.restore();
 
         // 当前负荷游标圆点
@@ -705,7 +712,7 @@ export function UlnTrajectoryCanvas(props: {
         </View>
         <If when={Boolean(props.markerName)}>
           <Text class="text-[11px] font-medium text-muted-foreground">
-            {`${props.markerName} · %ULN 归一化`}
+            {tr("charts.marker_uln_suffix", { marker: props.markerName ?? "" })}
           </Text>
         </If>
       </View>
@@ -714,7 +721,7 @@ export function UlnTrajectoryCanvas(props: {
         when={timelineLabels().length > 0}
         else={
           <View class="items-center justify-center rounded-xl border border-border/60 bg-surface-sunken py-7">
-            <Text class="text-xs text-muted-foreground">暂无多档案化验轨迹数据</Text>
+            <Text class="text-xs text-muted-foreground">{tr("charts.no_lab_trajectory")}</Text>
           </View>
         }
       >
@@ -723,7 +730,7 @@ export function UlnTrajectoryCanvas(props: {
             class="text-xs font-semibold text-foreground"
             style={{ fontVariant: ["tabular-nums"] }}
           >
-            {activePointIndex() >= 0 ? timelineLabels()[activePointIndex()] : "最新"}
+            {activePointIndex() >= 0 ? timelineLabels()[activePointIndex()] : tr("charts.latest")}
           </Text>
           <View class="flex-row flex-wrap items-center gap-3">
             <Each of={visibleSeries()} key={(s) => `legend-${s.profile_id}`}>
@@ -831,11 +838,13 @@ export function UlnTrajectoryCanvas(props: {
             // 100% ULN 标签角标
             const y100 = yFor(100);
             cx.save();
-            cx.font = '600 9px "PingFang SC", sans-serif';
+            cx.font = isEnglishLocale()
+              ? "600 9px -apple-system, sans-serif"
+              : '600 9px "PingFang SC", sans-serif';
             cx.fillStyle = readToken("vital-recover");
             cx.textAlign = "right";
             cx.textBaseline = "bottom";
-            cx.fillText("100% ULN 参考上限", padL + plotW, y100 - 3);
+            cx.fillText(tr("charts.uln_limit"), padL + plotW, y100 - 3);
             cx.restore();
 
             // 2) 选中时间竖向准星
@@ -908,7 +917,7 @@ export function UlnTrajectoryCanvas(props: {
 
         <If when={timelineLabels().length > 1}>
           <View class="flex-row flex-wrap items-center gap-1.5">
-            <Text class="text-[11px] text-muted-foreground">检视时点：</Text>
+            <Text class="text-[11px] text-muted-foreground">{tr("charts.inspect_point_label")}</Text>
             <Each of={timelineLabels()} key={(lbl, idx) => `uln-pt-${idx}-${lbl}`}>
               {(lbl, idx) => {
                 const isFocused = () => activePointIndex() === idx();
@@ -952,11 +961,18 @@ export interface MultiLagBarItem {
 
 function resolveCohenBadge(d: number | null | undefined): { label: string; isStrong: boolean } {
   if (d === null || d === undefined || !Number.isFinite(d)) {
-    return { label: "效应估计中", isStrong: false };
+    return { label: tr("charts.cohen_estimating"), isStrong: false };
   }
   const abs = Math.abs(d);
-  const tag = abs >= 0.8 ? "显著效应" : abs >= 0.5 ? "中度效应" : abs >= 0.2 ? "轻度效应" : "微弱关联";
-  return { label: `d = ${d.toFixed(2)} · ${tag}`, isStrong: abs >= 0.5 };
+  const tag =
+    abs >= 0.8
+      ? tr("charts.cohen_d_large")
+      : abs >= 0.5
+        ? tr("charts.cohen_d_medium")
+        : abs >= 0.2
+          ? tr("charts.cohen_d_small")
+          : tr("charts.cohen_d_trivial");
+  return { label: tr("charts.cohen_d_badge", { d: d.toFixed(2), tag }), isStrong: abs >= 0.5 };
 }
 
 /** 90 天多滞后归因横向条（D+0 / D+1 / D+2 效应条 + Cohen's d 徽章 + 混杂变量芯片 + 样本量 n） */
@@ -985,7 +1001,7 @@ export function MultiLagRadarBars(props: {
                 class="text-[11px] font-semibold text-atelier-accent"
                 style={{ fontVariant: ["tabular-nums"] }}
               >
-                {`90 天窗口 · n=${props.sampleDays}`}
+                {tr("charts.window_days", { days: 90, n: props.sampleDays ?? 0 })}
               </Text>
             </View>
           </If>
@@ -994,7 +1010,7 @@ export function MultiLagRadarBars(props: {
 
       <If when={Boolean(props.confounders && props.confounders.length > 0)}>
         <View class="flex-row flex-wrap items-center gap-1.5">
-          <Text class="text-[11px] text-muted-foreground">已控混杂：</Text>
+          <Text class="text-[11px] text-muted-foreground">{tr("charts.confounders_label")}</Text>
           <Each of={props.confounders ?? []} key={(c) => c}>
             {(chip) => (
               <View class="rounded-full border border-border/70 bg-surface-sunken px-2 py-0.5">
@@ -1009,7 +1025,7 @@ export function MultiLagRadarBars(props: {
         when={props.items.length > 0}
         else={
           <View class="items-center justify-center rounded-xl border border-border/60 bg-surface-sunken py-5">
-            <Text class="text-xs text-muted-foreground">积累更多双日对照记录后生成 D+0 / D+1 / D+2 滞后条形雷达</Text>
+            <Text class="text-xs text-muted-foreground">{tr("charts.no_multi_lag_data")}</Text>
           </View>
         }
       >
@@ -1036,7 +1052,12 @@ export function MultiLagRadarBars(props: {
                         }`}
                         style={{ fontVariant: ["tabular-nums"] }}
                       >
-                        {`${props.outcomeLabel ?? "变化"} ${signPrefix()}${item().delta_value.toFixed(1)} ${item().unit}`}
+                        {tr("charts.outcome_delta", {
+                          label: props.outcomeLabel ?? tr("charts.default_outcome_label"),
+                          sign: signPrefix(),
+                          value: item().delta_value.toFixed(1),
+                          unit: item().unit,
+                        })}
                       </Text>
                     </View>
 
@@ -1121,7 +1142,7 @@ export function MultiLagRadarBars(props: {
 
                   <If when={Boolean(item().confounder_note)}>
                     <Text class="text-[11px] text-muted-foreground">
-                      {`混杂控制说明：${item().confounder_note}`}
+                      {tr("charts.confounder_note", { note: item().confounder_note ?? "" })}
                     </Text>
                   </If>
                 </View>

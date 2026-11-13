@@ -1,6 +1,8 @@
-import { type JSX, Scroll, Text, token, View } from "nsh";
-import { Button, Collapsible, Dialog, Input, Progress, Switch, Tab, Tabs } from "nsh/base";
+import { effect, type JSX, Scroll, Text, token, View } from "nsh";
+import { Button, Collapsible, Dialog, Input, Progress, Sheet, Switch, Tab, Tabs } from "nsh/base";
+import { tr } from "./i18n";
 import { QiIcon, type QiIconName } from "./icons";
+import { createSealStampMotion } from "./motion";
 
 export type VitalTone =
   | "prime_ready"
@@ -246,6 +248,189 @@ export function ActionButton(props: {
   );
 }
 
+/** 轻量图标按钮（44pt 触控热区、焦点环与三境画风语义令牌适配） */
+export function IconButton(props: {
+  icon: QiIconName;
+  accessibilityLabel: string;
+  onPress: () => void;
+  variant?: "ghost" | "secondary" | "outline" | "scrim";
+  size?: "sm" | "md";
+  shape?: "pill" | "rounded";
+  disabled?: boolean;
+  iconColor?: string;
+  class?: string;
+}) {
+  const sizeClass = () => {
+    const isPill = (props.shape ?? "pill") === "pill";
+    if (props.size === "sm") {
+      return `min-h-10 min-w-10 ${isPill ? "rounded-full" : "rounded-lg"} p-2`;
+    }
+    return `min-h-11 min-w-11 ${isPill ? "rounded-full" : "rounded-xl"} p-2.5`;
+  };
+
+  const variantClass = () => {
+    switch (props.variant ?? "ghost") {
+      case "scrim":
+        return "border border-stage-ink/20 bg-stage-scrim/85 hover:bg-stage-scrim active:opacity-85";
+      case "secondary":
+        return "border border-border/80 bg-secondary hover:bg-muted active:opacity-85";
+      case "outline":
+        return "border border-primary/40 bg-card hover:bg-accent/70 active:bg-accent";
+      default:
+        return "bg-transparent hover:bg-surface-sunken active:bg-secondary";
+    }
+  };
+
+  const defaultColor = () => {
+    if (props.iconColor) return props.iconColor;
+    switch (props.variant ?? "ghost") {
+      case "scrim":
+        return token("stage-ink");
+      case "outline":
+        return token("primary");
+      default:
+        return token("foreground");
+    }
+  };
+
+  return (
+    <Button
+      disabled={props.disabled}
+      hitSlop={4}
+      accessibilityLabel={props.accessibilityLabel}
+      onPress={props.onPress}
+      class={`items-center justify-center transition duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.95] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-45 ${sizeClass()} ${variantClass()} ${props.class ?? ""}`}
+    >
+      <QiIcon name={props.icon} size={props.size === "sm" ? 16 : 18} color={defaultColor()} />
+    </Button>
+  );
+}
+
+/** 火漆与爪印落印徽章：支持原生弹簧压印手势与减弱动态降级 */
+export function SealStamp(props: {
+  stamped: boolean;
+  label: string;
+  sublabel?: string;
+  icon?: QiIconName;
+  tone?: "stamp" | "wax" | "gold" | "lapis";
+  size?: "sm" | "md" | "lg";
+  disabled?: boolean;
+  onPress?: () => void;
+  accessibilityLabel?: string;
+  class?: string;
+}) {
+  const seal = createSealStampMotion(props.stamped, -8);
+
+  let prevStamped = Boolean(props.stamped);
+  effect(() => {
+    const nextStamped = Boolean(props.stamped);
+    if (nextStamped === prevStamped) return;
+    prevStamped = nextStamped;
+    if (nextStamped) {
+      void seal.releaseStamp(true);
+    } else {
+      seal.snapRest(false);
+    }
+  });
+
+  const toneStyle = () => {
+    if (!props.stamped) {
+      return {
+        outerClass: "border-dashed border-border bg-surface-sunken",
+        innerClass: "border-border/65 bg-card",
+        textClass: "text-muted-foreground",
+        iconColor: token("muted-foreground"),
+      };
+    }
+    switch (props.tone ?? "stamp") {
+      case "wax":
+        return {
+          outerClass: "border-wax-seal/45 bg-wax-seal-soft",
+          innerClass: "border-wax-seal/55 bg-wax-seal-soft",
+          textClass: "text-wax-seal",
+          iconColor: token("wax-seal"),
+        };
+      case "gold":
+        return {
+          outerClass: "border-ink-gold/50 bg-bento-amber",
+          innerClass: "border-ink-gold/55 bg-card/70",
+          textClass: "text-ink-gold",
+          iconColor: token("ink-gold"),
+        };
+      case "lapis":
+        return {
+          outerClass: "border-ink-lapis/45 bg-bento-lavender",
+          innerClass: "border-ink-lapis/55 bg-card/70",
+          textClass: "text-ink-lapis",
+          iconColor: token("ink-lapis"),
+        };
+      default:
+        return {
+          outerClass: "border-stamp-ink/45 bg-stamp-soft",
+          innerClass: "border-stamp-ink/55 bg-stamp-soft",
+          textClass: "text-stamp-ink",
+          iconColor: token("stamp-ink"),
+        };
+    }
+  };
+
+  const dims = () => {
+    switch (props.size ?? "md") {
+      case "sm":
+        return { outer: "min-h-11 px-3 py-1.5 gap-1.5", icon: 14, text: "text-[11px]" };
+      case "lg":
+        return { outer: "min-h-14 px-4 py-2.5 gap-2", icon: 20, text: "text-xs" };
+      default:
+        return { outer: "min-h-12 px-3.5 py-2 gap-2", icon: 16, text: "text-xs" };
+    }
+  };
+
+  const renderMedal = () => {
+    const t = toneStyle();
+    const d = dims();
+    return (
+      <View
+        style={seal.motion.style}
+        class={`flex-row items-center justify-center rounded-2xl border-2 ${d.outer} ${t.outerClass} ${props.class ?? ""}`}
+      >
+        <View class={`items-center justify-center rounded-full border p-1 ${t.innerClass}`}>
+          <QiIcon name={props.icon ?? "paw"} size={d.icon} color={t.iconColor} />
+        </View>
+        <View class="gap-0.5">
+          <Text class={`font-bold ${d.text} ${t.textClass}`}>{props.label}</Text>
+          <If when={Boolean(props.sublabel)}>
+            <Text class="text-[10px] font-medium text-muted-foreground">{props.sublabel}</Text>
+          </If>
+        </View>
+      </View>
+    );
+  };
+
+  if (props.onPress) {
+    return (
+      <Button
+        disabled={props.disabled}
+        hitSlop={4}
+        accessibilityLabel={props.accessibilityLabel ?? props.label}
+        onPressDown={() => {
+          void seal.pressDown();
+        }}
+        onPressUp={() => {
+          void seal.releaseStamp(props.stamped);
+        }}
+        onPress={() => {
+          props.onPress?.();
+        }}
+        class="rounded-2xl focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
+      >
+        {renderMedal()}
+      </Button>
+    );
+  }
+
+  return renderMedal();
+}
+
 /** 轻量选项行卡（引导选项、快捷饮食场景卡复用，保证对齐脊线且按压不缩放列表项） */
 export function ChoiceCard(props: {
   title: string;
@@ -379,10 +564,12 @@ export function ToastBanner(props: { message: string; onDismiss: () => void }) {
     <View class="mx-4 mt-2 flex-row items-center justify-between gap-2 rounded-xl border border-primary/30 bg-accent px-3.5 py-2">
       <Text class="flex-1 text-xs font-medium text-accent-foreground">{props.message}</Text>
       <Button
+        hitSlop={4}
+        accessibilityLabel={tr("common.close")}
         onPress={props.onDismiss}
-        class="min-h-8 justify-center rounded-lg px-2.5 py-1 transition-colors hover:bg-primary/10 active:opacity-70 focus-visible:ring-2 focus-visible:ring-ring"
+        class="min-h-9 justify-center rounded-lg px-2.5 py-1 transition-colors hover:bg-primary/10 active:opacity-70 focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <Text class="text-xs font-semibold text-accent-foreground">关闭</Text>
+        <Text class="text-xs font-semibold text-accent-foreground">{tr("common.close")}</Text>
       </Button>
     </View>
   );
@@ -514,6 +701,7 @@ export function ModalSurface(props: {
 export function SheetDialog(props: {
   open: boolean;
   title: string;
+  subtitle?: string;
   role?: "dialog" | "alertdialog";
   onClose: () => void;
   children?: JSX.Element;
@@ -535,12 +723,17 @@ export function SheetDialog(props: {
           paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
         }}
       >
-        <View class="flex-row items-center justify-between border-b border-border px-4 pb-3">
-          <Text role="header" class="text-lg font-semibold text-foreground">
-            {props.title}
-          </Text>
+        <View class="flex-row items-center justify-between gap-3 border-b border-border px-4 pb-3">
+          <View class="flex-1 gap-0.5">
+            <Text role="header" class="text-lg font-semibold text-foreground">
+              {props.title}
+            </Text>
+            <If when={Boolean(props.subtitle)}>
+              <Text class="text-xs text-muted-foreground">{props.subtitle}</Text>
+            </If>
+          </View>
           <ActionButton
-            title="完成"
+            title={tr("common.done")}
             size="sm"
             variant="secondary"
             shape="pill"
@@ -555,15 +748,93 @@ export function SheetDialog(props: {
   );
 }
 
+/** 原生边缘滑入抽屉（基于 nsh/base Sheet，支持底缘拖拽关闭、空间收纳与减弱动态偏好） */
+export function DrawerSheet(props: {
+  open: boolean;
+  title: string;
+  subtitle?: string;
+  side?: "bottom" | "right" | "left" | "top";
+  closeOnSwipe?: boolean;
+  onClose: () => void;
+  footer?: JSX.Element;
+  children?: JSX.Element;
+}) {
+  const edge = () => props.side ?? "bottom";
+  const panelShapeClass = () => {
+    switch (edge()) {
+      case "right":
+        return "h-full w-full max-w-md rounded-l-3xl border-l border-border bg-background";
+      case "left":
+        return "h-full w-full max-w-md rounded-r-3xl border-r border-border bg-background";
+      case "top":
+        return "max-h-[82%] w-full rounded-b-3xl border-b border-border bg-background";
+      default:
+        return "max-h-[86%] w-full self-center sm:max-w-2xl rounded-t-3xl border-t border-border bg-background";
+    }
+  };
+
+  return (
+    <Sheet
+      open={props.open}
+      side={edge()}
+      closeOnSwipe={props.closeOnSwipe ?? true}
+      backdropClass="bg-stage-scrim/55"
+      popupClass={panelShapeClass()}
+      onOpenChange={(e) => {
+        if (!e.open) props.onClose();
+      }}
+    >
+      <View
+        class="flex-1"
+        style={{
+          paddingTop: edge() === "bottom" ? 10 : "calc(env(safe-area-inset-top) + 12px)",
+          paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)",
+        }}
+      >
+        <If when={edge() === "bottom"}>
+          <View class="mb-2 items-center">
+            <View class="h-1 w-10 rounded-full bg-border" />
+          </View>
+        </If>
+        <View class="flex-row items-center justify-between gap-3 border-b border-border/80 px-4 pb-3">
+          <View class="flex-1 gap-0.5">
+            <Text role="header" class="text-base font-semibold text-foreground">
+              {props.title}
+            </Text>
+            <If when={Boolean(props.subtitle)}>
+              <Text class="text-xs leading-relaxed text-muted-foreground">{props.subtitle}</Text>
+            </If>
+          </View>
+          <ActionButton
+            title={tr("common.done")}
+            size="sm"
+            variant="secondary"
+            shape="pill"
+            onPress={props.onClose}
+          />
+        </View>
+        <Scroll class="flex-1" contentStyle={{ padding: 16, gap: 14 }}>
+          {props.children}
+        </Scroll>
+        <If when={Boolean(props.footer)}>
+          <View class="border-t border-border/75 px-4 pt-3">{props.footer}</View>
+        </If>
+      </View>
+    </Sheet>
+  );
+}
+
 /** 消费级分段切换标签栏（基于 nsh/base Tabs，自带原生弹簧滑动指示器） */
-export function SegmentedTabs(props: {
-  items: { id: string; label: string }[];
-  activeId: string;
-  onSelect: (id: string) => void;
+export function SegmentedTabs<T extends string = string>(props: {
+  items: { id: T; label: string; icon?: QiIconName }[];
+  activeId: T;
+  onSelect: (id: T) => void;
+  size?: "sm" | "md";
+  class?: string;
 }) {
   return (
     <Tabs
-      class="flex-row rounded-2xl border border-border/70 bg-surface-sunken p-1"
+      class={`flex-row rounded-2xl border border-border/70 bg-surface-sunken p-1 ${props.class ?? ""}`}
       indicatorClass="inset-y-1 rounded-xl bg-card border border-border/50"
     >
       <Each of={props.items} key={(item) => item.id}>
@@ -571,13 +842,16 @@ export function SegmentedTabs(props: {
           <Tab
             selected={props.activeId === item().id}
             onPress={() => props.onSelect(item().id)}
-            class="min-h-11 flex-1 items-center justify-center rounded-xl px-3 py-2 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            class={`group ${props.size === "sm" ? "min-h-10 py-1.5" : "min-h-11 py-2"} flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-2.5 focus-visible:ring-2 focus-visible:ring-ring`}
           >
-            <Text
-              class={`text-xs font-semibold ${
-                props.activeId === item().id ? "text-foreground" : "text-muted-foreground"
-              }`}
-            >
+            <If when={Boolean(item().icon)}>
+              <QiIcon
+                name={item().icon!}
+                size={14}
+                color={props.activeId === item().id ? token("foreground") : token("muted-foreground")}
+              />
+            </If>
+            <Text class="text-xs font-semibold text-muted-foreground group-selected:text-foreground">
               {item().label}
             </Text>
           </Tab>
@@ -676,25 +950,27 @@ export function ConsumerStatusPill(props: { status: string }) {
   const mapped = () => {
     switch (props.status) {
       case "optimal":
-        return { tone: "optimal", label: "状态充沛" };
+        return { tone: "optimal", label: tr("status.metric_optimal") };
       case "normal":
-        return { tone: "normal", label: "处于常态" };
+        return { tone: "normal", label: tr("status.metric_normal") };
       case "watch_low":
-        return { tone: "watch_low", label: "略偏低于平时" };
+        return { tone: "watch_low", label: tr("status.metric_watch_low") };
       case "alert_low":
-        return { tone: "alert_low", label: "需多留意休息" };
+        return { tone: "alert_low", label: tr("status.metric_alert_low") };
       case "watch_high":
-        return { tone: "watch_high", label: "略偏高于平时" };
+        return { tone: "watch_high", label: tr("status.metric_watch_high") };
       case "alert_high":
-        return { tone: "alert_high", label: "波动偏明显" };
+        return { tone: "alert_high", label: tr("status.metric_alert_high") };
       case "shifted":
-        return { tone: "shifted", label: "节律有所波动" };
+        return { tone: "shifted", label: tr("status.metric_shifted") };
       case "no_baseline":
-        return { tone: "no_baseline", label: "基线积累中" };
+        return { tone: "no_baseline", label: tr("status.metric_no_baseline") };
       default:
-        return { tone: "neutral", label: "平缓观察中" };
+        return { tone: "neutral", label: tr("status.metric_neutral") };
     }
   };
 
   return <VitalBadge tone={mapped().tone} label={mapped().label} />;
 }
+
+export { MOTION_TOKENS, runDrawerLayoutTransition } from "./motion";

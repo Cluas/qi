@@ -3,6 +3,10 @@ options:
   bundleIdPrefix: eu.org.cluas
   deploymentTarget:
     iOS: "15.0"
+  developmentLanguage: zh-Hans
+  knownRegions:
+    - zh-Hans
+    - en
 settings:
   base:
     MARKETING_VERSION: "1.0.0"
@@ -14,23 +18,29 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      - path: Resources
+      - path: QiAtelier.storekit
+        buildPhase: none
     resources:
       - path: PrivacyInfo.xcprivacy
       - path: ../../.nsh/out/bundle.nshc
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: eu.org.cluas.qi
-        PRODUCT_NAME: "知气 · Qi"
-        INFOPLIST_KEY_CFBundleDisplayName: "知气 · Qi"
-        INFOPLIST_KEY_NSHealthShareUsageDescription: "知气 Qi 仅在手机端本地读取睡眠、心率、HRV 与步数用于计算今日元气电量，官方服务器零留存。"
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "知气 Qi 使用语音听写来帮你 3 秒速记饮食与晨起感受。"
-        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "知气 Qi 使用系统本地语音识别完成极速记餐，不上传原始音频。"
+        PRODUCT_NAME: "Qi"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "知气"
+        INFOPLIST_KEY_CFBundleDevelopmentRegion: zh-Hans
+        INFOPLIST_KEY_NSHealthShareUsageDescription: "知气仅在手机端本地读取睡眠、心率、HRV 与步数用于计算今日元气电量，官方服务器零留存。"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "知气使用语音听写来帮你 3 秒速记饮食与晨起感受。"
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "知气使用系统本地语音识别完成极速记餐，不上传原始音频。"
         INFOPLIST_KEY_CFBundleURLTypes:
           - CFBundleURLSchemes: [qi]
         CODE_SIGN_ENTITLEMENTS: Qi.entitlements
     dependencies:
       - sdk: HealthKit.framework
       - sdk: VisionKit.framework
+      - sdk: StoreKit.framework
       - sdk: FoundationModels.framework
         weak: true
       # 由 nsh build / NativeShell Release 产出的核心库
@@ -47,3 +57,11 @@ targets:
           - iCloud.eu.org.cluas.qi
         com.apple.developer.icloud-services:
           - CloudDocuments
+schemes:
+  Qi:
+    build:
+      targets:
+        Qi: all
+    run:
+      config: Debug
+      storeKitConfiguration: QiAtelier.storekit

@@ -3,25 +3,28 @@ import { InsightsPage } from "./pages/InsightsPage";
 import { LogLabsPage } from "./pages/LogLabsPage";
 import { MeVaultPage } from "./pages/MeVaultPage";
 import { OnboardingModal } from "./pages/OnboardingModal";
+import { QaStudioSheet } from "./pages/QaStudioSheet";
 import { TodayPage } from "./pages/TodayPage";
 import {
   type ActiveTab,
-  activateCloudPro,
   cancelZdrConsent,
-  clearEntitlementToken,
   clearToast,
-  coSanctuaryAction,
+  confirmAtelierApplePurchase,
   confirmZdrConsent,
   copyToClipboard,
+  coSanctuaryAction,
   cycleAppearance,
-  cycleVisualTheme,
   getAppearancePref,
+  getAppLocale,
   getDewSummary,
+  getHearthGiftCount,
   getHidePosterNumbers,
   getParentsPeaceLetterResult,
+  getRestoringPurchases,
+  getRestoreStatusMessage,
   getShowAtelierModal,
-  getShowCoSanctuarySheet,
   getShowCompanionLetterModal,
+  getShowCoSanctuarySheet,
   getShowDailyPoster,
   getShowFamilyPeaceLetterModal,
   getShowFourSeasonsScrollModal,
@@ -31,18 +34,20 @@ import {
   getTab,
   getToast,
   getVisualTheme,
-  getVisualThemeMeta,
   logNaturalIntake,
+  restoreApplePurchases,
   setHidePosterNumbers,
   setSealInk,
   setShowAtelierModal,
-  setShowCoSanctuarySheet,
   setShowCompanionLetterModal,
+  setShowCoSanctuarySheet,
   setShowDailyPoster,
   setShowFamilyPeaceLetterModal,
   setShowFourSeasonsScrollModal,
+  setShowQaStudio,
   setShowQuickCaptureModal,
   setTab,
+  toggleAppLocale,
 } from "./store";
 import {
   CompanionLetterModal,
@@ -56,6 +61,7 @@ import {
   BottomTabBar,
   Card,
   FieldInput,
+  IconButton,
   ModalSurface,
   NavRail,
   SheetDialog,
@@ -64,41 +70,34 @@ import {
   VitalBadge,
 } from "./ui/components";
 import { QiIcon, type QiIconName } from "./ui/icons";
+import { tr } from "./ui/i18n";
+import { MOTION_TOKENS, SceneCrossfade } from "./ui/motion";
 import { DailyPosterModal, type SealInkId } from "./ui/sanctuary";
-
-const TABS: { id: ActiveTab; label: string; icon: QiIconName }[] = [
-  { id: "today", label: "今日", icon: "sun" },
-  { id: "log", label: "记录", icon: "record" },
-  { id: "insights", label: "洞察", icon: "compass" },
-  { id: "me", label: "我的", icon: "user_shield" },
-];
 
 function App() {
   const quickText = signal("");
+  const includeHearthGift = signal(getState().entitlements.guardian_sponsor);
+  const myMoodLocal = signal<"sunny_full" | "breeze_steady" | "rest_recharge" | null>(null);
   const isDesktop = () => windowSize().width >= 920;
+
+  const navTabs = (): { id: ActiveTab; label: string; icon: QiIconName }[] => [
+    { id: "today", label: tr("nav.today"), icon: "sun" },
+    { id: "log", label: tr("nav.log"), icon: "record" },
+    { id: "insights", label: tr("nav.insights"), icon: "compass" },
+    { id: "me", label: tr("nav.me"), icon: "user_shield" },
+  ];
 
   const syncSummary = () => {
     const mode = getState().settings.sync_mode;
     switch (mode) {
       case "icloud_drive":
-        return "iCloud 个人云 · 隐私守护";
+        return tr("sync.mode_icloud_summary");
       case "webdav":
-        return "WebDAV 网盘 · 端到端加密";
+        return tr("sync.mode_webdav_summary");
       case "byo_server":
-        return "私有同步节点 · 端到端加密";
+        return tr("sync.mode_byo_summary");
       default:
-        return "纯本地离线 · 仅留本机";
-    }
-  };
-
-  const appearanceLabel = () => {
-    switch (getAppearancePref()) {
-      case "light":
-        return "宣纸";
-      case "dark":
-        return "松烟";
-      default:
-        return "自动";
+        return tr("sync.mode_local_summary");
     }
   };
 
@@ -116,7 +115,7 @@ function App() {
 
   const snap = () => getState().snapshot;
   const settings = () => getState().settings;
-  const themeMeta = () => getVisualThemeMeta(getVisualTheme());
+  const customPets = () => getState().solar_atelier;
 
   return (
     <View
@@ -127,130 +126,115 @@ function App() {
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
-      {/* 顶部宋韵手作陪伴品牌栏 */}
-      <View class="flex-col gap-2 border-b border-border bg-card px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <View class="gap-0.5 sm:flex-1">
-          <View class="flex-row items-center gap-2">
-            <Text role="header" class="text-lg font-bold text-foreground">
-              知气 · Qi
+      {/* Decluttered sanctuary header: brand, quiet privacy status, compact locale toggle & utilities */}
+      <View class="flex-row items-center justify-between gap-2 border-b border-border bg-card px-4 py-2.5">
+        <View class="flex-1 flex-row items-center gap-2.5">
+          <Text role="header" class="text-lg font-bold text-foreground">
+            {tr("app.name")}
+          </Text>
+          <View class="flex-row items-center gap-1 rounded-full border border-vital-prime/25 bg-vital-prime-soft px-2 py-0.5">
+            <QiIcon name="user_shield" size={11} color={token("vital-prime")} />
+            <Text class="text-[11px] font-semibold text-vital-prime">
+              {settings().sync_mode === "local_only"
+                ? tr("status.local_sealed")
+                : tr("status.synced")}
             </Text>
-            <View class="flex-row items-center gap-1 rounded-full border border-vital-prime/30 bg-vital-prime-soft px-2 py-0.5">
-              <QiIcon name="user_shield" size={12} color={token("vital-prime")} />
-              <Text class="text-[11px] font-semibold text-vital-prime">隐私盾</Text>
-            </View>
           </View>
-          <Text class="text-xs text-muted-foreground">{syncSummary()}</Text>
+          <If when={isDesktop()}>
+            <Text class="text-xs text-muted-foreground">{syncSummary()}</Text>
+          </If>
         </View>
 
-        <View class="flex-row flex-wrap items-center justify-between gap-1.5 sm:justify-end">
+        <View class="flex-row items-center gap-1">
           <ActionButton
-            title={
-              getState().entitlements.is_atelier_unlocked
-                ? `雅集 · ${getState().solar_atelier.dew_balance}💧`
-                : "知气雅集"
-            }
-            icon="sparkles"
-            variant={getState().entitlements.is_atelier_unlocked ? "secondary" : "outline"}
+            title={tr("common.lang_toggle_compact")}
+            icon="globe"
+            variant="ghost"
             size="sm"
             shape="pill"
-            accessibilityLabel="打开知气雅集权益与风物馆"
-            onPress={() => setShowAtelierModal(true)}
+            accessibilityLabel={`${tr("common.language")} (${getAppLocale()})`}
+            onPress={() => toggleAppLocale()}
           />
-          <ActionButton
-            title={`画风：${themeMeta().shortLabel}`}
-            icon="palette"
-            variant="outline"
+          <IconButton
+            icon={appearanceIcon()}
             size="sm"
-            shape="pill"
-            accessibilityLabel={`切换灵境画风，当前${themeMeta().shortLabel}`}
-            onPress={() => cycleVisualTheme()}
+            variant="ghost"
+            accessibilityLabel={tr("common.appearance")}
+            onPress={() => cycleAppearance()}
           />
-          <ActionButton
-            title="速记"
+          <IconButton
             icon="plus"
             size="sm"
-            shape="pill"
-            accessibilityLabel="打开一句话饮食速记"
+            variant="secondary"
+            accessibilityLabel={tr("nav.quick_capture")}
             onPress={() => setShowQuickCaptureModal(true)}
           />
-          <ActionButton
-            title={appearanceLabel()}
-            icon={appearanceIcon()}
-            variant="secondary"
+          <IconButton
+            icon="sliders"
             size="sm"
-            shape="pill"
-            accessibilityLabel={`切换外观主题，当前${appearanceLabel()}`}
-            onPress={() => cycleAppearance()}
+            variant="ghost"
+            accessibilityLabel={tr("me.qa_studio_btn")}
+            onPress={() => setShowQaStudio(true)}
           />
         </View>
       </View>
 
-      {/* 轻量 Toast 反馈条 */}
       <If when={Boolean(getToast())}>
         <ToastBanner message={getToast()!} onDismiss={() => clearToast()} />
       </If>
 
-      {/* 主体：桌面端左侧滑动导航栏（>= 920pt） vs 移动端单栏视口 */}
+      {/* Main layout: desktop NavRail vs mobile single column with shader crossfade */}
       <View class="flex-1 flex-row">
         <If when={isDesktop()}>
           <NavRail
-            title="节律导航"
-            items={TABS}
+            title={tr("nav.rail_title")}
+            items={navTabs()}
             activeId={getTab()}
             onSelect={(id) => setTab(id)}
             footer={
               <SunkenBox>
                 <View class="flex-row items-center gap-1.5">
                   <QiIcon name="cloud_lock" size={14} color={token("primary")} />
-                  <Text class="text-xs font-semibold text-foreground">端侧私密计算中</Text>
+                  <Text class="text-xs font-semibold text-foreground">
+                    {tr("nav.local_guard_title")}
+                  </Text>
                 </View>
                 <Text class="text-[11px] leading-relaxed text-muted-foreground">
-                  个人生理基线、饮食随记与体检档案均在本机守护，零强制上传。
+                  {tr("nav.local_guard_desc")}
                 </Text>
               </SunkenBox>
             }
           />
         </If>
 
-        <If when={getTab() === "today"}>
+        <SceneCrossfade
+          value={getTab()}
+          duration={MOTION_TOKENS.duration.base}
+          class="flex-1"
+        >
           <Scroll class="flex-1" contentStyle={{ padding: 16, paddingBottom: 24, gap: 16 }}>
             <View class={`mx-auto w-full gap-4 ${isDesktop() ? "max-w-3xl" : "max-w-xl"}`}>
-              <TodayPage />
+              {getTab() === "today" ? (
+                <TodayPage />
+              ) : getTab() === "log" ? (
+                <LogLabsPage />
+              ) : getTab() === "insights" ? (
+                <InsightsPage />
+              ) : (
+                <MeVaultPage />
+              )}
             </View>
           </Scroll>
-        </If>
-        <If when={getTab() === "log"}>
-          <Scroll class="flex-1" contentStyle={{ padding: 16, paddingBottom: 24, gap: 16 }}>
-            <View class={`mx-auto w-full gap-4 ${isDesktop() ? "max-w-3xl" : "max-w-xl"}`}>
-              <LogLabsPage />
-            </View>
-          </Scroll>
-        </If>
-        <If when={getTab() === "insights"}>
-          <Scroll class="flex-1" contentStyle={{ padding: 16, paddingBottom: 24, gap: 16 }}>
-            <View class={`mx-auto w-full gap-4 ${isDesktop() ? "max-w-3xl" : "max-w-xl"}`}>
-              <InsightsPage />
-            </View>
-          </Scroll>
-        </If>
-        <If when={getTab() === "me"}>
-          <Scroll class="flex-1" contentStyle={{ padding: 16, paddingBottom: 24, gap: 16 }}>
-            <View class={`mx-auto w-full gap-4 ${isDesktop() ? "max-w-3xl" : "max-w-xl"}`}>
-              <MeVaultPage />
-            </View>
-          </Scroll>
-        </If>
+        </SceneCrossfade>
       </View>
 
-      {/* 移动端底部 4-Tab 原生滑动导航栏（< 920pt 显示，非绝对定位防遮挡） */}
       <If when={!isDesktop()}>
-        <BottomTabBar items={TABS} activeId={getTab()} onSelect={(id) => setTab(id)} />
+        <BottomTabBar items={navTabs()} activeId={getTab()} onSelect={(id) => setTab(id)} />
       </If>
 
-      {/* 冷启动诗意引导 */}
       <OnboardingModal />
+      <QaStudioSheet />
 
-      {/* 小红书风今日知气日签海报 */}
       <DailyPosterModal
         open={getShowDailyPoster()}
         themeId={getVisualTheme()}
@@ -268,22 +252,17 @@ function App() {
         hideNumbers={getHidePosterNumbers()}
         onToggleHideNumbers={(hide) => setHidePosterNumbers(hide)}
         atelierUnlocked={getState().entitlements.is_atelier_unlocked}
-        onCopyCaption={(caption) => void copyToClipboard(caption, "今日知气日签")}
+        customPet={customPets().active_custom_pet}
+        onCopyCaption={(caption) => void copyToClipboard(caption, tr("poster.title"))}
         onClose={() => setShowDailyPoster(false)}
       />
 
-      {/* 知气雅集温和会员权益弹窗 */}
       <QiAtelierModal
         open={getShowAtelierModal()}
         companionThemeId={getVisualTheme()}
         currentTier={getState().entitlements.tier}
-        guardianSponsor={getState().entitlements.guardian_sponsor}
-        onToggleGuardian={(enabled) => {
-          void activateCloudPro(
-            getState().entitlements.tier === "free" ? "pro_annual" : getState().entitlements.tier,
-            enabled,
-          );
-        }}
+        guardianSponsor={includeHearthGift()}
+        onToggleGuardian={(enabled) => includeHearthGift.set(enabled)}
         loyaltyDays={
           getState().entitlements.companion_loyalty_eligible
             ? 30
@@ -308,31 +287,65 @@ function App() {
           detail: t.detail,
         }))}
         ethicalPromises={getState().entitlement_catalog.ethical_promises}
-        onConfirm={(tier, guardianSponsor) => {
-          if (tier === "free") {
-            clearEntitlementToken();
-          } else {
-            void activateCloudPro(tier, guardianSponsor);
-          }
+        hearthGiftCount={getHearthGiftCount()}
+        restoringPurchases={getRestoringPurchases()}
+        restoreStatusMessage={getRestoreStatusMessage()}
+        onRestorePurchases={() => void restoreApplePurchases()}
+        onConfirm={(tier, withHearthGift) => {
+          confirmAtelierApplePurchase(tier, withHearthGift);
           setShowAtelierModal(false);
         }}
         onClose={() => setShowAtelierModal(false)}
       />
 
-      {/* 《周日夜话慢递》火漆信封读信弹窗 */}
       <CompanionLetterModal
         open={getShowCompanionLetterModal()}
         atelierUnlocked={getState().entitlements.is_atelier_unlocked}
-        letters={getState().solar_atelier.weekly_letters.map((w) => ({
-          weekIndex: w.week_number,
-          title: w.title,
-          solarTerm: w.solar_term,
-          dateLabel: `第 ${w.week_number} 周 · ${w.companion_name}`,
-          body: w.body,
-          exLibrisTitle: w.ex_libris_title,
-          exLibrisQuote: w.ex_libris_seal,
-          unlocked: w.unlocked,
-        }))}
+        letters={(() => {
+          const petLetters = customPets().pet_weekly_letters;
+          const byWeek = new Map(
+            petLetters.map((p) => [
+              p.week_number,
+              {
+                weekIndex: p.week_number,
+                title: p.title,
+                solarTerm: p.solar_term,
+                dateLabel: tr("atelier.letter.week_chip", {
+                  week: p.week_number,
+                  solarTerm: p.pet_name,
+                }),
+                body: p.body,
+                exLibrisTitle: p.pet_name,
+                exLibrisQuote: p.ex_libris_seal,
+                unlocked: true,
+              },
+            ]),
+          );
+          const merged = customPets().weekly_letters.map((w) => {
+            const petOverride = byWeek.get(w.week_number);
+            if (petOverride) {
+              byWeek.delete(w.week_number);
+              return petOverride;
+            }
+            return {
+              weekIndex: w.week_number,
+              title: w.title,
+              solarTerm: w.solar_term,
+              dateLabel: tr("atelier.letter.week_chip", {
+                week: w.week_number,
+                solarTerm: w.companion_name,
+              }),
+              body: w.body,
+              exLibrisTitle: w.ex_libris_title,
+              exLibrisQuote: w.ex_libris_seal,
+              unlocked: w.unlocked,
+            };
+          });
+          for (const extra of byWeek.values()) {
+            merged.push(extra);
+          }
+          return merged;
+        })()}
         onOpenAtelier={() => {
           setShowCompanionLetterModal(false);
           setShowAtelierModal(true);
@@ -340,41 +353,37 @@ function App() {
         onClose={() => setShowCompanionLetterModal(false)}
       />
 
-      {/* 隐私优先「同窗共养 · 串门盖爪印」抽屉 */}
       <CoSanctuarySheet
         open={getShowCoSanctuarySheet()}
         myMood={
-          getState().solar_atelier.co_sanctuary.self_mood_byte === 2
+          myMoodLocal() ??
+          (customPets().co_sanctuary.self_mood_byte === 2
             ? "rest_recharge"
-            : getState().solar_atelier.co_sanctuary.self_mood_byte === 1
+            : customPets().co_sanctuary.self_mood_byte === 1
               ? "breeze_steady"
-              : "sunny_full"
+              : "sunny_full")
         }
         onSelectMood={(mood) => {
-          const label =
-            mood === "sunny_full" ? "晴朗满格" : mood === "breeze_steady" ? "微风平稳" : "静养蓄力";
-          coSanctuaryAction(`sync_mood_${label}`);
+          myMoodLocal.set(mood);
+          coSanctuaryAction(`sync_mood_${mood}`);
         }}
-        partnerName={getState().solar_atelier.co_sanctuary.partner_name}
-        partnerMood={getState().solar_atelier.co_sanctuary.partner_mood_label}
-        osmanthusLevel={Math.max(
-          1,
-          Math.floor(getState().solar_atelier.co_sanctuary.bonsai_dew / 5) + 1,
-        )}
+        partnerName={customPets().co_sanctuary.partner_name}
+        partnerMood={customPets().co_sanctuary.partner_mood_label}
+        osmanthusLevel={Math.max(1, Math.floor(customPets().co_sanctuary.bonsai_dew / 5) + 1)}
         osmanthusProgressPct={
-          getState().solar_atelier.co_sanctuary.next_stage_dew
+          customPets().co_sanctuary.next_stage_dew
             ? Math.min(
                 100,
                 Math.round(
-                  (getState().solar_atelier.co_sanctuary.bonsai_dew /
-                    Math.max(1, getState().solar_atelier.co_sanctuary.next_stage_dew!)) *
+                  (customPets().co_sanctuary.bonsai_dew /
+                    Math.max(1, customPets().co_sanctuary.next_stage_dew!)) *
                     100,
                 ),
               )
             : 100
         }
-        careHistory={getState()
-          .solar_atelier.dew_ledger.filter((d) => d.source === "co_sanctuary")
+        careHistory={customPets()
+          .dew_ledger.filter((d) => d.source === "co_sanctuary")
           .slice(0, 6)
           .map((d) => ({
             id: String(d.id),
@@ -389,17 +398,16 @@ function App() {
         onClose={() => setShowCoSanctuarySheet(false)}
       />
 
-      {/* 《我的四时身体风物长卷》横向长卷 & 宋瓷勋章 */}
       <FourSeasonsScrollModal
         open={getShowFourSeasonsScrollModal()}
-        seasons={getState().solar_atelier.four_seasons_scroll.map((s) => ({
+        seasons={customPets().four_seasons_scroll.map((s) => ({
           season: s.season_cn,
           solarRange: s.solar_term,
           highlight: `${s.title} · ${s.summary}`,
           avgQiScore: snap().qi_score,
-          dewCollected: getState().solar_atelier.dew_balance,
+          dewCollected: customPets().dew_balance,
         }))}
-        badges={getState().solar_atelier.ceramic_badges.map((b) => ({
+        badges={customPets().ceramic_badges.map((b) => ({
           id: b.id,
           title: b.title,
           subtitle: b.reason,
@@ -408,7 +416,6 @@ function App() {
         onClose={() => setShowFourSeasonsScrollModal(false)}
       />
 
-      {/* 长辈大字《气韵平安家书》生成预览 */}
       <FamilyPeaceLetterModal
         open={getShowFamilyPeaceLetterModal()}
         recipientLabel={
@@ -430,34 +437,32 @@ function App() {
         signatureLine={`${
           (getParentsPeaceLetterResult() ?? getState().parents_peace_letter_preview).closing
         } · ${(getParentsPeaceLetterResult() ?? getState().parents_peace_letter_preview).e2ee_note}`}
-        onCopyLetter={(txt) => void copyToClipboard(txt, "气韵平安家书")}
+        onCopyLetter={(txt) => void copyToClipboard(txt, tr("atelier.family_letter.copy_label"))}
         onClose={() => setShowFamilyPeaceLetterModal(false)}
       />
 
-      {/* 全局 + 速记抽屉 */}
       <SheetDialog
         open={getShowQuickCaptureModal()}
-        title="3 秒一句话速记"
+        title={tr("log.quick_sheet_title")}
         onClose={() => setShowQuickCaptureModal(false)}
       >
         <Card>
           <Text class="text-xs leading-relaxed text-muted-foreground">
-            随手输入一句：例如“下午三点喝了生椰拿铁”、“22:30吃了烧烤小酌”、“早餐豆腐脑油条”。系统将在本机自动识别餐食、热量与时间节奏。
+            {tr("log.quick_sheet_hint")}
           </Text>
           <FieldInput
             value={quickText()}
-            placeholder="输入一句餐饮、咖啡、饮酒或补剂记录"
+            placeholder={tr("log.quick_sheet_placeholder")}
             onChange={(v) => quickText.set(v)}
           />
           <ActionButton
-            title="立即解析并记入"
+            title={tr("log.quick_sheet_submit")}
             icon="check"
             onPress={submitGlobalQuickCapture}
           />
         </Card>
       </SheetDialog>
 
-      {/* Apple 5.1.2(i) 懒加载云端 AI 显式授权弹窗 */}
       <ModalSurface
         open={getShowZdrConsentModal()}
         role="alertdialog"
@@ -466,27 +471,27 @@ function App() {
       >
         <View class="flex-1 justify-center gap-4 px-5">
           <Card>
-            <VitalBadge tone="prime_ready" label="零留存隐私授权" />
+            <VitalBadge tone="prime_ready" label={tr("insights.zdr_badge")} />
             <Text role="header" class="text-lg font-bold text-foreground">
-              首次使用云端 AI 解读授权确认
+              {tr("ai.zdr_dialog_title")}
             </Text>
             <Text class="text-sm leading-relaxed text-muted-foreground">
-              仅在你主动触发云端解读时，应用会先在手机端遮盖姓名、身份证号与个人敏感信息，再将脱敏片段通过零留存通道发送，阅后即焚且绝不用于模型训练。
+              {tr("ai.zdr_dialog_body", { days: 14 })}
             </Text>
             <SunkenBox>
               <Text class="text-xs leading-relaxed text-foreground">
-                你也可以随时在「我的 → AI 引擎与隐私边界」切换为纯本机离线模型或家庭局域网算力，实现数据完全不出机。
+                {tr("ai.zdr_consent_alt")}
               </Text>
             </SunkenBox>
             <View class="flex-row gap-2">
               <ActionButton
-                title="暂不授权"
+                title={tr("ai.zdr_cancel")}
                 variant="secondary"
                 onPress={() => cancelZdrConsent()}
                 class="flex-1"
               />
               <ActionButton
-                title="同意并继续"
+                title={tr("ai.zdr_confirm")}
                 onPress={() => confirmZdrConsent()}
                 class="flex-1"
               />

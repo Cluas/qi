@@ -6,7 +6,10 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Mutex;
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{
+    Engine as _,
+    engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD},
+};
 use chrono::{Datelike, Utc};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use getrandom::getrandom;
@@ -23,6 +26,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     created_at TEXT NOT NULL,
     entitlement_expires_epoch INTEGER NOT NULL DEFAULT 0,
     guardian_sponsor INTEGER NOT NULL DEFAULT 0,
+    hearth_gift_credits INTEGER NOT NULL DEFAULT 0,
     companion_loyalty_days INTEGER NOT NULL DEFAULT 0,
     pair_code TEXT NOT NULL DEFAULT '',
     partner_account_id TEXT NOT NULL DEFAULT '',
@@ -56,11 +60,30 @@ CREATE TABLE IF NOT EXISTS e2ee_sync_envelopes (
     created_at TEXT NOT NULL,
     UNIQUE(account_id, device_id, batch_seq)
 );
+
+CREATE TABLE IF NOT EXISTS apple_iap_transactions (
+    transaction_id TEXT PRIMARY KEY,
+    original_transaction_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    product_id TEXT NOT NULL,
+    purchase_type TEXT NOT NULL,
+    tier_granted TEXT NOT NULL,
+    environment TEXT NOT NULL DEFAULT 'Sandbox',
+    seats_credited INTEGER NOT NULL DEFAULT 0,
+    community_gift_code TEXT NOT NULL DEFAULT '',
+    expires_epoch INTEGER NOT NULL DEFAULT 0,
+    jws_sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_apple_iap_original_tx
+    ON apple_iap_transactions(original_transaction_id);
 "#;
 
 const ACCOUNT_COLUMN_MIGRATIONS: &[(&str, &str)] = &[
     ("entitlement_expires_epoch", "INTEGER NOT NULL DEFAULT 0"),
     ("guardian_sponsor", "INTEGER NOT NULL DEFAULT 0"),
+    ("hearth_gift_credits", "INTEGER NOT NULL DEFAULT 0"),
     ("companion_loyalty_days", "INTEGER NOT NULL DEFAULT 0"),
     ("pair_code", "TEXT NOT NULL DEFAULT ''"),
     ("partner_account_id", "TEXT NOT NULL DEFAULT ''"),
@@ -74,6 +97,11 @@ const ACCOUNT_COLUMN_MIGRATIONS: &[(&str, &str)] = &[
 pub const FREE_LIMIT_MEAL_SCANS: i64 = 3;
 pub const FREE_LIMIT_LAB_PARSES: i64 = 1;
 pub const FREE_LIMIT_BRIEFINGS: i64 = 30;
+
+pub const EXPECTED_IOS_BUNDLE_ID: &str = "eu.org.cluas.qi";
+pub const HEARTH_GIFT_PASS_PRODUCT_ID: &str = "com.qi.hearth_gift_pass";
+pub const HEARTH_GIFT_PASS_TITLE_ZH: &str = "窗台添柴礼赠券 · 赠予社区漂流席位";
+pub const HEARTH_GIFT_PASS_TITLE_EN: &str = "Hearth Gift Pass · Gift 1 Community Seat";
 
 /// 与客户端 `src/entitlements.rs` 对齐的默认签名种子（生产环境通过 `QI_CLOUD_SIGNING_SEED_HEX` 覆盖）。
 pub const DEFAULT_ATELIER_SIGNING_SEED: [u8; 32] = [
@@ -325,6 +353,9 @@ pub struct EntitlementsSnapshot {
     pub entitlement_token: String,
     pub entitlement_expires_epoch: i64,
     pub guardian_sponsor: bool,
+    pub hearth_gift_credits: i64,
+    pub hearth_gift_pass_title_zh: String,
+    pub hearth_gift_pass_title_en: String,
     pub companion_loyalty_days: i64,
     pub seats: u8,
     pub pair_code: String,
@@ -381,7 +412,56 @@ pub struct DeletionReceipt {
     pub deleted_accounts: usize,
     pub deleted_quota_rows: usize,
     pub deleted_e2ee_envelopes: usize,
+    pub deleted_apple_transactions: usize,
     pub wiped_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppleVerifyRequest {
+    #[serde(alias = "signed_transaction_info", alias = "jws")]
+    pub jws_representation: Option<String>,
+    #[serde(alias = "productId")]
+    pub product_id: Option<String>,
+    #[serde(alias = "transactionId")]
+    pub transaction_id: Option<String>,
+    #[serde(alias = "originalTransactionId")]
+    pub original_transaction_id: Option<String>,
+    pub environment: Option<String>,
+    #[serde(alias = "bundleId")]
+    pub bundle_id: Option<String>,
+    #[serde(alias = "expiresDate")]
+    pub expires_date_epoch: Option<i64>,
+    pub quantity: Option<i64>,
+    pub companion_loyalty_days: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppleVerifyResponse {
+    pub verified: bool,
+    pub verification_mode: String,
+    pub environment: String,
+    pub product_id: String,
+    pub purchase_type: String,
+    pub product_display_zh: String,
+    pub product_display_en: String,
+    pub transaction_id: String,
+    pub original_transaction_id: String,
+    pub idempotent_replay: bool,
+    pub entitlement_token: String,
+    pub plan_tier: String,
+    pub seats_credited: i64,
+    pub hearth_gift_credits_total: i64,
+    pub hearth_gift_pass_title_zh: String,
+    pub hearth_gift_pass_title_en: String,
+    pub community_gift_code: Option<String>,
+    pub entitlements: EntitlementsSnapshot,
+}
+
+#[derive(Debug, Clone)]
+pub enum AppleVerifyError {
+    BadRequest(&'static str, String),
+    Conflict(&'static str, String),
+    Internal(String),
 }
 
 pub struct ControlPlaneDb {
@@ -439,6 +519,523 @@ fn ensure_migrations(conn: &Connection) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApplePurchaseKind {
+    Subscription(SubscriptionTier),
+    NonConsumable(SubscriptionTier),
+    ConsumableHearthGiftPass,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AppleProductSpec {
+    product_id: &'static str,
+    purchase_type: &'static str,
+    kind: ApplePurchaseKind,
+    display_zh: &'static str,
+    display_en: &'static str,
+}
+
+impl AppleProductSpec {
+    fn from_product_id(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "com.qi.atelier.pro_monthly" => Some(Self {
+                product_id: "com.qi.atelier.pro_monthly",
+                purchase_type: "auto_renewable_subscription",
+                kind: ApplePurchaseKind::Subscription(SubscriptionTier::ProMonthly),
+                display_zh: "知气月雅 · 月卡",
+                display_en: "Atelier Pro Monthly",
+            }),
+            "com.qi.atelier.seasonal" => Some(Self {
+                product_id: "com.qi.atelier.seasonal",
+                purchase_type: "auto_renewable_subscription",
+                kind: ApplePurchaseKind::Subscription(SubscriptionTier::Seasonal),
+                display_zh: "岁时节气季卡",
+                display_en: "Atelier Seasonal",
+            }),
+            "com.qi.atelier.pro_annual" => Some(Self {
+                product_id: "com.qi.atelier.pro_annual",
+                purchase_type: "auto_renewable_subscription",
+                kind: ApplePurchaseKind::Subscription(SubscriptionTier::ProAnnual),
+                display_zh: "知气雅集 · 年卡",
+                display_en: "Atelier Pro Yearly",
+            }),
+            "com.qi.atelier.duo" => Some(Self {
+                product_id: "com.qi.atelier.duo",
+                purchase_type: "auto_renewable_subscription",
+                kind: ApplePurchaseKind::Subscription(SubscriptionTier::Duo),
+                display_zh: "双人同窗 · Duo",
+                display_en: "Atelier Duo (2 Seats)",
+            }),
+            "com.qi.atelier.family" => Some(Self {
+                product_id: "com.qi.atelier.family",
+                purchase_type: "auto_renewable_subscription",
+                kind: ApplePurchaseKind::Subscription(SubscriptionTier::Family),
+                display_zh: "四时家书 · Family",
+                display_en: "Atelier Family (4 Seats)",
+            }),
+            "com.qi.atelier.lifetime_local" => Some(Self {
+                product_id: "com.qi.atelier.lifetime_local",
+                purchase_type: "non_consumable",
+                kind: ApplePurchaseKind::NonConsumable(SubscriptionTier::LifetimeLocal),
+                display_zh: "买断本地 · 终身版",
+                display_en: "Atelier Lifetime Local",
+            }),
+            HEARTH_GIFT_PASS_PRODUCT_ID => Some(Self {
+                product_id: HEARTH_GIFT_PASS_PRODUCT_ID,
+                purchase_type: "consumable",
+                kind: ApplePurchaseKind::ConsumableHearthGiftPass,
+                display_zh: HEARTH_GIFT_PASS_TITLE_ZH,
+                display_en: HEARTH_GIFT_PASS_TITLE_EN,
+            }),
+            _ => None,
+        }
+    }
+}
+
+struct VerifiedAppleFields {
+    spec: AppleProductSpec,
+    transaction_id: String,
+    original_transaction_id: String,
+    environment: String,
+    verification_mode: String,
+    expires_epoch: i64,
+    quantity: i64,
+    jws_sha256: String,
+}
+
+fn decode_b64url_flexible(segment: &str) -> Result<Vec<u8>, String> {
+    let clean = segment.trim();
+    if clean.is_empty() {
+        return Err("JWS 分段不能为空".to_owned());
+    }
+    URL_SAFE_NO_PAD
+        .decode(clean)
+        .or_else(|_| URL_SAFE.decode(clean))
+        .map_err(|_| "JWS Base64URL 解码失败".to_owned())
+}
+
+fn json_string_or_number(val: &serde_json::Value) -> Option<String> {
+    match val {
+        serde_json::Value::String(s) => {
+            let t = s.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_owned())
+            }
+        }
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+fn json_epoch_seconds(val: &serde_json::Value) -> Option<i64> {
+    let raw = match val {
+        serde_json::Value::Number(n) => n.as_i64()?,
+        serde_json::Value::String(s) => s.trim().parse::<i64>().ok()?,
+        _ => return None,
+    };
+    Some(normalize_epoch_seconds(raw))
+}
+
+fn normalize_epoch_seconds(raw: i64) -> i64 {
+    if raw >= 10_000_000_000 {
+        raw / 1000
+    } else {
+        raw
+    }
+}
+
+fn valid_tx_identifier(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+}
+
+fn normalize_apple_env(raw: &str) -> Result<&'static str, AppleVerifyError> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "production" | "prod" => Ok("Production"),
+        "sandbox" => Ok("Sandbox"),
+        "xcode" => Ok("Xcode"),
+        _ => Err(AppleVerifyError::BadRequest(
+            "invalid_environment",
+            "environment 仅支持 Production / Sandbox / Xcode".to_owned(),
+        )),
+    }
+}
+
+fn apple_sandbox_verifying_key() -> VerifyingKey {
+    if let Ok(hex_pub) = std::env::var("QI_APPLE_SANDBOX_VERIFY_KEY_HEX") {
+        if let Ok(bytes) = hex::decode(hex_pub.trim()) {
+            if bytes.len() == 32 {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                if let Ok(vk) = VerifyingKey::from_bytes(&arr) {
+                    return vk;
+                }
+            }
+        }
+    }
+    default_verifying_key()
+}
+
+fn parse_and_verify_apple_payload(
+    req: &AppleVerifyRequest,
+    now_epoch: i64,
+) -> Result<VerifiedAppleFields, AppleVerifyError> {
+    let jws_opt = req
+        .jws_representation
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let (
+        product_id,
+        transaction_id,
+        original_transaction_id,
+        bundle_id,
+        environment,
+        expires_epoch_opt,
+        quantity,
+        verification_mode,
+        jws_sha256,
+    ) = if let Some(jws) = jws_opt {
+        let parts: Vec<&str> = jws.split('.').collect();
+        if parts.len() != 3 {
+            return Err(AppleVerifyError::BadRequest(
+                "invalid_jws_format",
+                "StoreKit 2 JWS 必须包含 3 段 Base64URL".to_owned(),
+            ));
+        }
+
+        let header_bytes = decode_b64url_flexible(parts[0])
+            .map_err(|m| AppleVerifyError::BadRequest("invalid_jws_header", m))?;
+        let payload_bytes = decode_b64url_flexible(parts[1])
+            .map_err(|m| AppleVerifyError::BadRequest("invalid_jws_payload", m))?;
+        let sig_bytes = decode_b64url_flexible(parts[2])
+            .map_err(|m| AppleVerifyError::BadRequest("invalid_jws_signature", m))?;
+
+        let header: serde_json::Value = serde_json::from_slice(&header_bytes)
+            .map_err(|_| AppleVerifyError::BadRequest("invalid_jws_header_json", "JWS Header 非合法 JSON".to_owned()))?;
+        let alg = header
+            .get("alg")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .unwrap_or("");
+        if alg.is_empty() || alg.eq_ignore_ascii_case("none") {
+            return Err(AppleVerifyError::BadRequest(
+                "invalid_jws_alg",
+                "拒绝无签名或 alg=none 的 JWS 载荷".to_owned(),
+            ));
+        }
+
+        let verification_mode = match alg {
+            "EdDSA" => {
+                let sig = Signature::from_slice(&sig_bytes).map_err(|_| {
+                    AppleVerifyError::BadRequest(
+                        "invalid_jws_signature",
+                        "EdDSA JWS 签名长度非法".to_owned(),
+                    )
+                })?;
+                let signing_input = format!("{}.{}", parts[0], parts[1]);
+                let vk = apple_sandbox_verifying_key();
+                vk.verify_strict(signing_input.as_bytes(), &sig).map_err(|_| {
+                    AppleVerifyError::BadRequest(
+                        "jws_signature_mismatch",
+                        "EdDSA JWS 签名校验未通过".to_owned(),
+                    )
+                })?;
+                "storekit2_jws_eddsa".to_owned()
+            }
+            "ES256" => {
+                if !(64..=80).contains(&sig_bytes.len()) {
+                    return Err(AppleVerifyError::BadRequest(
+                        "invalid_jws_signature",
+                        "ES256 JWS 签名长度不符合 P-256 规范".to_owned(),
+                    ));
+                }
+                if std::env::var("QI_APPLE_REQUIRE_X5C").as_deref() == Ok("1") {
+                    let has_x5c = header
+                        .get("x5c")
+                        .and_then(|v| v.as_array())
+                        .is_some_and(|arr| !arr.is_empty());
+                    if !has_x5c {
+                        return Err(AppleVerifyError::BadRequest(
+                            "missing_x5c_chain",
+                            "生产模式要求 ES256 JWS 携带 Apple x5c 证书链".to_owned(),
+                        ));
+                    }
+                }
+                "storekit2_jws_es256".to_owned()
+            }
+            _ => {
+                return Err(AppleVerifyError::BadRequest(
+                    "unsupported_jws_alg",
+                    format!("不支持的 JWS 算法: {alg}"),
+                ));
+            }
+        };
+
+        let claims: serde_json::Value = serde_json::from_slice(&payload_bytes)
+            .map_err(|_| AppleVerifyError::BadRequest("invalid_jws_payload_json", "JWS Payload 非合法 JSON".to_owned()))?;
+        if !claims.is_object() {
+            return Err(AppleVerifyError::BadRequest(
+                "invalid_jws_payload_json",
+                "JWS Payload 必须为 JSON 对象".to_owned(),
+            ));
+        }
+
+        if let Some(rev) = claims.get("revocationDate") {
+            if !rev.is_null() {
+                return Err(AppleVerifyError::BadRequest(
+                    "transaction_revoked",
+                    "该 Apple 交易已被退款或撤销".to_owned(),
+                ));
+            }
+        }
+
+        let jws_product_id = claims
+            .get("productId")
+            .or_else(|| claims.get("product_id"))
+            .and_then(json_string_or_number)
+            .ok_or_else(|| {
+                AppleVerifyError::BadRequest("missing_product_id", "JWS 缺少 productId".to_owned())
+            })?;
+        let jws_tx_id = claims
+            .get("transactionId")
+            .or_else(|| claims.get("transaction_id"))
+            .and_then(json_string_or_number)
+            .ok_or_else(|| {
+                AppleVerifyError::BadRequest(
+                    "missing_transaction_id",
+                    "JWS 缺少 transactionId".to_owned(),
+                )
+            })?;
+        let jws_orig_id = claims
+            .get("originalTransactionId")
+            .or_else(|| claims.get("original_transaction_id"))
+            .and_then(json_string_or_number)
+            .unwrap_or_else(|| jws_tx_id.clone());
+
+        if let Some(req_pid) = req.product_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if req_pid != jws_product_id {
+                return Err(AppleVerifyError::BadRequest(
+                    "payload_mismatch",
+                    "请求 product_id 与 JWS 签名载荷不一致".to_owned(),
+                ));
+            }
+        }
+        if let Some(req_tid) = req.transaction_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if req_tid != jws_tx_id {
+                return Err(AppleVerifyError::BadRequest(
+                    "payload_mismatch",
+                    "请求 transaction_id 与 JWS 签名载荷不一致".to_owned(),
+                ));
+            }
+        }
+        if let Some(req_oid) = req
+            .original_transaction_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if req_oid != jws_orig_id {
+                return Err(AppleVerifyError::BadRequest(
+                    "payload_mismatch",
+                    "请求 original_transaction_id 与 JWS 签名载荷不一致".to_owned(),
+                ));
+            }
+        }
+
+        let jws_bundle = claims
+            .get("bundleId")
+            .or_else(|| claims.get("bundle_id"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .map(ToOwned::to_owned);
+        if let (Some(req_b), Some(j_b)) = (
+            req.bundle_id.as_deref().map(str::trim).filter(|s| !s.is_empty()),
+            jws_bundle.as_deref(),
+        ) {
+            if req_b != j_b {
+                return Err(AppleVerifyError::BadRequest(
+                    "payload_mismatch",
+                    "请求 bundle_id 与 JWS 签名载荷不一致".to_owned(),
+                ));
+            }
+        }
+        let effective_bundle = jws_bundle.or_else(|| {
+            req.bundle_id
+                .as_deref()
+                .map(str::trim)
+                .map(ToOwned::to_owned)
+        });
+
+        let raw_env = claims
+            .get("environment")
+            .and_then(|v| v.as_str())
+            .or(req.environment.as_deref())
+            .unwrap_or("Sandbox");
+        let norm_env = normalize_apple_env(raw_env)?.to_owned();
+
+        let expires_epoch = claims
+            .get("expiresDate")
+            .or_else(|| claims.get("expires_date_epoch"))
+            .and_then(json_epoch_seconds)
+            .or_else(|| req.expires_date_epoch.map(normalize_epoch_seconds));
+
+        let quantity = claims
+            .get("quantity")
+            .and_then(json_epoch_seconds)
+            .or(req.quantity)
+            .unwrap_or(1);
+
+        let mut h = Sha256::new();
+        h.update(jws.as_bytes());
+        let jws_hash = hex::encode(h.finalize());
+
+        (
+            jws_product_id,
+            jws_tx_id,
+            jws_orig_id,
+            effective_bundle,
+            norm_env,
+            expires_epoch,
+            quantity,
+            verification_mode,
+            jws_hash,
+        )
+    } else {
+        if std::env::var("QI_APPLE_ENV").as_deref() == Ok("production") {
+            return Err(AppleVerifyError::BadRequest(
+                "missing_jws_representation",
+                "生产环境必须提供 StoreKit 2 JWS 交易签名".to_owned(),
+            ));
+        }
+        let raw_env = req.environment.as_deref().unwrap_or("");
+        let norm_env = normalize_apple_env(raw_env)?;
+        if norm_env == "Production" {
+            return Err(AppleVerifyError::BadRequest(
+                "missing_jws_representation",
+                "Production 环境验证必须提供 jws_representation".to_owned(),
+            ));
+        }
+
+        let pid = req
+            .product_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                AppleVerifyError::BadRequest("missing_product_id", "缺少 product_id".to_owned())
+            })?
+            .to_owned();
+        let tid = req
+            .transaction_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                AppleVerifyError::BadRequest(
+                    "missing_transaction_id",
+                    "缺少 transaction_id".to_owned(),
+                )
+            })?
+            .to_owned();
+        let oid = req
+            .original_transaction_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                AppleVerifyError::BadRequest(
+                    "missing_original_transaction_id",
+                    "缺少 original_transaction_id".to_owned(),
+                )
+            })?
+            .to_owned();
+
+        let mut h = Sha256::new();
+        h.update(format!("sandbox:{norm_env}:{tid}:{oid}:{pid}").as_bytes());
+        let sandbox_hash = hex::encode(h.finalize());
+
+        (
+            pid,
+            tid,
+            oid,
+            req.bundle_id.as_deref().map(str::trim).map(ToOwned::to_owned),
+            norm_env.to_owned(),
+            req.expires_date_epoch.map(normalize_epoch_seconds),
+            req.quantity.unwrap_or(1),
+            "storekit2_sandbox_payload".to_owned(),
+            sandbox_hash,
+        )
+    };
+
+    if let Some(ref b) = bundle_id {
+        if b != EXPECTED_IOS_BUNDLE_ID {
+            return Err(AppleVerifyError::BadRequest(
+                "invalid_bundle_id",
+                format!("bundle_id 不匹配，期望 {EXPECTED_IOS_BUNDLE_ID}"),
+            ));
+        }
+    }
+
+    if !valid_tx_identifier(&transaction_id) || !valid_tx_identifier(&original_transaction_id) {
+        return Err(AppleVerifyError::BadRequest(
+            "invalid_transaction_id",
+            "transaction_id 或 original_transaction_id 格式非法".to_owned(),
+        ));
+    }
+
+    let spec = AppleProductSpec::from_product_id(&product_id).ok_or_else(|| {
+        AppleVerifyError::BadRequest(
+            "unknown_product_id",
+            format!("未知的 Apple 商品标识: {product_id}"),
+        )
+    })?;
+
+    if !(1..=20).contains(&quantity) {
+        return Err(AppleVerifyError::BadRequest(
+            "invalid_quantity",
+            "quantity 必须在 1..=20 之间".to_owned(),
+        ));
+    }
+
+    let resolved_expires_epoch = match spec.kind {
+        ApplePurchaseKind::Subscription(tier) => {
+            if let Some(exp) = expires_epoch_opt {
+                if exp <= now_epoch {
+                    return Err(AppleVerifyError::BadRequest(
+                        "subscription_expired",
+                        "该 Apple 订阅周期已过期，未签发新通行证".to_owned(),
+                    ));
+                }
+                exp
+            } else {
+                now_epoch.saturating_add(tier.default_duration_seconds())
+            }
+        }
+        ApplePurchaseKind::NonConsumable(tier) => {
+            now_epoch.saturating_add(tier.default_duration_seconds())
+        }
+        ApplePurchaseKind::ConsumableHearthGiftPass => 0,
+    };
+
+    Ok(VerifiedAppleFields {
+        spec,
+        transaction_id,
+        original_transaction_id,
+        environment,
+        verification_mode,
+        expires_epoch: resolved_expires_epoch,
+        quantity,
+        jws_sha256,
+    })
 }
 
 impl ControlPlaneDb {
@@ -545,22 +1142,23 @@ impl ControlPlaneDb {
         conn: &Connection,
         id: &AccountIdentity,
     ) -> Result<EntitlementsSnapshot, String> {
-        let (plan_tier, stored_exp, guardian_int, loyalty_days, pair_code): (
+        let (plan_tier, stored_exp, guardian_int, hearth_gift_credits, loyalty_days, pair_code): (
             String,
+            i64,
             i64,
             i64,
             i64,
             String,
         ) = conn
             .query_row(
-                "SELECT plan_tier, entitlement_expires_epoch, guardian_sponsor, companion_loyalty_days, pair_code
+                "SELECT plan_tier, entitlement_expires_epoch, guardian_sponsor, hearth_gift_credits, companion_loyalty_days, pair_code
                  FROM accounts WHERE account_id = ?1",
                 params![id.account_id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
             )
             .optional()
             .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| (id.plan_tier.clone(), 0, 0, 0, String::new()));
+            .unwrap_or_else(|| (id.plan_tier.clone(), 0, 0, 0, 0, String::new()));
 
         let ym = current_year_month();
         let (meal, lab, brief): (i64, i64, i64) = conn
@@ -632,6 +1230,9 @@ impl ControlPlaneDb {
             entitlement_token,
             entitlement_expires_epoch: exp_epoch,
             guardian_sponsor,
+            hearth_gift_credits,
+            hearth_gift_pass_title_zh: HEARTH_GIFT_PASS_TITLE_ZH.to_owned(),
+            hearth_gift_pass_title_en: HEARTH_GIFT_PASS_TITLE_EN.to_owned(),
             companion_loyalty_days: loyalty_days,
             seats: tier_enum.default_seats(),
             pair_code,
@@ -1130,6 +1731,237 @@ impl ControlPlaneDb {
         Ok((filtered, latest_id))
     }
 
+    /// 校验 StoreKit 2 JWS / Sandbox 交易凭据并幂等落库（支持订阅签发 OSET 与窗台添柴礼赠券席位累加）
+    pub fn verify_apple_purchase(
+        &self,
+        identity: &AccountIdentity,
+        req: &AppleVerifyRequest,
+    ) -> Result<AppleVerifyResponse, AppleVerifyError> {
+        let now_epoch = Utc::now().timestamp();
+        let verified = parse_and_verify_apple_payload(req, now_epoch)?;
+
+        let mut guard = self
+            .conn
+            .lock()
+            .map_err(|_| AppleVerifyError::Internal("DB 锁异常".to_owned()))?;
+        let tx = guard
+            .transaction()
+            .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+
+        let existing_tx: Option<(String, String, i64, String, i64)> = tx
+            .query_row(
+                "SELECT account_id, product_id, seats_credited, community_gift_code, expires_epoch
+                 FROM apple_iap_transactions WHERE transaction_id = ?1",
+                params![verified.transaction_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .optional()
+            .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+
+        if let Some((owner_id, existing_pid, _existing_seats, existing_code, existing_exp)) = existing_tx {
+            if owner_id != identity.account_id {
+                return Err(AppleVerifyError::Conflict(
+                    "transaction_owned_by_another_account",
+                    "该 Apple 交易凭据已绑定其他账号".to_owned(),
+                ));
+            }
+            if existing_pid != verified.spec.product_id {
+                return Err(AppleVerifyError::BadRequest(
+                    "transaction_product_mismatch",
+                    "同一 transaction_id 不可变更为其他商品".to_owned(),
+                ));
+            }
+
+            // 恢复购买幂等重放：如为订阅/买断且原账户处于 free 或更早到期，确保状态同步但不重复入账
+            match verified.spec.kind {
+                ApplePurchaseKind::Subscription(tier)
+                | ApplePurchaseKind::NonConsumable(tier) => {
+                    let effective_exp = existing_exp.max(verified.expires_epoch);
+                    let current_row: Option<(String, i64)> = tx
+                        .query_row(
+                            "SELECT plan_tier, entitlement_expires_epoch FROM accounts WHERE account_id = ?1",
+                            params![identity.account_id],
+                            |r| Ok((r.get(0)?, r.get(1)?)),
+                        )
+                        .optional()
+                        .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+                    if let Some((cur_tier, cur_exp)) = current_row {
+                        if cur_tier == "free" || cur_exp < effective_exp {
+                            tx.execute(
+                                "UPDATE accounts SET plan_tier = ?1, entitlement_expires_epoch = ?2 WHERE account_id = ?3",
+                                params![tier.as_str(), effective_exp, identity.account_id],
+                            )
+                            .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+                        }
+                    }
+                }
+                ApplePurchaseKind::ConsumableHearthGiftPass => {}
+            }
+
+            tx.commit()
+                .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+            let ent = Self::load_entitlements_locked(&guard, identity)
+                .map_err(AppleVerifyError::Internal)?;
+            let code_opt = if existing_code.is_empty() {
+                None
+            } else {
+                Some(existing_code)
+            };
+            return Ok(AppleVerifyResponse {
+                verified: true,
+                verification_mode: verified.verification_mode,
+                environment: verified.environment,
+                product_id: verified.spec.product_id.to_owned(),
+                purchase_type: verified.spec.purchase_type.to_owned(),
+                product_display_zh: verified.spec.display_zh.to_owned(),
+                product_display_en: verified.spec.display_en.to_owned(),
+                transaction_id: verified.transaction_id,
+                original_transaction_id: verified.original_transaction_id,
+                idempotent_replay: true,
+                entitlement_token: ent.entitlement_token.clone(),
+                plan_tier: ent.plan_tier.clone(),
+                seats_credited: 0,
+                hearth_gift_credits_total: ent.hearth_gift_credits,
+                hearth_gift_pass_title_zh: HEARTH_GIFT_PASS_TITLE_ZH.to_owned(),
+                hearth_gift_pass_title_en: HEARTH_GIFT_PASS_TITLE_EN.to_owned(),
+                community_gift_code: code_opt,
+                entitlements: ent,
+            });
+        }
+
+        // 校验 original_transaction_id 归属权（防止跨账号重放订阅线）
+        let other_owner: Option<String> = tx
+            .query_row(
+                "SELECT account_id FROM apple_iap_transactions
+                 WHERE original_transaction_id = ?1 AND account_id != ?2
+                 LIMIT 1",
+                params![verified.original_transaction_id, identity.account_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+        if other_owner.is_some() {
+            return Err(AppleVerifyError::Conflict(
+                "transaction_owned_by_another_account",
+                "该 Apple 原始交易链已绑定其他账号".to_owned(),
+            ));
+        }
+
+        let now_rfc3339 = Utc::now().to_rfc3339();
+        let (tier_granted, seats_credited, community_gift_code) = match verified.spec.kind {
+            ApplePurchaseKind::Subscription(tier) | ApplePurchaseKind::NonConsumable(tier) => {
+                let (cur_tier, cur_exp): (String, i64) = tx
+                    .query_row(
+                        "SELECT plan_tier, entitlement_expires_epoch FROM accounts WHERE account_id = ?1",
+                        params![identity.account_id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+                let next_exp = if cur_tier == tier.as_str() {
+                    cur_exp.max(verified.expires_epoch)
+                } else {
+                    verified.expires_epoch
+                };
+                tx.execute(
+                    "UPDATE accounts SET plan_tier = ?1, entitlement_expires_epoch = ?2 WHERE account_id = ?3",
+                    params![tier.as_str(), next_exp, identity.account_id],
+                )
+                .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+                (tier.as_str().to_owned(), 0i64, String::new())
+            }
+            ApplePurchaseKind::ConsumableHearthGiftPass => {
+                let code = format!(
+                    "QI-SEAT-{}",
+                    &verified.jws_sha256[..10].to_ascii_uppercase()
+                );
+                tx.execute(
+                    "UPDATE accounts SET hearth_gift_credits = hearth_gift_credits + ?1 WHERE account_id = ?2",
+                    params![verified.quantity, identity.account_id],
+                )
+                .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+                (
+                    "hearth_gift_pass".to_owned(),
+                    verified.quantity,
+                    code,
+                )
+            }
+        };
+
+        if let Some(days) = req.companion_loyalty_days {
+            tx.execute(
+                "UPDATE accounts SET companion_loyalty_days = ?1 WHERE account_id = ?2",
+                params![days.max(0), identity.account_id],
+            )
+            .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+        }
+
+        tx.execute(
+            "INSERT INTO apple_iap_transactions
+             (transaction_id, original_transaction_id, account_id, product_id, purchase_type,
+              tier_granted, environment, seats_credited, community_gift_code, expires_epoch,
+              jws_sha256, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                verified.transaction_id,
+                verified.original_transaction_id,
+                identity.account_id,
+                verified.spec.product_id,
+                verified.spec.purchase_type,
+                tier_granted,
+                verified.environment,
+                seats_credited,
+                community_gift_code,
+                verified.expires_epoch,
+                verified.jws_sha256,
+                now_rfc3339,
+            ],
+        )
+        .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+
+        tx.commit()
+            .map_err(|e| AppleVerifyError::Internal(e.to_string()))?;
+
+        let ent = Self::load_entitlements_locked(&guard, identity)
+            .map_err(AppleVerifyError::Internal)?;
+        let code_opt = if community_gift_code.is_empty() {
+            None
+        } else {
+            Some(community_gift_code)
+        };
+        Ok(AppleVerifyResponse {
+            verified: true,
+            verification_mode: verified.verification_mode,
+            environment: verified.environment,
+            product_id: verified.spec.product_id.to_owned(),
+            purchase_type: verified.spec.purchase_type.to_owned(),
+            product_display_zh: verified.spec.display_zh.to_owned(),
+            product_display_en: verified.spec.display_en.to_owned(),
+            transaction_id: verified.transaction_id,
+            original_transaction_id: verified.original_transaction_id,
+            idempotent_replay: false,
+            entitlement_token: ent.entitlement_token.clone(),
+            plan_tier: ent.plan_tier.clone(),
+            seats_credited,
+            hearth_gift_credits_total: ent.hearth_gift_credits,
+            hearth_gift_pass_title_zh: HEARTH_GIFT_PASS_TITLE_ZH.to_owned(),
+            hearth_gift_pass_title_en: HEARTH_GIFT_PASS_TITLE_EN.to_owned(),
+            community_gift_code: code_opt,
+            entitlements: ent,
+        })
+    }
+
+    pub fn count_apple_transactions_for_account(&self, account_id: &str) -> Result<usize, String> {
+        let guard = self.conn.lock().map_err(|_| "DB 锁异常".to_owned())?;
+        let count: i64 = guard
+            .query_row(
+                "SELECT COUNT(*) FROM apple_iap_transactions WHERE account_id = ?1",
+                params![account_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count as usize)
+    }
+
     /// Apple 5.1.1(v) 账号与全量密文分片事务性物理销毁
     pub fn delete_account_physical(&self, account_id: &str) -> Result<DeletionReceipt, String> {
         let mut guard = self.conn.lock().map_err(|_| "DB 锁异常".to_owned())?;
@@ -1139,6 +1971,12 @@ impl ControlPlaneDb {
             params![account_id],
         )
         .map_err(|e| e.to_string())?;
+        let deleted_apple_transactions = tx
+            .execute(
+                "DELETE FROM apple_iap_transactions WHERE account_id = ?1",
+                params![account_id],
+            )
+            .map_err(|e| e.to_string())?;
         let deleted_e2ee_envelopes = tx
             .execute(
                 "DELETE FROM e2ee_sync_envelopes WHERE account_id = ?1",
@@ -1164,6 +2002,7 @@ impl ControlPlaneDb {
             deleted_accounts,
             deleted_quota_rows,
             deleted_e2ee_envelopes,
+            deleted_apple_transactions,
             wiped_at: Utc::now().to_rfc3339(),
         })
     }

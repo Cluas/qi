@@ -1,0 +1,7 @@
+/* Localized versions of Info.plist keys (English) */
+
+CFBundleDisplayName = "Qi";
+CFBundleName = "Qi";
+NSHealthShareUsageDescription = "Qi reads sleep, heart rate, HRV, and steps locally on your device to calculate daily vitality with zero server retention.";
+NSMicrophoneUsageDescription = "Qi uses speech dictation to help you log meals and morning check-ins in seconds.";
+NSSpeechRecognitionUsageDescription = "Qi uses on-device speech recognition for quick meal logging without uploading raw audio.";

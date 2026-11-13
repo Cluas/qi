@@ -1,0 +1,7 @@
+/* Localized versions of Info.plist keys (Simplified Chinese) */
+
+CFBundleDisplayName = "知气";
+CFBundleName = "知气";
+NSHealthShareUsageDescription = "知气仅在手机端本地读取睡眠、心率、HRV 与步数用于计算今日元气电量，官方服务器零留存。";
+NSMicrophoneUsageDescription = "知气使用语音听写来帮你 3 秒速记饮食与晨起感受。";
+NSSpeechRecognitionUsageDescription = "知气使用系统本地语音识别完成极速记餐，不上传原始音频。";

@@ -701,3 +701,413 @@ fn audit_6_checks_non_lockout_sqlite_migration_and_wipe() {
 
     let _ = std::fs::remove_file(&tmp_path);
 }
+
+fn contains_cjk_char(s: &str) -> bool {
+    s.chars()
+        .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || ('\u{3400}'..='\u{4dbf}').contains(&c))
+}
+
+fn assert_no_cjk_in_json(val: &Value, path: &str) {
+    match val {
+        Value::String(s) => assert!(
+            !contains_cjk_char(s),
+            "Unexpected CJK leak at {path}: {s}"
+        ),
+        Value::Array(arr) => {
+            for (idx, item) in arr.iter().enumerate() {
+                assert_no_cjk_in_json(item, &format!("{path}[{idx}]"));
+            }
+        }
+        Value::Object(map) => {
+            for (k, v) in map {
+                assert_no_cjk_in_json(v, &format!("{path}.{k}"));
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn v5_locale_bilingual_switching_legacy_settings_and_no_cjk_leak_in_en() {
+    // 1. Legacy AppSettings JSON without `locale` deserializes with default `"zh-CN"`.
+    let mut legacy_map = serde_json::to_value(nsh_app_qi::storage::AppSettings::default()).unwrap();
+    legacy_map.as_object_mut().unwrap().remove("locale");
+    let legacy_settings: nsh_app_qi::storage::AppSettings =
+        serde_json::from_value(legacy_map).unwrap();
+    assert_eq!(legacy_settings.locale, "zh-CN");
+
+    // 2. Legacy SQLite DB missing `locale` row in app_settings also defaults to `zh-CN`.
+    let mut engine = QiEngine::new(Some(":memory:".to_owned())).unwrap();
+    let loc0 = parse_json(&engine.get_locale().unwrap());
+    assert_eq!(loc0["locale"], "zh-CN");
+
+    let st_zh = parse_json(&engine.state_json().unwrap());
+    let zh_raw = serde_json::to_string(&st_zh).unwrap();
+    assert!(!zh_raw.contains("知气 · Qi"), "Brand leak in zh-CN payload");
+    assert_eq!(st_zh["solar_atelier"]["solar_term"]["term_name"], "立冬");
+    assert!(nsh_app_qi::QiMeta::disclaimer_for_locale("zh-CN".into()).contains("生活方式"));
+    assert!(nsh_app_qi::QiMeta::disclaimer_for_locale("en".into()).contains("everyday wellness"));
+    assert!(!nsh_app_qi::QiMeta::disclaimer_for_locale("zh-CN".into()).contains("知气 · Qi"));
+    assert!(!nsh_app_qi::QiMeta::disclaimer_for_locale("en".into()).contains("知气 · Qi"));
+
+    // 3. Switch to English (`en`) and verify all user-facing display payloads translate cleanly.
+    let st_en = parse_json(&engine.set_locale("en".into()).unwrap());
+    assert_eq!(st_en["settings"]["locale"], "en");
+    assert_eq!(parse_json(&engine.get_locale().unwrap())["locale"], "en");
+    let en_raw = serde_json::to_string(&st_en).unwrap();
+    assert!(!en_raw.contains("知气 · Qi"));
+
+    for key in [
+        "snapshot",
+        "briefing",
+        "labs",
+        "experiments",
+        "experiment_templates",
+        "period_comparison",
+        "entitlements",
+        "entitlement_catalog",
+        "multi_lag_radar",
+        "multi_profile_uln_trends",
+        "recheck_reminders",
+        "parents_peace_letter_preview",
+    ] {
+        assert_no_cjk_in_json(&st_en[key], key);
+    }
+    for sa_key in [
+        "solar_term",
+        "seasonal_pass",
+        "keepsake_catalog",
+        "companion_weekly_letters",
+        "co_sanctuary",
+        "widget_preview",
+        "four_seasons_scroll",
+        "ceramic_badges",
+        "custom_pet_quota",
+        "dew_ledger",
+    ] {
+        assert_no_cjk_in_json(&st_en["solar_atelier"][sa_key], &format!("solar_atelier.{sa_key}"));
+    }
+
+    let audit_en = parse_json(&engine.run_data_integrity_audit().unwrap());
+    assert_eq!(audit_en["passed"], true);
+    assert_no_cjk_in_json(&audit_en, "audit");
+
+    // 4. Switch back to zh-CN and verify Chinese restoration.
+    let st_back = parse_json(&engine.set_locale("zh-CN".into()).unwrap());
+    assert_eq!(st_back["settings"]["locale"], "zh-CN");
+    assert_eq!(st_back["solar_atelier"]["solar_term"]["term_name"], "立冬");
+}
+
+#[test]
+fn v5_custom_pet_free_quota_validation_pro_ex_libris_and_expired_non_lockout() {
+    let mut engine = QiEngine::new(Some(":memory:".to_owned())).unwrap();
+
+    // 1. Unsafe SVG photo data URI must be rejected cleanly.
+    let svg_err = engine
+        .upsert_custom_pet(
+            "米粒".into(),
+            "cat".into(),
+            "爱晒太阳".into(),
+            "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=".into(),
+            "stamp".into(),
+            false,
+            "".into(),
+            true,
+            None,
+        )
+        .unwrap_err();
+    assert!(svg_err.contains("PNG") || svg_err.contains("JPEG") || svg_err.contains("WebP"));
+
+    // 2. Free tier cannot use Pro Ex Libris stamp title, but can save 1 custom pet forever.
+    let ex_libris_free_err = engine
+        .upsert_custom_pet(
+            "米粒".into(),
+            "cat".into(),
+            "冬日窗台主理喵".into(),
+            "data:image/png;base64,iVBORw0KGgo=".into(),
+            "stamp".into(),
+            false,
+            "藏书票 · 米粒".into(),
+            true,
+            None,
+        )
+        .unwrap_err();
+    assert!(ex_libris_free_err.contains("知气雅集"));
+
+    let st_free_pet = parse_json(
+        &engine
+            .upsert_custom_pet(
+                "米粒".into(),
+                "cat".into(),
+                "冬日窗台主理喵".into(),
+                "data:image/png;base64,iVBORw0KGgo=".into(),
+                "stamp".into(),
+                false,
+                "".into(),
+                true,
+                None,
+            )
+            .unwrap(),
+    );
+    assert_eq!(st_free_pet["solar_atelier"]["custom_pet_quota"]["used_count"], 1);
+    assert_eq!(st_free_pet["solar_atelier"]["custom_pet_quota"]["allowed_count"], 1);
+    assert_eq!(st_free_pet["solar_atelier"]["custom_pet_quota"]["can_add_more"], false);
+    assert_eq!(st_free_pet["solar_atelier"]["active_custom_pet"]["name"], "米粒");
+
+    let pet1_id = st_free_pet["solar_atelier"]["active_custom_pet"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // 2nd custom pet blocked on Free tier
+    let err_pet2_free = engine
+        .upsert_custom_pet(
+            "云朵".into(),
+            "rabbit".into(),
+            "星光兔".into(),
+            "".into(),
+            "arch".into(),
+            true,
+            "".into(),
+            true,
+            None,
+        )
+        .unwrap_err();
+    assert!(err_pet2_free.contains("1 位"));
+
+    // 3. Upgrade to Pro Atelier -> up to 3 custom pets + Ex Libris + first-person weekly letters
+    engine
+        .set_entitlement_sandbox("pro_annual".into(), "active".into(), false, 10)
+        .unwrap();
+
+    let st_pet2 = parse_json(
+        &engine
+            .upsert_custom_pet(
+                "云朵".into(),
+                "rabbit".into(),
+                "一直陪在桌面灯下".into(),
+                "data:image/webp;base64,UklGRh4AAABXRUJQ".into(),
+                "arch".into(),
+                true,
+                "Ex Libris · Cloud".into(),
+                true,
+                None,
+            )
+            .unwrap(),
+    );
+    let pet2_id = st_pet2["solar_atelier"]["active_custom_pet"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(st_pet2["solar_atelier"]["active_custom_pet"]["starlight_memorial"], true);
+
+    let st_pet3 = parse_json(
+        &engine
+            .upsert_custom_pet(
+                "Maple".into(),
+                "fox".into(),
+                "Warm autumn tea companion".into(),
+                "".into(),
+                "cloud".into(),
+                false,
+                "Atelier Seal · Maple".into(),
+                false,
+                None,
+            )
+            .unwrap(),
+    );
+    let pet3_id = st_pet3["solar_atelier"]["custom_pets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "Maple")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(st_pet3["solar_atelier"]["custom_pet_quota"]["used_count"], 3);
+    assert_eq!(st_pet3["solar_atelier"]["custom_pet_quota"]["allowed_count"], 3);
+    assert_eq!(st_pet3["solar_atelier"]["custom_pet_quota"]["can_add_more"], false);
+
+    // 4th custom pet blocked cleanly even on Pro
+    let err_pet4 = engine
+        .upsert_custom_pet(
+            "多余".into(),
+            "dog".into(),
+            "".into(),
+            "".into(),
+            "circle".into(),
+            false,
+            "".into(),
+            false,
+            None,
+        )
+        .unwrap_err();
+    assert!(err_pet4.contains("3 位"));
+
+    // Generate bilingual first-person weekly letters for Cloud (starlight memorial) & Maple (en)
+    let st_letter_zh = parse_json(&engine.generate_pet_weekly_letter(pet2_id.clone(), Some(1)).unwrap());
+    let letters_zh = st_letter_zh["solar_atelier"]["pet_weekly_letters"].as_array().unwrap();
+    assert_eq!(letters_zh.len(), 1);
+    assert_eq!(letters_zh[0]["starlight_memorial"], true);
+    assert!(letters_zh[0]["body"].as_str().unwrap().contains("星光"));
+
+    engine.set_locale("en".into()).unwrap();
+    let st_letter_en = parse_json(&engine.generate_pet_weekly_letter(pet3_id.clone(), Some(2)).unwrap());
+    let letters_en = st_letter_en["solar_atelier"]["pet_weekly_letters"].as_array().unwrap();
+    assert_eq!(letters_en.len(), 2);
+    assert_eq!(letters_en[0]["locale"], "en");
+    assert_no_cjk_in_json(&letters_en[0], "pet_weekly_letters[0]");
+
+    // 4. ETHICAL RED LINE: Expire Atelier -> ExpiredReadOnlyVault MUST NEVER delete/hide/lock existing 3 pets or saved letters!
+    let st_exp = parse_json(
+        &engine
+            .set_entitlement_sandbox("pro_annual".into(), "expired".into(), false, 10)
+            .unwrap(),
+    );
+    assert_eq!(st_exp["entitlements"]["state"], "expired_read_only_vault");
+    assert_eq!(st_exp["entitlements"]["is_atelier_unlocked"], false);
+    assert_eq!(st_exp["solar_atelier"]["custom_pets"].as_array().unwrap().len(), 3);
+    assert_eq!(st_exp["solar_atelier"]["pet_weekly_letters"].as_array().unwrap().len(), 2);
+    assert_eq!(st_exp["solar_atelier"]["custom_pet_quota"]["used_count"], 3);
+    assert_eq!(st_exp["solar_atelier"]["custom_pet_quota"]["allowed_count"], 1);
+    assert_eq!(
+        st_exp["solar_atelier"]["custom_pet_quota"]["retained_above_free_quota"],
+        true
+    );
+
+    // Existing pets can still be switched freely on window stage and edited (non-Pro fields)
+    let st_switch = parse_json(&engine.set_active_custom_pet(pet1_id.clone()).unwrap());
+    assert_eq!(st_switch["solar_atelier"]["active_custom_pet"]["id"], pet1_id);
+    let st_edit_non_pro = parse_json(
+        &engine
+            .upsert_custom_pet(
+                "云朵".into(),
+                "rabbit".into(),
+                "Updated calm persona on read-only vault".into(),
+                "".into(),
+                "lacquer_arch".into(),
+                true,
+                "Ex Libris · Cloud".into(), // unchanged saved stamp
+                true,
+                Some(pet2_id.clone()),
+            )
+            .unwrap(),
+    );
+    assert_eq!(st_edit_non_pro["solar_atelier"]["active_custom_pet"]["die_cut_frame"], "lacquer_arch");
+
+    // Switching back to seasonal companion (`""`) also succeeds cleanly
+    let st_default_comp = parse_json(&engine.set_active_custom_pet("".into()).unwrap());
+    assert!(st_default_comp["solar_atelier"]["active_custom_pet"].is_null());
+
+    // Generating NEW Pro letters or modifying Ex Libris stamp or adding new pet on expired vault fails politely
+    let err_new_letter = engine
+        .generate_pet_weekly_letter(pet2_id.clone(), Some(3))
+        .unwrap_err();
+    assert!(err_new_letter.contains("Qi Atelier"));
+
+    let err_new_stamp = engine
+        .upsert_custom_pet(
+            "云朵".into(),
+            "rabbit".into(),
+            "Persona".into(),
+            "".into(),
+            "arch".into(),
+            true,
+            "Brand New Stamp".into(),
+            true,
+            Some(pet2_id.clone()),
+        )
+        .unwrap_err();
+    assert!(err_new_stamp.contains("Ex Libris"));
+
+    // Deleting a custom pet removes only it and its saved letters cleanly
+    let st_deleted = parse_json(&engine.delete_custom_pet(pet2_id).unwrap());
+    assert_eq!(st_deleted["solar_atelier"]["custom_pets"].as_array().unwrap().len(), 2);
+    let remaining_letters = st_deleted["solar_atelier"]["pet_weekly_letters"].as_array().unwrap();
+    assert_eq!(remaining_letters.len(), 1);
+    assert_eq!(remaining_letters[0]["pet_id"], pet3_id);
+    let listed = parse_json(&engine.list_custom_pets().unwrap());
+    assert_eq!(listed["pets"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn v5_apple_iap_hearth_gift_pass_commercial_naming_and_restore() {
+    // 1. Apple IAP catalog includes Hearth Gift Pass consumable SKU & Atelier plans
+    let apple_ids = parse_json(&nsh_app_qi::QiMeta::apple_catalog_product_ids_json());
+    assert_eq!(
+        apple_ids["consumables"][0]["product_id"],
+        "com.qi.hearth_gift_pass"
+    );
+
+    let mut engine = QiEngine::new(Some(":memory:".to_owned())).unwrap();
+    for locale in ["zh-CN", "en"] {
+        let st = parse_json(&engine.set_locale(locale.into()).unwrap());
+        let raw = serde_json::to_string(&st).unwrap();
+        let lower = raw.to_lowercase();
+        for forbidden in ["公益", "慈善", "捐", "charity", "donat", "知气 · qi"] {
+            assert!(
+                !lower.contains(forbidden),
+                "Forbidden App Store 3.2.1(vi) / brand wording '{forbidden}' leaked under locale {locale}"
+            );
+        }
+        assert_eq!(st["entitlement_catalog"]["guardian_addon_price_cny"], 12);
+    }
+
+    // Verify commercial naming in both languages
+    let st_zh = parse_json(&engine.set_locale("zh-CN".into()).unwrap());
+    assert_eq!(
+        st_zh["entitlement_catalog"]["guardian_addon_title"],
+        "窗台添柴礼赠券 · 赠予社区漂流席位"
+    );
+    let st_en = parse_json(&engine.set_locale("en".into()).unwrap());
+    assert_eq!(
+        st_en["entitlement_catalog"]["guardian_addon_title"],
+        "Hearth Gift Pass · Gift 1 Community Seat"
+    );
+
+    // 2. Verify StoreKit 2 Hearth Gift Pass purchase in Sandbox unlocks guardian_sponsor + hearth_guardian badge
+    let st_gift = parse_json(
+        &engine
+            .verify_apple_iap_transaction(
+                "com.qi.hearth_gift_pass".into(),
+                "tx_gift_001".into(),
+                "tx_gift_001".into(),
+                "Sandbox".into(),
+                None,
+                None,
+            )
+            .unwrap(),
+    );
+    assert_eq!(st_gift["entitlements"]["guardian_sponsor"], true);
+    let guardian_badge = st_gift["solar_atelier"]["ceramic_badges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["id"] == "hearth_guardian")
+        .unwrap();
+    assert_eq!(guardian_badge["earned"], true);
+
+    // 3. Batch restore StoreKit entitlements restores Pro Annual + Gift Pass
+    let mut engine2 = QiEngine::new(Some(":memory:".to_owned())).unwrap();
+    let restore_payload = serde_json::json!([
+        {
+            "product_id": "com.qi.atelier.pro_annual",
+            "transaction_id": "tx_annual_99",
+            "original_transaction_id": "orig_annual_99",
+            "environment": "Sandbox"
+        },
+        {
+            "product_id": "com.qi.hearth_gift_pass",
+            "transaction_id": "tx_gift_99",
+            "original_transaction_id": "tx_gift_99",
+            "environment": "Sandbox"
+        }
+    ])
+    .to_string();
+    let restored = parse_json(&engine2.restore_apple_iap_purchases(restore_payload).unwrap());
+    assert_eq!(restored["entitlements"]["is_atelier_unlocked"], true);
+    assert_eq!(restored["entitlements"]["tier"], "pro_annual");
+    assert_eq!(restored["entitlements"]["guardian_sponsor"], true);
+}
+

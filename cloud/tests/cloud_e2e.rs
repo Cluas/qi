@@ -5,10 +5,12 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use ed25519_dalek::{Signature, Verifier};
+use chrono::Utc;
+use ed25519_dalek::{Signature, Signer, Verifier};
 use qi_cloud::db::{
-    ControlPlaneDb, FREE_LIMIT_LAB_PARSES, OFFLINE_GRACE_SECONDS, OsetClaims,
-    default_verifying_key,
+    ControlPlaneDb, FREE_LIMIT_LAB_PARSES, HEARTH_GIFT_PASS_PRODUCT_ID,
+    HEARTH_GIFT_PASS_TITLE_EN, HEARTH_GIFT_PASS_TITLE_ZH, OFFLINE_GRACE_SECONDS, OsetClaims,
+    default_signing_key, default_verifying_key,
 };
 use qi_cloud::{AppState, build_router};
 use serde_json::{Value, json};
@@ -35,7 +37,12 @@ async fn cloud_control_plane_quota_e2ee_and_physical_wipe() {
     let tables = db.table_names().unwrap();
     assert_eq!(
         tables,
-        vec!["accounts", "e2ee_sync_envelopes", "monthly_quotas"]
+        vec![
+            "accounts",
+            "apple_iap_transactions",
+            "e2ee_sync_envelopes",
+            "monthly_quotas"
+        ]
     );
 
     // 使用 blocking 线程跑 ureq 客户端模拟真实 HTTP 请求
@@ -197,7 +204,12 @@ async fn oset_ed25519_minting_schema_aliases_and_refresh() {
     let (base_url, db) = spawn_test_server().await;
     assert_eq!(
         db.table_names().unwrap(),
-        vec!["accounts", "e2ee_sync_envelopes", "monthly_quotas"]
+        vec![
+            "accounts",
+            "apple_iap_transactions",
+            "e2ee_sync_envelopes",
+            "monthly_quotas"
+        ]
     );
 
     let base = base_url.clone();
@@ -324,7 +336,12 @@ async fn cosanctuary_privacy_first_pair_mood_care_and_dew() {
     let (base_url, db) = spawn_test_server().await;
     assert_eq!(
         db.table_names().unwrap(),
-        vec!["accounts", "e2ee_sync_envelopes", "monthly_quotas"]
+        vec![
+            "accounts",
+            "apple_iap_transactions",
+            "e2ee_sync_envelopes",
+            "monthly_quotas"
+        ]
     );
 
     let base = base_url.clone();
@@ -510,14 +527,20 @@ fn idempotent_alter_table_migration_from_legacy_accounts_schema() {
         .unwrap();
     }
 
-    // Opening via ControlPlaneDb::open_file runs idempotent migrations & keeps 3-table invariant
+    // Opening via ControlPlaneDb::open_file runs idempotent migrations & keeps zero-health-plaintext invariant
     let db = ControlPlaneDb::open_file(&path).unwrap();
     assert_eq!(
         db.table_names().unwrap(),
-        vec!["accounts", "e2ee_sync_envelopes", "monthly_quotas"]
+        vec![
+            "accounts",
+            "apple_iap_transactions",
+            "e2ee_sync_envelopes",
+            "monthly_quotas"
+        ]
     );
     let (id, _, ent) = db.create_or_rotate_session("legacy-user@example.com").unwrap();
     assert_eq!(ent.plan_tier, "free");
+    assert_eq!(ent.hearth_gift_credits, 0);
     let upgraded = db
         .upgrade_plan(&id, "duo", Some(true), Some(31))
         .unwrap();
@@ -529,7 +552,356 @@ fn idempotent_alter_table_migration_from_legacy_accounts_schema() {
     let db2 = ControlPlaneDb::open_file(&path).unwrap();
     assert_eq!(
         db2.table_names().unwrap(),
-        vec!["accounts", "e2ee_sync_envelopes", "monthly_quotas"]
+        vec![
+            "accounts",
+            "apple_iap_transactions",
+            "e2ee_sync_envelopes",
+            "monthly_quotas"
+        ]
     );
     let _ = std::fs::remove_file(&path);
+}
+
+fn make_jws_es256_mock(claims: &Value) -> String {
+    let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"ES256","typ":"JWT"}"#);
+    let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).unwrap());
+    let sig = URL_SAFE_NO_PAD.encode(&[0x42u8; 64]);
+    format!("{header}.{payload}.{sig}")
+}
+
+fn make_jws_eddsa_signed(claims: &Value) -> String {
+    let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"EdDSA","typ":"JWT","kid":"qi-sandbox-ed25519"}"#);
+    let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).unwrap());
+    let signing_input = format!("{header}.{payload}");
+    let sig = default_signing_key().sign(signing_input.as_bytes());
+    let sig_b64 = URL_SAFE_NO_PAD.encode(sig.to_bytes());
+    format!("{signing_input}.{sig_b64}")
+}
+
+#[tokio::test]
+async fn apple_iap_verify_subscription_idempotency_hearth_gift_pass_and_rejections() {
+    let (base_url, db) = spawn_test_server().await;
+    let base = base_url.clone();
+
+    tokio::task::spawn_blocking(move || {
+        // 0. Unauthenticated request is rejected with 401
+        let unauth_err = ureq::post(&format!("{base}/v1/billing/apple/verify"))
+            .send_json(json!({ "product_id": "com.qi.atelier.pro_annual" }))
+            .unwrap_err();
+        match unauth_err {
+            ureq::Error::Status(code, _) => assert_eq!(code, 401),
+            other => panic!("expected 401 unauthenticated, got {other}"),
+        }
+
+        // Register accounts A, B, C
+        let sess_a: Value = ureq::post(&format!("{base}/v1/auth/session"))
+            .send_json(json!({ "handle": "apple-iap-a@example.com" }))
+            .unwrap()
+            .into_json()
+            .unwrap();
+        let account_a = sess_a["account_id"].as_str().unwrap().to_owned();
+        let auth_a = format!("Bearer {}", sess_a["token"].as_str().unwrap());
+
+        let sess_b: Value = ureq::post(&format!("{base}/v1/auth/session"))
+            .send_json(json!({ "handle": "apple-iap-b@example.com" }))
+            .unwrap()
+            .into_json()
+            .unwrap();
+        let auth_b = format!("Bearer {}", sess_b["token"].as_str().unwrap());
+
+        let sess_c: Value = ureq::post(&format!("{base}/v1/auth/session"))
+            .send_json(json!({ "handle": "apple-iap-c@example.com" }))
+            .unwrap()
+            .into_json()
+            .unwrap();
+        let auth_c = format!("Bearer {}", sess_c["token"].as_str().unwrap());
+
+        let future_ms = (Utc::now().timestamp() + 365 * 86_400) * 1000;
+        let sub_jws = make_jws_es256_mock(&json!({
+            "transactionId": "2000000100001",
+            "originalTransactionId": "2000000100001",
+            "bundleId": "eu.org.cluas.qi",
+            "productId": "com.qi.atelier.pro_annual",
+            "type": "Auto-Renewable Subscription",
+            "environment": "Sandbox",
+            "expiresDate": future_ms,
+            "quantity": 1
+        }));
+
+        // 1. Subscription JWS verification mints Ed25519 OSET (qient1.*)
+        let sub_resp: Value = ureq::post(&format!("{base}/v1/billing/apple/verify"))
+            .set("Authorization", &auth_a)
+            .send_json(json!({
+                "jws_representation": sub_jws,
+                "companion_loyalty_days": 35
+            }))
+            .unwrap()
+            .into_json()
+            .unwrap();
+
+        assert_eq!(sub_resp["verified"], true);
+        assert_eq!(sub_resp["verification_mode"], "storekit2_jws_es256");
+        assert_eq!(sub_resp["product_id"], "com.qi.atelier.pro_annual");
+        assert_eq!(sub_resp["plan_tier"], "pro_annual");
+        assert_eq!(sub_resp["idempotent_replay"], false);
+        assert_eq!(sub_resp["seats_credited"], 0);
+        let oset = sub_resp["entitlement_token"].as_str().unwrap();
+        assert!(oset.starts_with("qient1."));
+        let claims = verify_and_decode_oset(oset);
+        assert_eq!(claims.sub, account_a);
+        assert_eq!(claims.tier, "pro_annual");
+        assert_eq!(claims.companion_loyalty_eligible, true);
+        assert_eq!(db.count_apple_transactions_for_account(&account_a).unwrap(), 1);
+
+        // Pro entitlement unlocks ZDR unlimited calls
+        let zdr_ok = ureq::post(&format!("{base}/v1/zdr/complete"))
+            .set("Authorization", &auth_a)
+            .send_json(json!({ "task": "lab", "scrubbed_prompt": "apple iap pro check" }))
+            .unwrap();
+        assert_eq!(zdr_ok.status(), 200);
+
+        // 2. Restore / replay idempotency with same transaction_id
+        let replay_resp: Value = ureq::post(&format!("{base}/v1/billing/apple/verify"))
+            .set("Authorization", &auth_a)
+            .send_json(json!({
+                "jws_representation": sub_jws,
+                "product_id": "com.qi.atelier.pro_annual",
+                "transaction_id": "2000000100001",
+                "original_transaction_id": "2000000100001"
+            }))
+            .unwrap()
+            .into_json()
+            .unwrap();
+        assert_eq!(replay_resp["idempotent_replay"], true);
+        assert_eq!(replay_resp["plan_tier"], "pro_annual");
+        assert!(replay_resp["entitlement_token"].as_str().unwrap().starts_with("qient1."));
+        assert_eq!(db.count_apple_transactions_for_account(&account_a).unwrap(), 1);
+
+        // 3. Renewal on same original_transaction_id with new transaction_id & extended expiry
+        let extended_sec = Utc::now().timestamp() + 400 * 86_400;
+        let renew_jws = make_jws_eddsa_signed(&json!({
+            "transactionId": "2000000100002",
+            "originalTransactionId": "2000000100001",
+            "bundleId": "eu.org.cluas.qi",
+            "productId": "com.qi.atelier.pro_annual",
+            "environment": "Sandbox",
+            "expiresDate": extended_sec * 1000
+        }));
+        let renew_resp: Value = ureq::post(&format!("{base}/v1/billing/apple/verify"))
+            .set("Authorization", &auth_a)
+            .send_json(json!({ "jws_representation": renew_jws }))
+            .unwrap()
+            .into_json()
+            .unwrap();
+        assert_eq!(renew_resp["idempotent_replay"], false);
+        assert_eq!(renew_resp["verification_mode"], "storekit2_jws_eddsa");
+        assert_eq!(
+            renew_resp["entitlements"]["entitlement_expires_epoch"],
+            extended_sec
+        );
+        assert_eq!(db.count_apple_transactions_for_account(&account_a).unwrap(), 2);
+
+        // 4. Commercial Consumable Hearth Gift Pass credit + idempotency + guideline 3.2.1(vi) compliance
+        let gift_jws_1 = make_jws_es256_mock(&json!({
+            "transactionId": "3000000100001",
+            "originalTransactionId": "3000000100001",
+            "bundleId": "eu.org.cluas.qi",
+            "productId": HEARTH_GIFT_PASS_PRODUCT_ID,
+            "type": "Consumable",
+            "environment": "Xcode",
+            "quantity": 1
+        }));
+        let gift_resp_1: Value = ureq::post(&format!("{base}/v1/billing/apple/verify"))
+            .set("Authorization", &auth_a)
+            .send_json(json!({ "jws_representation": gift_jws_1 }))
+            .unwrap()
+            .into_json()
+            .unwrap();
+        assert_eq!(gift_resp_1["product_id"], HEARTH_GIFT_PASS_PRODUCT_ID);
+        assert_eq!(gift_resp_1["purchase_type"], "consumable");
+        assert_eq!(gift_resp_1["idempotent_replay"], false);
+        assert_eq!(gift_resp_1["seats_credited"], 1);
+        assert_eq!(gift_resp_1["hearth_gift_credits_total"], 1);
+        assert_eq!(gift_resp_1["plan_tier"], "pro_annual");
+        assert_eq!(gift_resp_1["hearth_gift_pass_title_zh"], HEARTH_GIFT_PASS_TITLE_ZH);
+        assert_eq!(gift_resp_1["hearth_gift_pass_title_en"], HEARTH_GIFT_PASS_TITLE_EN);
+        let gift_code_1 = gift_resp_1["community_gift_code"].as_str().unwrap().to_owned();
+        assert!(gift_code_1.starts_with("QI-SEAT-"));
+
+        let resp_str = serde_json::to_string(&gift_resp_1).unwrap().to_lowercase();
+        for forbidden in [
+            "\u{516c}\u{76ca}",
+            "\u{6148}\u{5584}",
+            "\u{6350}",
+            concat!("char", "ity"),
+            concat!("don", "at"),
+        ] {
+            assert!(!resp_str.contains(forbidden), "forbidden wording found: {forbidden}");
+        }
+
+        // Replay same consumable transaction -> idempotent, must NOT double-credit
+        let gift_replay: Value = ureq::post(&format!("{base}/v1/billing/apple/verify"))
+            .set("Authorization", &auth_a)
+            .send_json(json!({ "jws_representation": gift_jws_1 }))
+            .unwrap()
+            .into_json()
+            .unwrap();
+        assert_eq!(gift_replay["idempotent_replay"], true);
+        assert_eq!(gift_replay["seats_credited"], 0);
+        assert_eq!(gift_replay["hearth_gift_credits_total"], 1);
+        assert_eq!(gift_replay["community_gift_code"], gift_code_1);
+
+        // Second distinct consumable transaction increments credits to 2
+        let gift_jws_2 = make_jws_es256_mock(&json!({
+            "transactionId": "3000000100002",
+            "originalTransactionId": "3000000100002",
+            "bundleId": "eu.org.cluas.qi",
+            "productId": HEARTH_GIFT_PASS_PRODUCT_ID,
+            "type": "Consumable",
+            "environment": "Sandbox",
+            "quantity": 1
+        }));
+        let gift_resp_2: Value = ureq::post(&format!("{base}/v1/billing/apple/verify"))
+            .set("Authorization", &auth_a)
+            .send_json(json!({ "jws_representation": gift_jws_2 }))
+            .unwrap()
+            .into_json()
+            .unwrap();
+        assert_eq!(gift_resp_2["idempotent_replay"], false);
+        assert_eq!(gift_resp_2["seats_credited"], 1);
+        assert_eq!(gift_resp_2["hearth_gift_credits_total"], 2);
+
+        // Free user C buying Hearth Gift Pass in Sandbox keeps plan_tier == "free"
+        let gift_free: Value = ureq::post(&format!("{base}/v1/billing/apple/verify"))
+            .set("Authorization", &auth_c)
+            .send_json(json!({
+                "environment": "Sandbox",
+                "product_id": HEARTH_GIFT_PASS_PRODUCT_ID,
+                "transaction_id": "3000000900001",
+                "original_transaction_id": "3000000900001",
+                "bundle_id": "eu.org.cluas.qi"
+            }))
+            .unwrap()
+            .into_json()
+            .unwrap();
+        assert_eq!(gift_free["plan_tier"], "free");
+        assert_eq!(gift_free["entitlement_token"], "");
+        assert_eq!(gift_free["hearth_gift_credits_total"], 1);
+
+        // 5. Cross-account ownership conflict rejected with 409
+        let hijack_err = ureq::post(&format!("{base}/v1/billing/apple/verify"))
+            .set("Authorization", &auth_b)
+            .send_json(json!({ "jws_representation": sub_jws }))
+            .unwrap_err();
+        match hijack_err {
+            ureq::Error::Status(code, _) => assert_eq!(code, 409),
+            other => panic!("expected 409 conflict on cross-account replay, got {other}"),
+        }
+
+        // 6. Invalid payloads rejected with 400
+        let tampered_eddsa = {
+            let mut parts: Vec<String> = renew_jws.split('.').map(ToOwned::to_owned).collect();
+            let tampered_claims = URL_SAFE_NO_PAD.encode(
+                serde_json::to_vec(&json!({
+                    "transactionId": "2000000100099",
+                    "originalTransactionId": "2000000100099",
+                    "bundleId": "eu.org.cluas.qi",
+                    "productId": "com.qi.atelier.family",
+                    "expiresDate": extended_sec * 1000
+                }))
+                .unwrap(),
+            );
+            parts[1] = tampered_claims;
+            parts.join(".")
+        };
+        let alg_none_jws = format!(
+            "{}.{}.{}",
+            URL_SAFE_NO_PAD.encode(br#"{"alg":"none"}"#),
+            URL_SAFE_NO_PAD.encode(br#"{"transactionId":"x1","productId":"com.qi.atelier.pro_annual"}"#),
+            URL_SAFE_NO_PAD.encode(b"sig")
+        );
+        let short_sig_jws = format!(
+            "{}.{}.{}",
+            URL_SAFE_NO_PAD.encode(br#"{"alg":"ES256"}"#),
+            URL_SAFE_NO_PAD.encode(br#"{"transactionId":"x2","productId":"com.qi.atelier.pro_annual"}"#),
+            URL_SAFE_NO_PAD.encode(b"too_short")
+        );
+        let wrong_bundle_jws = make_jws_es256_mock(&json!({
+            "transactionId": "2000000888001",
+            "originalTransactionId": "2000000888001",
+            "bundleId": "com.evil.clone",
+            "productId": "com.qi.atelier.pro_annual",
+            "expiresDate": future_ms
+        }));
+        let unknown_product_jws = make_jws_es256_mock(&json!({
+            "transactionId": "2000000888002",
+            "originalTransactionId": "2000000888002",
+            "bundleId": "eu.org.cluas.qi",
+            "productId": "com.qi.unknown_sku",
+            "expiresDate": future_ms
+        }));
+        let revoked_jws = make_jws_es256_mock(&json!({
+            "transactionId": "2000000888003",
+            "originalTransactionId": "2000000888003",
+            "bundleId": "eu.org.cluas.qi",
+            "productId": "com.qi.atelier.pro_annual",
+            "expiresDate": future_ms,
+            "revocationDate": Utc::now().timestamp() * 1000
+        }));
+        let expired_jws = make_jws_es256_mock(&json!({
+            "transactionId": "2000000888004",
+            "originalTransactionId": "2000000888004",
+            "bundleId": "eu.org.cluas.qi",
+            "productId": "com.qi.atelier.pro_annual",
+            "expiresDate": (Utc::now().timestamp() - 3600) * 1000
+        }));
+
+        let bad_payloads = vec![
+            json!({ "jws_representation": "not-three-parts" }),
+            json!({ "jws_representation": alg_none_jws }),
+            json!({ "jws_representation": short_sig_jws }),
+            json!({ "jws_representation": tampered_eddsa }),
+            json!({ "jws_representation": wrong_bundle_jws }),
+            json!({ "jws_representation": unknown_product_jws }),
+            json!({ "jws_representation": revoked_jws }),
+            json!({ "jws_representation": expired_jws }),
+            json!({ "jws_representation": sub_jws, "product_id": "com.qi.atelier.pro_monthly" }),
+            json!({
+                "environment": "Production",
+                "product_id": "com.qi.atelier.pro_annual",
+                "transaction_id": "prod_unsigned_1",
+                "original_transaction_id": "prod_unsigned_1"
+            }),
+            json!({
+                "environment": "InvalidEnv",
+                "product_id": "com.qi.atelier.pro_annual",
+                "transaction_id": "bad_env_1",
+                "original_transaction_id": "bad_env_1"
+            }),
+        ];
+
+        for bad in bad_payloads {
+            let err = ureq::post(&format!("{base}/v1/billing/apple/verify"))
+                .set("Authorization", &auth_b)
+                .send_json(bad.clone())
+                .unwrap_err();
+            match err {
+                ureq::Error::Status(code, _) => assert_eq!(code, 400, "expected 400 for {bad}"),
+                other => panic!("expected 400 error for {bad}, got {other}"),
+            }
+        }
+
+        // 7. Physical account wipe also deletes apple_iap_transactions for account A
+        let wipe_a: Value = ureq::delete(&format!("{base}/v1/account"))
+            .set("Authorization", &auth_a)
+            .call()
+            .unwrap()
+            .into_json()
+            .unwrap();
+        assert_eq!(wipe_a["deleted_accounts"], 1);
+        assert_eq!(wipe_a["deleted_apple_transactions"], 4);
+        assert_eq!(db.count_apple_transactions_for_account(&account_a).unwrap(), 0);
+    })
+    .await
+    .unwrap();
 }

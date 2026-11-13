@@ -1,0 +1,210 @@
+{
+  "identifier" : "8A4F3C21",
+  "nonRenewingSubscriptions" : [ ],
+  "products" : [
+    {
+      "displayPrice" : "12.00",
+      "familyShareable" : false,
+      "internalID" : "6761001001",
+      "localizations" : [
+        {
+          "description" : "购买 1 枚可赠予好友或社区漂流池的 90 天知气雅集席位礼赠券（商业消耗型数字权益）。",
+          "displayName" : "窗台添柴礼赠券 · 赠予社区漂流席位",
+          "locale" : "zh_CN"
+        },
+        {
+          "description" : "Consumable pass that credits 1 transferable 90-day Atelier Community Seat voucher.",
+          "displayName" : "Hearth Gift Pass · Gift 1 Community Seat",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.qi.hearth_gift_pass",
+      "referenceName" : "Hearth Gift Pass",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "368.00",
+      "familyShareable" : true,
+      "internalID" : "6761001002",
+      "localizations" : [
+        {
+          "description" : "一次买断本地全部雅集风物、至多 3 位自定义灵宠及离线统计引擎（永久免续费）。",
+          "displayName" : "买断本地 · 终身版",
+          "locale" : "zh_CN"
+        },
+        {
+          "description" : "One-time purchase unlocking all local Atelier themes, up to 3 custom pets, and offline analytics.",
+          "displayName" : "Atelier Lifetime Local",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.qi.atelier.lifetime_local",
+      "referenceName" : "Atelier Lifetime Local",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "zh_CN",
+    "_storefront" : "CHN",
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21963001",
+      "localizations" : [
+        {
+          "description" : "知气雅集会员订阅，包含 24 节气风物、至多 3 位自家灵宠与跨端加密同步。",
+          "displayName" : "知气雅集",
+          "locale" : "zh_CN"
+        },
+        {
+          "description" : "Qi Atelier membership with 24 solar scenes, up to 3 custom pets, and encrypted sync.",
+          "displayName" : "Qi Atelier",
+          "locale" : "en_US"
+        }
+      ],
+      "name" : "Qi Atelier",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [ ],
+          "codeOffers" : [ ],
+          "displayPrice" : "98.00",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6761002001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "按年自动续费，解锁全部 24 节气雅集、至多 3 位灵宠定制印章与灵宠周信、WebDAV 及 E2EE 云同步。",
+              "displayName" : "知气雅集 · 年卡",
+              "locale" : "zh_CN"
+            },
+            {
+              "description" : "Annual auto-renewable Atelier Pro membership with 24 solar scenes, up to 3 custom pets, weekly pet letters, and encrypted sync.",
+              "displayName" : "Atelier Pro Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.qi.atelier.pro_annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Atelier Pro Yearly",
+          "subscriptionGroupID" : "21963001",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [ ],
+          "codeOffers" : [ ],
+          "displayPrice" : "18.00",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6761002002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "按月自动续费，随心开启全套知气雅集风物、至多 3 位灵宠与跨端同步。",
+              "displayName" : "知气月雅 · 月卡",
+              "locale" : "zh_CN"
+            },
+            {
+              "description" : "Monthly auto-renewable Atelier Pro membership with full solar scenes, up to 3 custom pets, and cross-device sync.",
+              "displayName" : "Atelier Pro Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.qi.atelier.pro_monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Atelier Pro Monthly",
+          "subscriptionGroupID" : "21963001",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [ ],
+          "codeOffers" : [ ],
+          "displayPrice" : "38.00",
+          "familyShareable" : false,
+          "groupNumber" : 3,
+          "internalID" : "6761002003",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "每季（3 个月）自动续费，完整体验春/夏/秋/冬一季 6 个节气雅集。",
+              "displayName" : "岁时节气季卡",
+              "locale" : "zh_CN"
+            },
+            {
+              "description" : "Quarterly auto-renewable membership covering one full season of 6 solar terms.",
+              "displayName" : "Atelier Seasonal",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.qi.atelier.seasonal",
+          "recurringSubscriptionPeriod" : "P3M",
+          "referenceName" : "Atelier Seasonal",
+          "subscriptionGroupID" : "21963001",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [ ],
+          "codeOffers" : [ ],
+          "displayPrice" : "168.00",
+          "familyShareable" : true,
+          "groupNumber" : 4,
+          "internalID" : "6761002004",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "按年自动续费（含 2 席位），双人各享独立私密 Vault 与同窗浇灌金桂。",
+              "displayName" : "双人同窗 · Duo",
+              "locale" : "zh_CN"
+            },
+            {
+              "description" : "Annual auto-renewable 2-seat membership with independent encrypted vaults and Co-Window care.",
+              "displayName" : "Atelier Duo (2 Seats)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.qi.atelier.duo",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Atelier Duo",
+          "subscriptionGroupID" : "21963001",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [ ],
+          "codeOffers" : [ ],
+          "displayPrice" : "228.00",
+          "familyShareable" : true,
+          "groupNumber" : 5,
+          "internalID" : "6761002005",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "按年自动续费（至多 4 席位），全家共享独立保险箱与大字平安家书。",
+              "displayName" : "四时家书 · Family",
+              "locale" : "zh_CN"
+            },
+            {
+              "description" : "Annual auto-renewable 4-seat family membership with independent vaults and Family Peace Letters.",
+              "displayName" : "Atelier Family (4 Seats)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.qi.atelier.family",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Atelier Family",
+          "subscriptionGroupID" : "21963001",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

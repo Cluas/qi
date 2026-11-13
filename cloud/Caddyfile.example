@@ -1,4 +1,4 @@
-# 「知气 · Qi」官方极简 Control Plane + ZDR 网关 Caddy 反向代理示例
+# 「知气」官方极简 Control Plane + ZDR 网关 Caddy 反向代理示例
 api.qi-health.example.com {
     encode zstd gzip
     header {

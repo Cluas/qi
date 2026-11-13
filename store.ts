@@ -1,5 +1,7 @@
 import { Clipboard, Notifications, Picker, setColorScheme, signal, Storage } from "nsh";
 import { QiEngine, QiMeta } from "qi/native";
+import type { AtelierTierId } from "./ui/atelier";
+import { applyLocale, type AppLocale, getLocale, normalizeLocale, tr } from "./ui/i18n";
 import {
   applyVisualTheme,
   getVisualThemeMeta,
@@ -8,7 +10,7 @@ import {
   type VisualThemeId,
 } from "./ui/themes";
 
-export type { VisualThemeId };
+export type { AppLocale, VisualThemeId };
 export { VISUAL_THEMES, getVisualThemeMeta };
 
 export interface MetricSummary {
@@ -234,6 +236,7 @@ export interface AppSettings {
   partner_mood: number;
   bonsai_dew: number;
   active_seal_ink: string;
+  locale: string;
 }
 
 export interface BriefingResult {
@@ -480,6 +483,72 @@ export interface CeramicBadge {
   reason: string;
 }
 
+export interface CustomPetCompanion {
+  id: string;
+  name: string;
+  species: "cat" | "dog" | "rabbit" | "fox" | "other" | string;
+  persona: string;
+  photo_data_url: string;
+  die_cut_frame:
+    | "celadon_oval"
+    | "lacquer_arch"
+    | "paper_cut"
+    | "starlight_halo"
+    | "warm_stamp"
+    | string;
+  starlight_memorial: boolean;
+  paw_stamp_title: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomPetQuota {
+  used_count: number;
+  allowed_count: number;
+  remaining_add_slots: number;
+  can_add_more: boolean;
+  is_pro_ex_libris_unlocked: boolean;
+  can_generate_weekly_letter: boolean;
+  retained_above_free_quota: boolean;
+}
+
+export interface PetWeeklyLetter {
+  id: number;
+  pet_id: string;
+  pet_name: string;
+  species: string;
+  week_number: number;
+  solar_term: string;
+  title: string;
+  body: string;
+  ex_libris_seal: string;
+  starlight_memorial: boolean;
+  locale: string;
+  created_at: string;
+}
+
+export interface AppleCatalogProduct {
+  product_id: string;
+  tier?: string;
+  kind?: string;
+}
+
+export interface AppleCatalogIds {
+  subscriptions: AppleCatalogProduct[];
+  non_consumables: AppleCatalogProduct[];
+  consumables: AppleCatalogProduct[];
+}
+
+export interface StoreKitTransactionInput {
+  product_id: string;
+  transaction_id: string;
+  original_transaction_id: string;
+  environment: string;
+  jws_representation?: string | null;
+  expires_date_epoch?: number | null;
+}
+
 export interface SolarAtelierPayload {
   solar_term: SolarTermState;
   dew_balance: number;
@@ -495,6 +564,10 @@ export interface SolarAtelierPayload {
   widget_preview: WidgetStudioPayload;
   four_seasons_scroll: FourSeasonsScrollNode[];
   ceramic_badges: CeramicBadge[];
+  custom_pets: CustomPetCompanion[];
+  active_custom_pet: CustomPetCompanion | null;
+  custom_pet_quota: CustomPetQuota;
+  pet_weekly_letters: PetWeeklyLetter[];
 }
 
 export interface MultiLagImpactItem {
@@ -568,12 +641,33 @@ export interface UiStatePayload {
 }
 
 export type ActiveTab = "today" | "log" | "insights" | "me";
+export type LogSubTab = "quick" | "labs" | "vault";
+export type InsightsSubTab = "curves" | "correlations" | "handscroll";
+export type MeSubTab = "pet_studio" | "atelier_billing" | "vault_export";
 export type AppearancePreference = "system" | "light" | "dark";
 
-// 单一可信状态源：所有数据变更在 Rust QiEngine 落库计算，TSX 仅持只读信号视图
+const HEARTH_GIFT_PASS_PRODUCT_ID = "com.qi.hearth_gift_pass";
+
+const DEFAULT_APPLE_PRODUCT_MAP: Record<string, string> = {
+  pro_monthly: "com.qi.atelier.pro_monthly",
+  seasonal: "com.qi.atelier.seasonal",
+  pro_annual: "com.qi.atelier.pro_annual",
+  duo: "com.qi.atelier.duo",
+  family: "com.qi.atelier.family",
+  lifetime_local: "com.qi.atelier.lifetime_local",
+  hearth_gift_pass: HEARTH_GIFT_PASS_PRODUCT_ID,
+};
+
+// Single source of truth: mutations persist in Rust QiEngine; TSX holds reactive signals.
 const engine = new QiEngine(null);
-const uiState = signal<UiStatePayload>(JSON.parse(engine.stateJson()) as UiStatePayload);
+const initialPayload = JSON.parse(engine.stateJson()) as UiStatePayload;
+applyLocale(normalizeLocale(initialPayload.settings?.locale || "zh-CN"));
+
+const uiState = signal<UiStatePayload>(initialPayload);
 const activeTab = signal<ActiveTab>("today");
+const logSubTab = signal<LogSubTab>("quick");
+const insightsSubTab = signal<InsightsSubTab>("curves");
+const meSubTab = signal<MeSubTab>("pet_studio");
 const toastMessage = signal<string | null>(null);
 const encryptedBatchPreview = signal<string | null>(null);
 const encryptedArchivePreview = signal<string | null>(null);
@@ -592,8 +686,14 @@ const showCompanionLetterModal = signal<boolean>(false);
 const showCoSanctuarySheet = signal<boolean>(false);
 const showFourSeasonsScrollModal = signal<boolean>(false);
 const showFamilyPeaceLetterModal = signal<boolean>(false);
+const showTermsDrawer = signal<boolean>(false);
+const showPrivacyDrawer = signal<boolean>(false);
+const restoringPurchases = signal<boolean>(false);
+const restoreStatusMessage = signal<string>("");
+const hearthGiftCount = signal<number>(initialPayload.settings?.guardian_sponsor ? 1 : 0);
 const parentsPeaceLetterResult = signal<ParentsPeaceLetter | null>(null);
 const hidePosterNumbers = signal<boolean>(false);
+const recentAppleTransactions: StoreKitTransactionInput[] = [];
 let pendingZdrCallback: (() => void) | null = null;
 
 void Storage.getItem("qi.visual_theme")
@@ -610,12 +710,39 @@ void Storage.getItem("qi.visual_theme")
   });
 
 function applyJson(raw: string) {
-  uiState.set(JSON.parse(raw) as UiStatePayload);
+  const parsed = JSON.parse(raw) as UiStatePayload;
+  uiState.set(parsed);
+  const nextLocale = normalizeLocale(parsed.settings?.locale || "zh-CN");
+  if (nextLocale !== getLocale()) {
+    applyLocale(nextLocale);
+  }
+  if (parsed.entitlements?.guardian_sponsor) {
+    hearthGiftCount.update((n) => Math.max(1, n));
+  }
 }
 
 export const getState = () => uiState();
 export const getTab = () => activeTab();
 export const setTab = (tab: ActiveTab) => activeTab.set(tab);
+export const getLogSubTab = () => logSubTab();
+export const setLogSubTab = (sub: LogSubTab) => logSubTab.set(sub);
+export const getInsightsSubTab = () => insightsSubTab();
+export const setInsightsSubTab = (sub: InsightsSubTab) => insightsSubTab.set(sub);
+export const getMeSubTab = () => meSubTab();
+export const setMeSubTab = (sub: MeSubTab) => meSubTab.set(sub);
+export function openPetStudio() {
+  meSubTab.set("pet_studio");
+  activeTab.set("me");
+}
+export function openMealsLog() {
+  logSubTab.set("quick");
+  activeTab.set("log");
+}
+export function openFourSeasonsInsights() {
+  insightsSubTab.set("handscroll");
+  activeTab.set("insights");
+}
+export const getAppLocale = () => getLocale();
 export const getToast = () => toastMessage();
 export const clearToast = () => toastMessage.set(null);
 export const getEncryptedBatchPreview = () => encryptedBatchPreview();
@@ -643,11 +770,18 @@ export const getShowFourSeasonsScrollModal = () => showFourSeasonsScrollModal();
 export const setShowFourSeasonsScrollModal = (open: boolean) => showFourSeasonsScrollModal.set(open);
 export const getShowFamilyPeaceLetterModal = () => showFamilyPeaceLetterModal();
 export const setShowFamilyPeaceLetterModal = (open: boolean) => showFamilyPeaceLetterModal.set(open);
+export const getShowTermsDrawer = () => showTermsDrawer();
+export const setShowTermsDrawer = (open: boolean) => showTermsDrawer.set(open);
+export const getShowPrivacyDrawer = () => showPrivacyDrawer();
+export const setShowPrivacyDrawer = (open: boolean) => showPrivacyDrawer.set(open);
+export const getRestoringPurchases = () => restoringPurchases();
+export const getRestoreStatusMessage = () => restoreStatusMessage();
+export const getHearthGiftCount = () => hearthGiftCount();
 export const getParentsPeaceLetterResult = () => parentsPeaceLetterResult();
 export const getHidePosterNumbers = () => hidePosterNumbers();
 export const setHidePosterNumbers = (hide: boolean) => hidePosterNumbers.set(hide);
 export const getNoticeText = () => QiMeta.noticeText();
-export const getDisclaimerText = () => QiMeta.disclaimer();
+export const getDisclaimerText = () => QiMeta.disclaimerForLocale(getLocale());
 
 export interface DewItemStatus extends KeepsakeSpec {
   unlocked: boolean;
@@ -660,13 +794,32 @@ export interface DewSummary {
   nextTarget: DewItemStatus | null;
 }
 
+export function setAppLocale(nextLocale: AppLocale, silent = false) {
+  const normalized = normalizeLocale(nextLocale);
+  try {
+    const raw = engine.setLocale(normalized);
+    applyLocale(normalized);
+    applyJson(raw);
+  } catch {
+    applyLocale(normalized);
+  }
+  if (!silent) {
+    notify(tr("toast.locale_changed"));
+  }
+}
+
+export function toggleAppLocale() {
+  const next: AppLocale = getLocale() === "en" ? "zh-CN" : "en";
+  setAppLocale(next);
+}
+
 export function setVisualTheme(id: VisualThemeId, silent = false) {
   visualTheme.set(id);
   applyVisualTheme(id);
   void Storage.setItem("qi.visual_theme", id).catch(() => undefined);
   if (!silent) {
     const meta = getVisualThemeMeta(id);
-    notify(`灵境画风已切换为：${meta.title}`);
+    notify(tr("toast.theme_changed", { name: meta.title }));
   }
 }
 
@@ -721,9 +874,9 @@ export function loadPersona(personaId: string) {
     applyJson(engine.loadPersona(personaId));
     lastAuditReport.set(null);
     const matched = getPersonas().find((p) => p.id === personaId);
-    notify(`已切换画像：${matched ? matched.name : personaId}`);
+    notify(tr("toast.persona_loaded", { name: matched ? matched.name : personaId }));
   } catch (err) {
-    notify(`画像切换失败：${errorMessage(err)}`);
+    notify(tr("toast.persona_failed", { error: errorMessage(err) }));
   }
 }
 
@@ -731,14 +884,10 @@ export function runDataIntegrityAudit(): DataAuditReport | null {
   try {
     const report = JSON.parse(engine.runDataIntegrityAudit()) as DataAuditReport;
     lastAuditReport.set(report);
-    notify(
-      report.passed
-        ? "所有 6 项不变量校验通过"
-        : "数据自检发现异常项，请查看校验明细",
-    );
+    notify(report.passed ? tr("toast.audit_passed") : tr("toast.audit_failed"));
     return report;
   } catch (err) {
-    notify(`数据完整性自检失败：${errorMessage(err)}`);
+    notify(tr("toast.audit_error", { error: errorMessage(err) }));
     return null;
   }
 }
@@ -751,15 +900,20 @@ export function cycleAppearance() {
   try {
     setColorScheme(next);
   } catch {
-    // 某些无头测试宿主的视觉宿主可忽略
+    // Headless test hosts may ignore system color scheme hints.
   }
-  const label = next === "light" ? "宣纸浅色" : next === "dark" ? "松烟深色" : "跟随系统";
-  notify(`主题外观已切换为：${label}`);
+  const label =
+    next === "light"
+      ? tr("common.appearance_paper")
+      : next === "dark"
+        ? tr("common.appearance_ink")
+        : tr("common.appearance_auto");
+  notify(tr("toast.appearance_changed", { label }));
 }
 
 export function completeOnboarding(goal: string, tier: string) {
   applyJson(engine.completeOnboarding(goal, tier));
-  notify("已启用端侧健康计算，个人数据仅存本机");
+  notify(tr("toast.onboarding_ready"));
 }
 
 export function setHardwareTier(tier: string, feeling?: number) {
@@ -770,7 +924,7 @@ export function toggleTodayAction() {
   const wasChecked = uiState().settings.checked_action_today;
   applyJson(engine.toggleTodayAction());
   if (!wasChecked && uiState().settings.checked_action_today) {
-    notify("已盖下今日印章 · 收集 +2 💧 晨露");
+    notify(tr("toast.stamp_done"));
   }
 }
 
@@ -782,7 +936,7 @@ export function logQuickIntake(
   caloriesKcal?: number | null,
 ) {
   applyJson(engine.logQuickIntake(category, itemName, tag, notes, caloriesKcal ?? null));
-  notify(`已记入「${itemName}」并更新节律关联`);
+  notify(tr("toast.intake_logged", { item: itemName }));
 }
 
 export function logNaturalIntake(sentence: string) {
@@ -790,9 +944,9 @@ export function logNaturalIntake(sentence: string) {
   if (!text) return;
   try {
     applyJson(engine.logNaturalIntake(text));
-    notify(`已完成一句话解析并记入「${text}」`);
+    notify(tr("toast.natural_intake_logged", { text }));
   } catch (err) {
-    notify(`速记解析失败：${errorMessage(err)}`);
+    notify(tr("toast.natural_intake_failed", { error: errorMessage(err) }));
   }
 }
 
@@ -804,7 +958,6 @@ export function searchFoods(query: string, limit = 8): FoodSearchHit[] {
   }
 }
 
-/** 合规懒加载：若使用官方 ZDR 云端且尚未授权，先弹出 5.1.2(i) 显式同意窗 */
 export function requestAiAction(fn: () => void) {
   const s = uiState().settings;
   if (s.ai_mode === "official_zdr_cloud" && !s.zdr_consented) {
@@ -843,29 +996,36 @@ export function importLabReport(testDate: string, rawText: string) {
     applyJson(engine.importLabReport(testDate, rawText));
     const last = uiState().last_lab_import;
     if (last) {
-      notify(`已完成端侧脱敏（遮盖 ${last.redacted_fields.length} 项隐私）并提取 ${last.imported_count} 项指标`);
+      notify(
+        tr("toast.lab_imported", {
+          redacted: last.redacted_fields.length,
+          count: last.imported_count,
+        }),
+      );
     }
   } catch (err) {
-    notify(`体检导入失败：${errorMessage(err)}`);
+    notify(tr("toast.lab_import_failed", { error: errorMessage(err) }));
   }
 }
 
-/** 纯本机 Apple Vision 离线识别预置体检单图片（零字节上云） */
+/** Offline Vision OCR on built-in sample lab image (0 bytes uploaded). */
 export function ocrSampleFixtureLab() {
   try {
     applyJson(engine.ocrAndImportLabImage("2026-11-13", "tests/fixtures/sample_lab_report.png"));
     const last = uiState().last_lab_import;
     notify(
       last
-        ? `离线 Vision OCR 建档成功：提取 ${last.imported_count} 项指标，已脱敏 ${last.redacted_fields.length} 项`
-        : "离线 Vision OCR 建档完成",
+        ? tr("toast.ocr_ready", {
+            count: last.imported_count,
+            redacted: last.redacted_fields.length,
+          })
+        : tr("toast.ocr_done_simple"),
     );
   } catch (err) {
-    notify(`离线 OCR 识别未就绪：${errorMessage(err)}`);
+    notify(tr("toast.ocr_not_ready", { error: errorMessage(err) }));
   }
 }
 
-/** 调用系统相册选取化验单图片并在端侧离线 OCR 识别 */
 export async function pickAndOcrLabPhoto() {
   try {
     const picked = await Picker.pickImages({ multiple: false, maxDimension: 2048 });
@@ -876,36 +1036,36 @@ export async function pickAndOcrLabPhoto() {
     const ext = file.name.toLowerCase().endsWith(".png") ? "png" : "jpg";
     applyJson(engine.ocrAndImportLabBytes("2026-11-13", ext, bytes));
     const last = uiState().last_lab_import;
-    notify(`相册化验单离线识别完成：提取 ${last?.imported_count ?? 0} 项指标`);
+    notify(tr("toast.photo_ocr_done", { count: last?.imported_count ?? 0 }));
   } catch (err) {
-    notify(`相册识图失败：${errorMessage(err)}`);
+    notify(tr("toast.photo_ocr_failed", { error: errorMessage(err) }));
   }
 }
 
 export function importExternalHealthData(format: string, rawContent: string) {
   try {
     applyJson(engine.importExternalHealthData(format, rawContent));
-    notify("历史穿戴健康数据已标准化入库并更新个人节律");
+    notify(tr("toast.wearable_imported"));
   } catch (err) {
-    notify(`外部数据导入失败：${errorMessage(err)}`);
+    notify(tr("toast.wearable_failed", { error: errorMessage(err) }));
   }
 }
 
 export function startExperiment(title: string, hypothesis: string, targetDays: number) {
   try {
     applyJson(engine.startExperiment(title, hypothesis, targetDays));
-    notify(`已开启 ${targetDays} 天微习惯实验「${title}」`);
+    notify(tr("toast.experiment_started", { days: targetDays, title }));
   } catch (err) {
-    notify(`开启实验失败：${errorMessage(err)}`);
+    notify(tr("toast.experiment_failed", { error: errorMessage(err) }));
   }
 }
 
 export function toggleExperimentToday(experimentId: number) {
   try {
     applyJson(engine.toggleExperimentToday(experimentId));
-    notify("已更新今日实验打卡并重算前后变化");
+    notify(tr("toast.experiment_toggled"));
   } catch (err) {
-    notify(`实验打卡失败：${errorMessage(err)}`);
+    notify(tr("toast.experiment_toggle_failed", { error: errorMessage(err) }));
   }
 }
 
@@ -913,9 +1073,9 @@ export function refreshLiveBriefing() {
   requestAiAction(() => {
     try {
       applyJson(engine.refreshLiveBriefing());
-      notify(`已完成早报实时润色（${uiState().briefing.provider_label}）`);
+      notify(tr("toast.briefing_refreshed", { provider: uiState().briefing.provider_label }));
     } catch (err) {
-      notify(`实时润色失败：${errorMessage(err)}`);
+      notify(tr("toast.briefing_failed", { error: errorMessage(err) }));
     }
   });
 }
@@ -924,9 +1084,9 @@ export function probeCapabilities() {
   try {
     applyJson(engine.probeCapabilities());
     const probe = uiState().capability_probe;
-    notify(probe ? probe.summary : "已完成本地与局域网算力探测");
+    notify(probe ? probe.summary : tr("toast.capabilities_probed"));
   } catch (err) {
-    notify(`算力探测失败：${errorMessage(err)}`);
+    notify(tr("toast.capabilities_failed", { error: errorMessage(err) }));
   }
 }
 
@@ -938,7 +1098,7 @@ export function updateSyncConfig(
   webdavPassword = uiState().settings.webdav_password,
 ) {
   applyJson(engine.updateSyncConfig(syncMode, webdavUrl, byoUrl, webdavUsername, webdavPassword));
-  notify("个人云同步策略已更新");
+  notify(tr("toast.sync_updated"));
 }
 
 export function updateCloudUrlAndHandle(cloudUrl: string, cloudHandle: string) {
@@ -956,7 +1116,7 @@ export async function connectCloudSession(cloudUrl: string, handle: string) {
       body: JSON.stringify({ handle: cleanHandle }),
     });
     if (!resp.ok) {
-      notify(`账号会话连接返回 HTTP ${resp.status}`);
+      notify(tr("toast.cloud_http_error", { status: resp.status }));
       return;
     }
     const data = (await resp.json()) as {
@@ -969,9 +1129,9 @@ export async function connectCloudSession(cloudUrl: string, handle: string) {
       applyJson(engine.applyEntitlementToken(data.entitlements.entitlement_token));
     }
     cloudEntitlements.set(data.entitlements);
-    notify(`已连接知气服务（${data.entitlements.plan_tier.toUpperCase()}）`);
+    notify(tr("toast.cloud_connected", { tier: data.entitlements.plan_tier.toUpperCase() }));
   } catch (err) {
-    notify(`云端服务当前离线，本机核心功能不受影响 (${errorMessage(err)})`);
+    notify(tr("toast.cloud_offline", { error: errorMessage(err) }));
   }
 }
 
@@ -979,7 +1139,6 @@ export async function activateCloudPro(tier = "pro_annual", guardianSponsor = fa
   const s = uiState().settings;
   const cleanUrl = s.cloud_url.trim().replace(/\/+$/, "");
   if (!s.cloud_token) {
-    // 离线或未登录云账号时，直接以本机 Ed25519 沙盒签发体验通行证
     setEntitlementSandbox(tier, "active", guardianSponsor, s.companion_loyalty_days);
     return;
   }
@@ -997,7 +1156,7 @@ export async function activateCloudPro(tier = "pro_annual", guardianSponsor = fa
       }),
     });
     if (!resp.ok) {
-      notify(`升级雅集返回 HTTP ${resp.status}`);
+      notify(tr("toast.upgrade_http_error", { status: resp.status }));
       return;
     }
     const ent = (await resp.json()) as CloudEntitlementsView;
@@ -1005,9 +1164,9 @@ export async function activateCloudPro(tier = "pro_annual", guardianSponsor = fa
     if (ent.entitlement_token) {
       applyJson(engine.applyEntitlementToken(ent.entitlement_token));
     }
-    notify(`雅集权益已生效（${ent.tier_display ?? ent.plan_tier}）`);
+    notify(tr("toast.atelier_activated", { tier: ent.tier_display ?? ent.plan_tier }));
   } catch (err) {
-    notify(`云端服务离线，暂无法切换雅集权益 (${errorMessage(err)})`);
+    notify(tr("toast.atelier_offline", { error: errorMessage(err) }));
   }
 }
 
@@ -1030,26 +1189,26 @@ export function generateEncryptedPreview() {
   try {
     encryptedBatchPreview.set(engine.previewEncryptedBatch(7));
   } catch (err) {
-    notify(`加密分片生成失败：${errorMessage(err)}`);
+    notify(tr("toast.preview_failed", { error: errorMessage(err) }));
   }
 }
 
 export function runE2eeSyncNow() {
   try {
     applyJson(engine.runE2eeSyncNow());
-    notify(uiState().settings.last_sync_summary || "个人云加密同步完成");
+    notify(uiState().settings.last_sync_summary || tr("toast.sync_done_default"));
   } catch (err) {
-    notify(`个人云同步失败：${errorMessage(err)}`);
+    notify(tr("toast.sync_failed", { error: errorMessage(err) }));
   }
 }
 
 export function restoreFromRecoveryPhrase(phrase: string, sourceMode: string, archiveOrUrl: string) {
   try {
     applyJson(engine.restoreFromRecoveryPhrase(phrase, sourceMode, archiveOrUrl));
-    notify(uiState().settings.last_sync_summary || "12 词恢复完成");
+    notify(uiState().settings.last_sync_summary || tr("toast.restore_phrase_done"));
     return true;
   } catch (err) {
-    notify(`恢复失败：${errorMessage(err)}`);
+    notify(tr("toast.restore_phrase_failed", { error: errorMessage(err) }));
     return false;
   }
 }
@@ -1057,22 +1216,23 @@ export function restoreFromRecoveryPhrase(phrase: string, sourceMode: string, ar
 export function generateEncryptedArchive() {
   try {
     encryptedArchivePreview.set(engine.exportEncryptedArchive());
-    notify("已生成 .qivault 整库加密归档");
+    notify(tr("toast.backup_exported"));
   } catch (err) {
-    notify(`归档导出失败：${errorMessage(err)}`);
+    notify(tr("toast.archive_failed", { error: errorMessage(err) }));
   }
 }
 
 export function generateJsonlExport() {
   jsonlExportPreview.set(engine.exportJsonl());
+  notify(tr("toast.jsonl_ready"));
 }
 
 export async function copyToClipboard(text: string, label: string) {
   try {
     await Clipboard.writeText(text);
-    notify(`已复制${label}到系统剪贴板`);
+    notify(tr("toast.copied", { label }));
   } catch (err) {
-    notify(`剪贴板不可用：${errorMessage(err)}`);
+    notify(tr("toast.clipboard_unavailable", { error: errorMessage(err) }));
   }
 }
 
@@ -1080,18 +1240,18 @@ export async function sendMorningTestNotification() {
   try {
     const perm = await Notifications.requestPermission();
     if (perm === "denied" || perm === "unavailable") {
-      notify(`系统通知当前不可用 (${perm})：打包为已签名应用后即可接收 08:30 推送`);
+      notify(tr("toast.push_unavailable", { perm }));
       return;
     }
     const snap = uiState().snapshot;
     const shown = await Notifications.show({
       id: "qi-morning-brief",
-      title: `知气 · 今日元气 ${snap.qi_score}/100 (${snap.state_badge})`,
+      title: tr("toast.push_title", { score: snap.qi_score, badge: snap.state_badge }),
       body: snap.micro_action,
     });
-    notify(shown ? "已发送 08:30 早安本地通知预览" : "系统暂未展示通知（无窗口或免打扰）");
+    notify(shown ? tr("toast.push_sent") : tr("toast.push_silent"));
   } catch (err) {
-    notify(`本地通知提示：${errorMessage(err)}`);
+    notify(tr("toast.push_error", { error: errorMessage(err) }));
   }
 }
 
@@ -1113,16 +1273,52 @@ export function wipeVaultAndReset() {
   showQaStudio.set(false);
   showDailyPoster.set(false);
   petCount.set(0);
-  notify("已物理清空本机健康数据库");
+  hearthGiftCount.set(0);
+  restoreStatusMessage.set("");
+  restoringPurchases.set(false);
+  recentAppleTransactions.length = 0;
+  notify(tr("toast.vault_wiped"));
 }
 
 export function reseedDemoData() {
   applyJson(engine.reseedDemo());
   lastAuditReport.set(null);
-  notify("已重新载入 35 天节律演示数据");
+  notify(tr("toast.demo_reseeded"));
 }
 
-// ---------- 知气雅集 v4.0 动作方法 ----------
+// ---------- Qi Atelier v5.0 & Apple IAP Actions ----------
+
+export function getAppleCatalogProductIds(): AppleCatalogIds {
+  try {
+    return JSON.parse(QiMeta.appleCatalogProductIdsJson()) as AppleCatalogIds;
+  } catch {
+    return {
+      subscriptions: [
+        { product_id: DEFAULT_APPLE_PRODUCT_MAP.pro_monthly, tier: "pro_monthly" },
+        { product_id: DEFAULT_APPLE_PRODUCT_MAP.seasonal, tier: "seasonal" },
+        { product_id: DEFAULT_APPLE_PRODUCT_MAP.pro_annual, tier: "pro_annual" },
+        { product_id: DEFAULT_APPLE_PRODUCT_MAP.duo, tier: "duo" },
+        { product_id: DEFAULT_APPLE_PRODUCT_MAP.family, tier: "family" },
+      ],
+      non_consumables: [
+        { product_id: DEFAULT_APPLE_PRODUCT_MAP.lifetime_local, tier: "lifetime_local" },
+      ],
+      consumables: [
+        { product_id: HEARTH_GIFT_PASS_PRODUCT_ID, kind: "consumable_gift_pass" },
+      ],
+    };
+  }
+}
+
+export function resolveAppleProductIdForTier(tier: string): string | null {
+  if (tier === "free") return null;
+  const catalog = getAppleCatalogProductIds();
+  const sub = catalog.subscriptions.find((item) => item.tier === tier);
+  if (sub) return sub.product_id;
+  const nc = catalog.non_consumables.find((item) => item.tier === tier);
+  if (nc) return nc.product_id;
+  return DEFAULT_APPLE_PRODUCT_MAP[tier] ?? null;
+}
 
 export function hasFeature(feature: string): boolean {
   const ent = uiState().entitlements;
@@ -1132,9 +1328,9 @@ export function hasFeature(feature: string): boolean {
 export function verifyEntitlements() {
   try {
     applyJson(engine.verifyEntitlements());
-    notify("已完成 Ed25519 离线通行证与单调时钟校验");
+    notify(tr("toast.entitlement_verified"));
   } catch (err) {
-    notify(`验签提示：${errorMessage(err)}`);
+    notify(tr("toast.verify_hint", { error: errorMessage(err) }));
   }
 }
 
@@ -1146,16 +1342,26 @@ export function setEntitlementSandbox(
 ) {
   try {
     applyJson(engine.setEntitlementSandbox(tier, simulatedState, guardianSponsor, loyaltyDays));
-    notify(`已签发 ${uiState().entitlements.tier_display} 凭证（${uiState().entitlements.state}）`);
+    if (guardianSponsor) {
+      hearthGiftCount.update((n) => Math.max(1, n));
+    } else if (tier === "free") {
+      hearthGiftCount.set(0);
+    }
+    notify(
+      tr("toast.sandbox_applied", {
+        tier: uiState().entitlements.tier_display,
+        state: uiState().entitlements.state,
+      }),
+    );
   } catch (err) {
-    notify(`切换权益沙盒失败：${errorMessage(err)}`);
+    notify(tr("toast.sandbox_failed", { error: errorMessage(err) }));
   }
 }
 
 export function applyEntitlementToken(token: string) {
   try {
     applyJson(engine.applyEntitlementToken(token));
-    notify("Ed25519 雅集通行证已生效");
+    notify(tr("toast.token_applied"));
   } catch (err) {
     notify(errorMessage(err));
   }
@@ -1163,13 +1369,163 @@ export function applyEntitlementToken(token: string) {
 
 export function clearEntitlementToken() {
   applyJson(engine.clearEntitlementToken());
-  notify("已回归「素心清欢」永久免费版（历史档案仍永久可读可导出）");
+  notify(tr("toast.free_restored"));
+}
+
+function rememberAppleTransaction(tx: StoreKitTransactionInput) {
+  const idx = recentAppleTransactions.findIndex((item) => item.product_id === tx.product_id);
+  if (idx >= 0) {
+    recentAppleTransactions[idx] = tx;
+  } else {
+    recentAppleTransactions.push(tx);
+  }
+}
+
+export function verifyAppleIapTransaction(input: {
+  productId: string;
+  transactionId?: string;
+  originalTransactionId?: string;
+  environment?: string;
+  jwsRepresentation?: string | null;
+  expiresDateEpoch?: number | null;
+  silent?: boolean;
+}): boolean {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const txId = input.transactionId?.trim() || `tx_${input.productId}_${nowSec}`;
+  const origTxId = input.originalTransactionId?.trim() || txId;
+  const env = input.environment?.trim() || "Sandbox";
+  const prevGiftCount = hearthGiftCount();
+  try {
+    applyJson(
+      engine.verifyAppleIapTransaction(
+        input.productId,
+        txId,
+        origTxId,
+        env,
+        input.jwsRepresentation ?? null,
+        input.expiresDateEpoch ?? null,
+      ),
+    );
+    rememberAppleTransaction({
+      product_id: input.productId,
+      transaction_id: txId,
+      original_transaction_id: origTxId,
+      environment: env,
+      jws_representation: input.jwsRepresentation ?? null,
+      expires_date_epoch: input.expiresDateEpoch ?? null,
+    });
+    if (input.productId === HEARTH_GIFT_PASS_PRODUCT_ID) {
+      hearthGiftCount.set(prevGiftCount + 1);
+      if (!input.silent) notify(tr("toast.gift_pass_done"));
+    } else if (!input.silent) {
+      notify(tr("toast.apple_verified", { tier: uiState().entitlements.tier_display }));
+    }
+    return true;
+  } catch (err) {
+    if (!input.silent) {
+      notify(tr("toast.apple_verify_failed", { error: errorMessage(err) }));
+    }
+    return false;
+  }
+}
+
+export function purchaseHearthGiftPass(silent = false): boolean {
+  return verifyAppleIapTransaction({
+    productId: HEARTH_GIFT_PASS_PRODUCT_ID,
+    environment: "Sandbox",
+    silent,
+  });
+}
+
+export function confirmAtelierApplePurchase(
+  tier: AtelierTierId,
+  includeHearthGiftPass: boolean,
+) {
+  if (tier === "free") {
+    clearEntitlementToken();
+    if (includeHearthGiftPass) {
+      purchaseHearthGiftPass();
+    }
+    return;
+  }
+
+  const productId = resolveAppleProductIdForTier(tier);
+  if (productId) {
+    const ok = verifyAppleIapTransaction({
+      productId,
+      environment: "Sandbox",
+      silent: false,
+    });
+    if (ok && includeHearthGiftPass) {
+      purchaseHearthGiftPass(true);
+      notify(tr("toast.gift_pass_done"));
+    }
+    return;
+  }
+
+  void activateCloudPro(tier, includeHearthGiftPass);
+}
+
+interface HostStoreKitBridge {
+  restorePurchases?: () => Promise<string | StoreKitTransactionInput[]>;
+}
+
+export async function restoreApplePurchases(explicitTransactionsJson?: string): Promise<boolean> {
+  restoringPurchases.set(true);
+  try {
+    let payloadJson = explicitTransactionsJson;
+    if (!payloadJson) {
+      const hostBridge = (globalThis as { __qiStoreKitBridge?: HostStoreKitBridge })
+        .__qiStoreKitBridge;
+      if (hostBridge?.restorePurchases) {
+        const res = await hostBridge.restorePurchases();
+        payloadJson = typeof res === "string" ? res : JSON.stringify(res);
+      } else {
+        const fallbackList: StoreKitTransactionInput[] = [...recentAppleTransactions];
+        const currentTier = uiState().entitlements.tier;
+        const activeProductId = resolveAppleProductIdForTier(currentTier);
+        if (
+          activeProductId &&
+          !fallbackList.some((tx) => tx.product_id === activeProductId)
+        ) {
+          const ts = Math.floor(Date.now() / 1000);
+          fallbackList.push({
+            product_id: activeProductId,
+            transaction_id: `restore_${activeProductId}_${ts}`,
+            original_transaction_id: `restore_${activeProductId}_${ts}`,
+            environment: "Sandbox",
+          });
+        }
+        payloadJson = JSON.stringify(fallbackList);
+      }
+    }
+
+    const parsedArr = JSON.parse(payloadJson) as unknown[];
+    applyJson(engine.restoreAppleIapPurchases(payloadJson));
+    if (Array.isArray(parsedArr) && parsedArr.length === 0) {
+      const msg = tr("toast.restore_empty");
+      restoreStatusMessage.set(msg);
+      notify(msg);
+      return false;
+    }
+    const msg = tr("toast.restore_done");
+    restoreStatusMessage.set(msg);
+    notify(msg);
+    return true;
+  } catch (err) {
+    const msg = tr("toast.apple_verify_failed", { error: errorMessage(err) });
+    restoreStatusMessage.set(msg);
+    notify(msg);
+    return false;
+  } finally {
+    restoringPurchases.set(false);
+  }
 }
 
 export function claimSeasonalReward(rewardId: string) {
   try {
     applyJson(engine.claimSeasonalReward(rewardId));
-    notify("已收下该岁时风物");
+    notify(tr("toast.reward_claimed"));
   } catch (err) {
     notify(errorMessage(err));
   }
@@ -1178,7 +1534,7 @@ export function claimSeasonalReward(rewardId: string) {
 export function claimRecoveryDew() {
   try {
     applyJson(engine.claimRecoveryDew());
-    notify("已领取「安心静养 · 睡饱双倍露 +3 💧」");
+    notify(tr("toast.recovery_dew_claimed"));
   } catch (err) {
     notify(errorMessage(err));
   }
@@ -1186,7 +1542,7 @@ export function claimRecoveryDew() {
 
 export function setWeatherMood(mood: string) {
   applyJson(engine.setWeatherMood(mood));
-  notify("已切换窗外天色心境");
+  notify(tr("toast.weather_changed"));
 }
 
 export function toggleEquippedKeepsake(keepsakeId: string) {
@@ -1200,7 +1556,7 @@ export function toggleEquippedKeepsake(keepsakeId: string) {
 export function setSealInk(ink: string) {
   try {
     applyJson(engine.setSealInk(ink));
-    notify("已更换日签印泥");
+    notify(tr("toast.seal_changed"));
   } catch (err) {
     notify(errorMessage(err));
   }
@@ -1209,7 +1565,7 @@ export function setSealInk(ink: string) {
 export function saveSanctuaryPreset(name: string) {
   try {
     applyJson(engine.saveSanctuaryPreset(name));
-    notify(`已保存书房预设「${name.trim()}」`);
+    notify(tr("toast.preset_saved", { name: name.trim() }));
   } catch (err) {
     notify(errorMessage(err));
   }
@@ -1218,7 +1574,7 @@ export function saveSanctuaryPreset(name: string) {
 export function applySanctuaryPreset(presetId: number) {
   try {
     applyJson(engine.applySanctuaryPreset(presetId));
-    notify("已套用书房预设");
+    notify(tr("toast.preset_applied"));
   } catch (err) {
     notify(errorMessage(err));
   }
@@ -1233,7 +1589,7 @@ export function addFoodSticker(
 ) {
   try {
     applyJson(engine.addFoodSticker(date, title, filter, note, imageRef));
-    notify(`已定格食光贴纸「${title.trim()}」(+1 💧)`);
+    notify(tr("toast.sticker_added", { title: title.trim() }));
   } catch (err) {
     notify(errorMessage(err));
   }
@@ -1245,13 +1601,13 @@ export function toggleStickerFavorite(stickerId: number) {
 
 export function deleteFoodSticker(stickerId: number) {
   applyJson(engine.deleteFoodSticker(stickerId));
-  notify("已移除该贴纸");
+  notify(tr("toast.sticker_removed"));
 }
 
 export function coSanctuaryAction(action: string, partnerName?: string, pairCode?: string) {
   applyJson(engine.cosanctuaryAction(action, partnerName ?? null, pairCode ?? null));
   if (action === "warm_tea" || action === "tuck_blanket" || action === "paw_stamp") {
-    notify("已向同窗好友送去问候并浇灌窗台金桂 (+1 💧)");
+    notify(tr("toast.cosanctuary_sent"));
   }
 }
 
@@ -1267,15 +1623,16 @@ export function startCustomExperiment(
 ) {
   try {
     applyJson(engine.startCustomExperiment(title, hypothesis, targetDays, washoutDays));
-    notify(`已开启自定义实验（洗脱期 ${washoutDays} 天）`);
+    notify(tr("toast.custom_experiment_started", { days: washoutDays }));
   } catch (err) {
     notify(errorMessage(err));
   }
 }
 
-export function generateParentsPeaceLetter(recipientLabel = "爸妈") {
+export function generateParentsPeaceLetter(recipientLabel?: string) {
+  const cleanLabel = recipientLabel?.trim() || tr("log.profile_parents_default");
   try {
-    const raw = engine.generateParentsPeaceLetter(recipientLabel);
+    const raw = engine.generateParentsPeaceLetter(cleanLabel);
     parentsPeaceLetterResult.set(JSON.parse(raw) as ParentsPeaceLetter);
     showFamilyPeaceLetterModal.set(true);
   } catch (err) {
@@ -1296,7 +1653,13 @@ export function addProfileLabMarker(
     applyJson(
       engine.addProfileLabMarker(profileId, testDate, markerName, value, unit, refLow, refHigh),
     );
-    notify(`已记录${profileId === "partner" ? "伴侣" : profileId === "parents" ? "父母长辈" : "本人"}指标：${markerName}`);
+    const profileLabel =
+      profileId === "partner"
+        ? tr("log.profile_partner")
+        : profileId === "parents"
+          ? tr("log.profile_parents_default")
+          : tr("log.profile_self");
+    notify(tr("toast.marker_recorded", { profile: profileLabel, marker: markerName }));
   } catch (err) {
     notify(errorMessage(err));
   }
@@ -1307,6 +1670,149 @@ export function pullWebdavSync() {
     applyJson(engine.pullWebdavSync());
     notify(uiState().settings.last_sync_summary);
   } catch (err) {
-    notify(`WebDAV 拉取提示：${errorMessage(err)}`);
+    notify(tr("toast.webdav_hint", { error: errorMessage(err) }));
+  }
+}
+
+// ---------- Custom Pet Companion v5.0 ----------
+
+export function listCustomPets(): {
+  pets: CustomPetCompanion[];
+  active_pet: CustomPetCompanion | null;
+  quota: CustomPetQuota;
+  letters: PetWeeklyLetter[];
+} | null {
+  try {
+    return JSON.parse(engine.listCustomPets()) as {
+      pets: CustomPetCompanion[];
+      active_pet: CustomPetCompanion | null;
+      quota: CustomPetQuota;
+      letters: PetWeeklyLetter[];
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function upsertCustomPet(input: {
+  name: string;
+  species: string;
+  persona: string;
+  photoDataUrl: string;
+  dieCutFrame: string;
+  starlightMemorial: boolean;
+  pawStampTitle: string;
+  isActive: boolean;
+  petId?: string | null;
+}): boolean {
+  const trimmedName = input.name.trim();
+  if (!trimmedName) {
+    notify(tr("errors.pet_name_required"));
+    return false;
+  }
+  try {
+    applyJson(
+      engine.upsertCustomPet(
+        trimmedName,
+        input.species,
+        input.persona.trim(),
+        input.photoDataUrl.trim(),
+        input.dieCutFrame,
+        input.starlightMemorial,
+        input.pawStampTitle.trim(),
+        input.isActive,
+        input.petId ?? null,
+      ),
+    );
+    notify(tr("toast.pet_saved", { name: trimmedName }));
+    return true;
+  } catch (err) {
+    notify(errorMessage(err));
+    return false;
+  }
+}
+
+export function setActiveCustomPet(petId: string, petName?: string): boolean {
+  try {
+    applyJson(engine.setActiveCustomPet(petId));
+    const displayName = petName?.trim() || tr("pet.preset_xiaoman");
+    notify(tr("toast.pet_activated", { name: displayName }));
+    return true;
+  } catch (err) {
+    notify(errorMessage(err));
+    return false;
+  }
+}
+
+export function deleteCustomPet(petId: string, petName?: string): boolean {
+  try {
+    applyJson(engine.deleteCustomPet(petId));
+    notify(tr("toast.pet_removed", { name: petName?.trim() || petId }));
+    return true;
+  } catch (err) {
+    notify(errorMessage(err));
+    return false;
+  }
+}
+
+export function generatePetWeeklyLetter(
+  petId: string,
+  petName?: string,
+  weekNumber?: number | null,
+): boolean {
+  try {
+    applyJson(engine.generatePetWeeklyLetter(petId, weekNumber ?? null));
+    notify(tr("toast.pet_letter_ready", { name: petName?.trim() || petId }));
+    return true;
+  } catch (err) {
+    notify(errorMessage(err));
+    return false;
+  }
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i] ?? 0;
+    const b = bytes[i + 1] ?? 0;
+    const c = bytes[i + 2] ?? 0;
+    const triple = (a << 16) | (b << 8) | c;
+    out += alphabet[(triple >> 18) & 63];
+    out += alphabet[(triple >> 12) & 63];
+    out += i + 1 < bytes.length ? alphabet[(triple >> 6) & 63] : "=";
+    out += i + 2 < bytes.length ? alphabet[triple & 63] : "=";
+  }
+  return out;
+}
+
+export async function pickCustomPetPhotoDataUrl(): Promise<string | null> {
+  try {
+    const picked = await Picker.pickImages({ multiple: false, maxDimension: 512 });
+    if (picked.length === 0) return null;
+    const file = picked[0].file;
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    if (bytes.length > 360 * 1024) {
+      notify(tr("toast.pet_photo_too_large"));
+      return null;
+    }
+    const lowerName = file.name.toLowerCase();
+    const mime =
+      file.type && file.type.startsWith("image/") && file.type !== "image/svg+xml"
+        ? file.type
+        : lowerName.endsWith(".png")
+          ? "image/png"
+          : lowerName.endsWith(".webp")
+            ? "image/webp"
+            : lowerName.endsWith(".gif")
+              ? "image/gif"
+              : "image/jpeg";
+    const dataUrl = `data:${mime};base64,${uint8ArrayToBase64(bytes)}`;
+    notify(tr("toast.pet_photo_ready"));
+    return dataUrl;
+  } catch (err) {
+    notify(errorMessage(err));
+    return null;
   }
 }

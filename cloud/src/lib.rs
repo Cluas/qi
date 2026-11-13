@@ -1,4 +1,4 @@
-//! 「知气 · Qi」官方零健康库云端控制面与无状态 ZDR AI 网关路由实现。
+//! 「知气 (Qi)」官方零健康库云端控制面与无状态 ZDR AI 网关路由实现。
 
 pub mod db;
 pub mod guardrails;
@@ -16,7 +16,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_http::cors::CorsLayer;
 
-use crate::db::{AccountIdentity, ControlPlaneDb, SubscriptionTier, SyncEnvelopeInput};
+use crate::db::{
+    AccountIdentity, AppleVerifyError, AppleVerifyRequest, ControlPlaneDb, SubscriptionTier,
+    SyncEnvelopeInput,
+};
 use crate::guardrails::{
     SERVER_WELLNESS_DISCLAIMER, enforce_wellness_guardrails, scrub_pii_in_memory,
 };
@@ -99,6 +102,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/entitlements/refresh", post(refresh_entitlements))
         .route("/v1/billing/activate-pro", post(activate_pro))
         .route("/v1/billing/mock-upgrade", post(mock_upgrade))
+        .route("/v1/billing/apple/verify", post(apple_verify))
         .route("/v1/cosanctuary/pair", post(co_pair))
         .route("/v1/cosanctuary/mood", post(co_mood))
         .route("/v1/cosanctuary/care", post(co_care))
@@ -255,6 +259,39 @@ async fn mock_upgrade(
     ) {
         Ok(ent) => (StatusCode::OK, Json(ent)).into_response(),
         Err(msg) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "db_error", &msg),
+    }
+}
+
+async fn apple_verify(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let identity = match require_auth(&state, &headers) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let req: AppleVerifyRequest = match serde_json::from_slice(&body) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                "invalid_json",
+                "Apple 交易校验请求体必须为合法 JSON",
+            );
+        }
+    };
+    match state.db.verify_apple_purchase(&identity, &req) {
+        Ok(resp) => (StatusCode::OK, Json(resp)).into_response(),
+        Err(AppleVerifyError::BadRequest(code, msg)) => {
+            json_error(StatusCode::BAD_REQUEST, code, &msg)
+        }
+        Err(AppleVerifyError::Conflict(code, msg)) => {
+            json_error(StatusCode::CONFLICT, code, &msg)
+        }
+        Err(AppleVerifyError::Internal(msg)) => {
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, "db_error", &msg)
+        }
     }
 }
 
@@ -427,7 +464,7 @@ async fn zdr_complete(
     // 内存级二次脱敏（绝不落盘）
     let scrubbed_input = scrub_pii_in_memory(&req.scrubbed_prompt);
     let system_prompt = req.system_hint.unwrap_or_else(|| {
-        "你是「知气 · Qi」温和克制的东方节律健康助手。严禁使用诊断、确诊、开药、处方等医疗用词，只基于给定已核对的统计特征给出日常作息与饮食微调建议，控制在 120 字以内。".to_owned()
+        "你是「知气」温和克制的东方节律健康助手。严禁使用诊断、确诊、开药、处方等医疗用词，只基于给定已核对的统计特征给出日常作息与饮食微调建议，控制在 120 字以内。".to_owned()
     });
 
     let mut upstream_used = false;

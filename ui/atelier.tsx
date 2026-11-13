@@ -15,12 +15,15 @@ import {
   SwitchRow,
   VitalBadge,
 } from "./components";
+import { isEnglishLocale, tr } from "./i18n";
 import {
   BadgeCeramicIcon,
   CoSanctuaryIcon,
+  CustomPetIcon,
   EnvelopeIcon,
   FamilyHeartIcon,
   HandscrollIcon,
+  HearthEmberIcon,
   QiIcon,
   SolarTermIcon,
   WaxSealIcon,
@@ -44,7 +47,9 @@ export interface AtelierPlanOption {
   title: string;
   subtitle: string;
   priceCny: number;
+  displayPrice?: string;
   originalPriceCny?: number | null;
+  originalDisplayPrice?: string | null;
   billingCycle: string;
   seats: number;
   highlights: string[];
@@ -58,119 +63,139 @@ export interface TransparentTrialStep {
   detail: string;
 }
 
-const DEFAULT_ATELIER_PLANS: AtelierPlanOption[] = [
-  {
-    tier: "free",
-    title: "素心清欢 · 永久免费",
-    subtitle: "原始数据、单人化验单 OCR、Ollama 本地晨报、静养双倍露与 JSONL 导出永久免费",
-    priceCny: 0,
-    billingCycle: "永久免费",
-    seats: 1,
-    highlights: [
-      "完整生理记录 + 单人化验解析 + 100% 明文导出",
-      "第 1 封伴侣周信 + 每月 5 张拍立得饮食贴纸 + 清欢轨节气风物",
-    ],
-    badge: "健康底线 · 永不涨价",
-  },
-  {
-    tier: "pro_monthly",
-    title: "知气月雅 · 按月轻享",
-    subtitle: "无自动续费套路，按月随心开启全套雅集陪伴",
-    priceCny: 18,
-    billingCycle: "30 天",
-    seats: 1,
-    highlights: [
-      "24 节气昼夜书房天象 + 雅集限定服饰、泥金/石青印泥",
-      "无限饮食贴纸 + 90 天 D+0/D+1/D+2 归因雷达",
-    ],
-    badge: "无连包套路",
-  },
-  {
-    tier: "seasonal",
-    title: "岁时节气季卡",
-    subtitle: "陪你完整度过春 / 夏 / 秋 / 冬一整季 6 个节气",
-    priceCny: 38,
-    originalPriceCny: 54,
-    billingCycle: "一季 (3 个月)",
-    seats: 1,
-    highlights: [
-      "解锁当季全部 6 个节气「雅集轨」摆件与藏书票",
-      "四时风物长卷 + WebDAV 双向加密同步 + 自定义洗脱期",
-    ],
-    badge: "应季首选",
-  },
-  {
-    tier: "pro_annual",
-    title: "知气雅集 · 年卡",
-    subtitle: "一年 24 节气、52 封周信、12 张节气月历垫全收录",
-    priceCny: 98,
-    originalPriceCny: 148,
-    billingCycle: "365 天",
-    seats: 1,
-    highlights: [
-      "解锁全部 24 节气雅集风物、52 封周信与往期博物架",
-      "多亲友化验 %ULN 归一化对比 + 大字平安家书 + 同窗房主权",
-    ],
-    badge: "30 天陪伴礼遇价 ¥98",
-    loyaltyApplied: true,
-  },
-  {
-    tier: "duo",
-    title: "双人同窗 · Duo",
-    subtitle: "两人各享独立私密 Vault，只互传 1 字节心情与合种窗台金桂",
-    priceCny: 168,
-    originalPriceCny: 236,
-    billingCycle: "365 天 · 2 席",
-    seats: 2,
-    highlights: [
-      "2 个完整知气雅集席位，双方互递热茶、盖薄被、按爪印",
-      "绝不共享日记、作息数字与化验单内容",
-    ],
-    badge: "情侣 / 挚友同窗",
-  },
-  {
-    tier: "family",
-    title: "四时家书 · Family",
-    subtitle: "至多 4 位家人共享：把温和气色化作爸妈看得懂的大字平安家书",
-    priceCny: 228,
-    originalPriceCny: 472,
-    billingCycle: "365 天 · 4 席",
-    seats: 4,
-    highlights: [
-      "4 个独立端侧保险箱 + %ULN 亲友化验同屏趋势",
-      "一键生成端到端加密大字版《气韵平安家书》",
-    ],
-    badge: "全家安心 · 4 席",
-  },
-  {
-    tier: "lifetime_local",
-    title: "买断本地 · 终身版",
-    subtitle: "一次买断本地全部雅集与统计引擎（自有 WebDAV 同步永久免费）",
-    priceCny: 368,
-    billingCycle: "永久买断",
-    seats: 1,
-    highlights: [
-      "离线 Ed25519 终身凭证，永不依赖任何续费服务器",
-      "本地全部节气美术、贴纸滤镜与 .qivault 全速运行",
-    ],
-    badge: "买断党挚爱",
-  },
-];
+function getDefaultAtelierPlans(): AtelierPlanOption[] {
+  return [
+    {
+      tier: "free",
+      title: tr("atelier.plans.free.title"),
+      subtitle: tr("atelier.plans.free.subtitle"),
+      priceCny: 0,
+      billingCycle: tr("atelier.plans.free.cadence"),
+      seats: 1,
+      highlights: [
+        tr("atelier.plans.free.highlight_1"),
+        tr("atelier.plans.free.highlight_2"),
+        tr("atelier.plans.free.highlight_3"),
+      ],
+      badge: tr("atelier.plans.free.badge"),
+    },
+    {
+      tier: "pro_monthly",
+      title: tr("atelier.plans.pro_monthly.title"),
+      subtitle: tr("atelier.plans.pro_monthly.subtitle"),
+      priceCny: 18,
+      billingCycle: tr("atelier.plans.pro_monthly.cadence"),
+      seats: 1,
+      highlights: [
+        tr("atelier.plans.pro_monthly.highlight_1"),
+        tr("atelier.plans.pro_monthly.highlight_2"),
+        tr("atelier.plans.pro_monthly.highlight_3"),
+      ],
+      badge: tr("atelier.plans.pro_monthly.badge"),
+    },
+    {
+      tier: "seasonal",
+      title: tr("atelier.plans.seasonal.title"),
+      subtitle: tr("atelier.plans.seasonal.subtitle"),
+      priceCny: 38,
+      originalPriceCny: 54,
+      billingCycle: tr("atelier.plans.seasonal.cadence"),
+      seats: 1,
+      highlights: [
+        tr("atelier.plans.seasonal.highlight_1"),
+        tr("atelier.plans.seasonal.highlight_2"),
+      ],
+      badge: tr("atelier.plans.seasonal.badge"),
+    },
+    {
+      tier: "pro_annual",
+      title: tr("atelier.plans.pro_annual.title"),
+      subtitle: tr("atelier.plans.pro_annual.subtitle"),
+      priceCny: 98,
+      originalPriceCny: 148,
+      billingCycle: tr("atelier.plans.pro_annual.cadence"),
+      seats: 1,
+      highlights: [
+        tr("atelier.plans.pro_annual.highlight_1"),
+        tr("atelier.plans.pro_annual.highlight_2"),
+      ],
+      badge: tr("atelier.plans.pro_annual.badge"),
+      loyaltyApplied: true,
+    },
+    {
+      tier: "duo",
+      title: tr("atelier.plans.duo.title"),
+      subtitle: tr("atelier.plans.duo.subtitle"),
+      priceCny: 168,
+      originalPriceCny: 236,
+      billingCycle: tr("atelier.plans.duo.cadence"),
+      seats: 2,
+      highlights: [
+        tr("atelier.plans.duo.highlight_1"),
+        tr("atelier.plans.duo.highlight_2"),
+      ],
+      badge: tr("atelier.plans.duo.badge"),
+    },
+    {
+      tier: "family",
+      title: tr("atelier.plans.family.title"),
+      subtitle: tr("atelier.plans.family.subtitle"),
+      priceCny: 228,
+      originalPriceCny: 472,
+      billingCycle: tr("atelier.plans.family.cadence"),
+      seats: 4,
+      highlights: [
+        tr("atelier.plans.family.highlight_1"),
+        tr("atelier.plans.family.highlight_2"),
+      ],
+      badge: tr("atelier.plans.family.badge"),
+    },
+    {
+      tier: "lifetime_local",
+      title: tr("atelier.plans.lifetime_local.title"),
+      subtitle: tr("atelier.plans.lifetime_local.subtitle"),
+      priceCny: 368,
+      billingCycle: tr("atelier.plans.lifetime_local.cadence"),
+      seats: 1,
+      highlights: [
+        tr("atelier.plans.lifetime_local.highlight_1"),
+        tr("atelier.plans.lifetime_local.highlight_2"),
+      ],
+      badge: tr("atelier.plans.lifetime_local.badge"),
+    },
+  ];
+}
 
-const DEFAULT_TRIAL_TIMELINE: TransparentTrialStep[] = [
-  { dayLabel: "第 1 天", title: "此刻起畅享全部雅集", detail: "24 节气剧场、慢递周信、多滞后雷达即时开启。" },
-  { dayLabel: "第 5 天", title: "提前 48h 温柔提醒", detail: "应用内轻声提醒一次，绝不发短信轰炸或弹窗拦路。" },
-  { dayLabel: "第 7 天", title: "退订无阻，资产永存", detail: "随时一键切回素心清欢；历史贴纸、周信与档案永久可读可导出。" },
-];
+function getDefaultTrialTimeline(): TransparentTrialStep[] {
+  return [
+    {
+      dayLabel: tr("atelier.trial_day_1_label"),
+      title: tr("atelier.trial_day_1"),
+      detail: tr("atelier.trial_day_1_detail"),
+    },
+    {
+      dayLabel: tr("atelier.trial_day_5_label"),
+      title: tr("atelier.trial_day_5"),
+      detail: tr("atelier.trial_day_5_detail"),
+    },
+    {
+      dayLabel: tr("atelier.trial_day_7_label"),
+      title: tr("atelier.trial_day_7"),
+      detail: tr("atelier.trial_day_7_detail"),
+    },
+  ];
+}
 
-const DEFAULT_ETHICAL_PROMISES: string[] = [
-  "绝不锁死原始生理数据、单人化验 OCR 与 JSONL / .qivault 明文导出",
-  "安心静养模式（recovery_priority）下绝不弹出付费推广或制造焦虑",
-  "拒绝暗黑模式（Dark Patterns）：无倒计时逼单、无羞辱式拒绝文案",
-  "停费后进入「只读保险箱」，既往风物与手账永不销毁",
-];
+function getDefaultEthicalPromises(): string[] {
+  return [
+    tr("atelier.promise_no_dark"),
+    tr("atelier.promise_calm_mode"),
+    tr("atelier.promise_read_only"),
+    tr("atelier.promise_local_first"),
+  ];
+}
 
-/** 1. 温柔雅集订阅弹窗：零压力上下文沟通 + 30天陪伴礼遇 + 7方案 + 添柴公益 + 透明7日线 */
+/** 1. 温柔雅集订阅弹窗：零压力沟通 + 自定陪伴梯度 + 礼赠漂流席位券 + Apple 合规三联底栏 */
 export function QiAtelierModal(props: {
   open: boolean;
   companionThemeId?: VisualThemeId;
@@ -186,10 +211,19 @@ export function QiAtelierModal(props: {
   ethicalPromises?: string[];
   onConfirm: (tier: AtelierTierId, guardianSponsor: boolean) => void;
   onClose: () => void;
+  onRestorePurchases?: () => void | Promise<void>;
+  restoringPurchases?: boolean;
+  restoreStatusMessage?: string;
+  hearthGiftCount?: number;
+  onOpenTerms?: () => void;
+  onOpenPrivacy?: () => void;
 }) {
   const localSelected = signal<AtelierTierId>(
     props.selectedTier ?? (props.currentTier === "free" ? "pro_annual" : props.currentTier),
   );
+  const legalDrawer = signal<"terms" | "privacy" | null>(null);
+  const localRestoreHint = signal<string>("");
+
   const activeTier = () => props.selectedTier ?? localSelected();
   const selectTier = (tier: AtelierTierId) => {
     localSelected.set(tier);
@@ -199,11 +233,31 @@ export function QiAtelierModal(props: {
   const themeMeta = () => getVisualThemeMeta(props.companionThemeId ?? "cat_window");
   const loyaltyDays = () => props.loyaltyDays ?? 30;
   const loyaltyEligible = () => loyaltyDays() >= 30;
-  const plans = () => props.plans ?? DEFAULT_ATELIER_PLANS;
-  const timeline = () => props.timelineSteps ?? DEFAULT_TRIAL_TIMELINE;
-  const promises = () => props.ethicalPromises ?? DEFAULT_ETHICAL_PROMISES;
+  const plans = () => props.plans ?? getDefaultAtelierPlans();
+  const timeline = () => props.timelineSteps ?? getDefaultTrialTimeline();
+  const promises = () => props.ethicalPromises ?? getDefaultEthicalPromises();
 
   const selectedPlan = () => plans().find((p) => p.tier === activeTier()) ?? plans()[0];
+
+  const handleRestorePress = async () => {
+    localRestoreHint.set("");
+    if (props.onRestorePurchases) {
+      await props.onRestorePurchases();
+      return;
+    }
+    localRestoreHint.set(tr("atelier.compliance.restore_empty"));
+  };
+
+  const toggleLegalDrawer = (section: "terms" | "privacy") => {
+    legalDrawer.update((curr) => (curr === section ? null : section));
+    if (section === "terms") {
+      props.onOpenTerms?.();
+    } else {
+      props.onOpenPrivacy?.();
+    }
+  };
+
+  const restoreFeedback = () => props.restoreStatusMessage ?? localRestoreHint();
 
   return (
     <ModalSurface open={props.open} presentation="pageSheet" onClose={props.onClose}>
@@ -217,12 +271,18 @@ export function QiAtelierModal(props: {
               </View>
               <View class="gap-0.5">
                 <Text role="header" class="text-lg font-bold text-foreground">
-                  知气雅集 · Qi Atelier
+                  {tr("atelier.brand_title")}
                 </Text>
-                <Text class="text-xs text-muted-foreground">四时风物与家庭手账工坊 · 温和陪伴不催促</Text>
+                <Text class="text-xs text-muted-foreground">{tr("atelier.modal_subtitle")}</Text>
               </View>
             </View>
-            <ActionButton title="先逛逛" size="sm" variant="secondary" shape="pill" onPress={props.onClose} />
+            <ActionButton
+              title={tr("atelier.browse_btn")}
+              size="sm"
+              variant="secondary"
+              shape="pill"
+              onPress={props.onClose}
+            />
           </View>
 
           {/* 伙伴轻声耳语 + 30天陪伴礼遇 */}
@@ -231,7 +291,7 @@ export function QiAtelierModal(props: {
               <View class="flex-row items-center gap-1.5">
                 <QiIcon name="sparkles" size={14} color={token("atelier-accent")} />
                 <Text class="text-xs font-bold text-atelier-accent">
-                  {`${themeMeta().companionName}的窗台便笺`}
+                  {tr("atelier.companion_note_title", { companionName: themeMeta().companionName })}
                 </Text>
               </View>
               <View class="rounded-full border border-atelier-accent/35 bg-card px-2.5 py-0.5">
@@ -240,13 +300,13 @@ export function QiAtelierModal(props: {
                   style={{ fontVariant: ["tabular-nums"] }}
                 >
                   {loyaltyEligible()
-                    ? `已享连续陪伴 ${loyaltyDays()} 天礼遇 · 年卡立减 ¥20`
-                    : `轻陪伴第 ${loyaltyDays()}/30 天 · 满 30 天解锁礼遇价`}
+                    ? tr("atelier.loyalty_eligible", { days: loyaltyDays() })
+                    : tr("atelier.loyalty_progress", { days: loyaltyDays() })}
                 </Text>
               </View>
             </View>
             <Text class="text-xs leading-relaxed text-foreground">
-              你的全部原始生理记录、单人化验单与明文导出永远留在这里。如果愿意给窗台添一盏长明夜灯，欢迎按自己的节奏选择雅集方案；哪怕一直保持素心清欢，我也一样陪着你。
+              {tr("atelier.companion_note_body")}
             </Text>
             <If when={Boolean(props.offlineStateBanner)}>
               <View class="rounded-xl border border-border/60 bg-card/80 px-3 py-1.5">
@@ -255,9 +315,36 @@ export function QiAtelierModal(props: {
             </If>
           </View>
 
+          {/* 自定陪伴权益说明：1 位永久免费 vs Pro 3 位 + 爪印藏书票 + 每周来信 */}
+          <View class="gap-2 rounded-2xl border border-border/75 bg-card p-3.5">
+            <View class="flex-row items-center gap-2">
+              <CustomPetIcon size={16} color={token("atelier-accent")} />
+              <Text class="flex-1 text-xs font-bold text-foreground">
+                {tr("atelier.pet_perk_banner_title")}
+              </Text>
+            </View>
+            <Text class="text-[11px] leading-relaxed text-muted-foreground">
+              {tr("atelier.pet_perk_banner_desc")}
+            </Text>
+            <View class="flex-row flex-wrap gap-1.5 pt-0.5">
+              <View class="rounded-full bg-vital-prime-soft px-2.5 py-0.5">
+                <Text class="text-[10px] font-semibold text-vital-prime">
+                  {tr("atelier.free_forever_pill")}
+                </Text>
+              </View>
+              <View class="rounded-full bg-atelier-soft px-2.5 py-0.5">
+                <Text class="text-[10px] font-semibold text-atelier-accent">
+                  {tr("atelier.pro_pets_pill")}
+                </Text>
+              </View>
+            </View>
+          </View>
+
           {/* 7 档方案卡片 */}
           <View class="gap-2">
-            <Text class="text-xs font-semibold text-muted-foreground">选择适合此刻的陪伴方式（共 7 档透明方案）</Text>
+            <Text class="text-xs font-semibold text-muted-foreground">
+              {tr("atelier.plans_section_label", { count: plans().length })}
+            </Text>
             <Each of={plans()} key={(p) => p.tier}>
               {(plan) => {
                 const isSelected = () => activeTier() === plan().tier;
@@ -275,12 +362,14 @@ export function QiAtelierModal(props: {
                       <View class="flex-1 gap-1">
                         <View class="flex-row flex-wrap items-center gap-1.5">
                           <Text class="text-sm font-bold text-foreground">{plan().title}</Text>
-                          <View class="rounded-full bg-surface-sunken px-2 py-0.5 border border-border/60">
+                          <View class="rounded-full border border-border/60 bg-surface-sunken px-2 py-0.5">
                             <Text class="text-[10px] font-semibold text-atelier-accent">{plan().badge}</Text>
                           </View>
                           <If when={isCurrent()}>
                             <View class="rounded-full bg-vital-prime-soft px-2 py-0.5">
-                              <Text class="text-[10px] font-semibold text-vital-prime">当前方案</Text>
+                              <Text class="text-[10px] font-semibold text-vital-prime">
+                                {tr("atelier.current_plan_badge")}
+                              </Text>
                             </View>
                           </If>
                         </View>
@@ -293,14 +382,14 @@ export function QiAtelierModal(props: {
                             class="text-lg font-bold text-foreground"
                             style={{ fontVariant: ["tabular-nums"] }}
                           >
-                            {plan().priceCny === 0 ? "¥0" : `¥${plan().priceCny}`}
+                            {plan().displayPrice ?? `¥${plan().priceCny}`}
                           </Text>
-                          <If when={Boolean(plan().originalPriceCny)}>
+                          <If when={Boolean(plan().originalDisplayPrice ?? plan().originalPriceCny)}>
                             <Text
                               class="text-[11px] text-muted-foreground line-through"
                               style={{ fontVariant: ["tabular-nums"] }}
                             >
-                              {`¥${plan().originalPriceCny}`}
+                              {plan().originalDisplayPrice ?? `¥${plan().originalPriceCny}`}
                             </Text>
                           </If>
                         </View>
@@ -324,25 +413,40 @@ export function QiAtelierModal(props: {
             </Each>
           </View>
 
-          {/* 窗台添柴计划 (+¥12) */}
+          {/* 商业消耗型内购：窗台添柴礼赠券 · 赠予社区漂流席位 (+¥12) */}
           <Card class="border-wax-seal/30 bg-wax-seal-soft/50">
-            <View class="flex-row items-center gap-2">
-              <FamilyHeartIcon size={16} color={token("wax-seal")} />
-              <Text class="text-xs font-bold text-wax-seal">公益共建 · 窗台添柴计划</Text>
+            <View class="flex-row flex-wrap items-center justify-between gap-2">
+              <View class="flex-row items-center gap-2">
+                <HearthEmberIcon size={16} color={token("wax-seal")} />
+                <Text class="text-xs font-bold text-wax-seal">{tr("atelier.hearth_gift_title")}</Text>
+              </View>
+              <View class="rounded-full border border-wax-seal/30 bg-card px-2 py-0.5">
+                <Text class="text-[10px] font-semibold text-wax-seal">
+                  {tr("atelier.hearth_gift_badge")}
+                </Text>
+              </View>
             </View>
             <SwitchRow
-              title="随单加入「窗台添柴计划」(+¥12)"
-              subtitle="为正在经历高压力备考、住院或康复期的陌生用户资助 1 个月素心雅集暖灯。"
+              title={tr("atelier.hearth_gift_switch_title")}
+              subtitle={tr("atelier.hearth_gift_desc")}
               checked={props.guardianSponsor}
               onChange={props.onToggleGuardian}
             />
+            <If when={typeof props.hearthGiftCount === "number" && props.hearthGiftCount > 0}>
+              <Text class="text-[11px] font-medium text-wax-seal" style={{ fontVariant: ["tabular-nums"] }}>
+                {tr("atelier.hearth_gift_count", { count: props.hearthGiftCount ?? 0 })}
+              </Text>
+            </If>
           </Card>
 
-          {/* Blinkist 风格 3 步透明 7 天提醒时间轴 */}
+          {/* 7 天透明体验时间轴 */}
           <Card>
-            <SectionHeader title="7 天透明体验时间轴" subtitle="没有暗扣、没有小字，把每一步都写在明面上" />
+            <SectionHeader
+              title={tr("atelier.trial_section_title")}
+              subtitle={tr("atelier.trial_section_subtitle")}
+            />
             <View class="gap-2.5">
-              <Each of={timeline()} key={(t) => t.dayLabel}>
+              <Each of={timeline()} key={(step) => step.dayLabel}>
                 {(step, idx) => (
                   <View class="flex-row items-start gap-2.5">
                     <View class="size-6 items-center justify-center rounded-full bg-atelier-soft">
@@ -366,11 +470,11 @@ export function QiAtelierModal(props: {
             </View>
           </Card>
 
-          {/* 伦理红线承诺 */}
+          {/* 温和商业承诺 */}
           <SunkenBox>
             <View class="flex-row items-center gap-1.5">
               <QiIcon name="user_shield" size={14} color={token("vital-prime")} />
-              <Text class="text-xs font-bold text-vital-prime">知气伦理红线承诺</Text>
+              <Text class="text-xs font-bold text-vital-prime">{tr("atelier.promises_section_title")}</Text>
             </View>
             <Each of={promises()} key={(p) => p}>
               {(item) => (
@@ -382,26 +486,106 @@ export function QiAtelierModal(props: {
             </Each>
           </SunkenBox>
 
-          {/* 柔和确认 CTA */}
+          {/* 确认 CTA */}
           <View class="gap-2 pt-1">
             <ActionButton
               title={
                 activeTier() === "free"
-                  ? "继续素心清欢（永久免费）"
-                  : `开通 / 切换：${selectedPlan().title}${
-                      props.guardianSponsor ? " + 添柴 ¥12" : ""
-                    }`
+                  ? tr("atelier.confirm_cta_free")
+                  : props.guardianSponsor
+                    ? tr("atelier.confirm_cta_with_gift", { title: selectedPlan().title })
+                    : tr("atelier.confirm_cta_subscribe", { title: selectedPlan().title })
               }
               icon={activeTier() === "free" ? "tea_cup" : "wax_seal"}
               size="lg"
               onPress={() => props.onConfirm(activeTier(), props.guardianSponsor)}
             />
             <ActionButton
-              title="暂不决定 · 返回今日窗台"
+              title={tr("atelier.dismiss_btn")}
               variant="ghost"
               size="sm"
               onPress={props.onClose}
             />
+          </View>
+
+          <Hairline />
+
+          {/* Apple App Store 合规三联底栏：恢复购买 + 24小时自动续订声明 + 可展开 EULA/隐私政策 */}
+          <View class="gap-2.5 rounded-2xl border border-border/70 bg-surface-sunken p-3.5">
+            {/* 1. Restore purchases */}
+            <View class="flex-row flex-wrap items-center justify-between gap-2">
+              <Text class="flex-1 text-[11px] text-muted-foreground">
+                {tr("atelier.compliance.restore_prompt")}
+              </Text>
+              <ActionButton
+                title={
+                  props.restoringPurchases
+                    ? tr("atelier.compliance.restoring")
+                    : tr("atelier.compliance.restore_purchases")
+                }
+                icon="restore_arrow"
+                size="sm"
+                variant="outline"
+                disabled={Boolean(props.restoringPurchases)}
+                onPress={handleRestorePress}
+              />
+            </View>
+
+            <If when={Boolean(restoreFeedback())}>
+              <View class="rounded-xl border border-border/60 bg-card px-3 py-1.5">
+                <Text class="text-[11px] font-medium text-foreground">{restoreFeedback()}</Text>
+              </View>
+            </If>
+
+            {/* 2. 24-hour auto-renewal disclosure */}
+            <Text class="text-[10px] leading-relaxed text-muted-foreground">
+              {tr("atelier.compliance.auto_renewal_disclosure")}
+            </Text>
+
+            {/* 3. Terms of Service (EULA) & Privacy Policy */}
+            <View class="flex-row flex-wrap items-center justify-center gap-3 pt-0.5">
+              <Button
+                onPress={() => toggleLegalDrawer("terms")}
+                class="rounded-lg px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Text class="text-[11px] font-semibold text-atelier-accent underline">
+                  {tr("atelier.compliance.terms_link")}
+                </Text>
+              </Button>
+              <Text class="text-[11px] text-muted-foreground">·</Text>
+              <Button
+                onPress={() => toggleLegalDrawer("privacy")}
+                class="rounded-lg px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Text class="text-[11px] font-semibold text-atelier-accent underline">
+                  {tr("atelier.compliance.privacy_link")}
+                </Text>
+              </Button>
+            </View>
+
+            {/* Inline readable Terms / Privacy drawer inside the modal */}
+            <If when={legalDrawer() !== null}>
+              <View class="gap-2 rounded-xl border border-border/75 bg-card p-3">
+                <View class="flex-row items-center justify-between gap-2">
+                  <Text class="flex-1 text-xs font-bold text-foreground">
+                    {legalDrawer() === "terms"
+                      ? tr("atelier.compliance.terms_title")
+                      : tr("atelier.compliance.privacy_title")}
+                  </Text>
+                  <ActionButton
+                    title={tr("atelier.compliance.hide_drawer")}
+                    size="sm"
+                    variant="ghost"
+                    onPress={() => legalDrawer.set(null)}
+                  />
+                </View>
+                <Text class="text-[11px] leading-relaxed text-muted-foreground">
+                  {legalDrawer() === "terms"
+                    ? tr("atelier.compliance.terms_body")
+                    : tr("atelier.compliance.privacy_body")}
+                </Text>
+              </View>
+            </If>
           </View>
         </View>
       </Scroll>
@@ -448,17 +632,17 @@ export function SeasonalPassPanel(props: {
 }) {
   const showArchive = signal<boolean>(false);
 
-  const weatherOptions: { id: WeatherMood; label: string }[] = [
-    { id: "sunny_crisp", label: "晴岚暖阳" },
-    { id: "misty_rain", label: "烟雨江南" },
-    { id: "first_snow", label: "初雪炉暖" },
-    { id: "clear_moon", label: "静夜澄月" },
+  const weatherOptions = (): { id: WeatherMood; label: string }[] => [
+    { id: "sunny_crisp", label: tr("atelier.seasonal.weather_sunny_crisp") },
+    { id: "misty_rain", label: tr("atelier.seasonal.weather_misty_rain") },
+    { id: "first_snow", label: tr("atelier.seasonal.weather_first_snow") },
+    { id: "clear_moon", label: tr("atelier.seasonal.weather_clear_moon") },
   ];
 
-  const sealOptions: { id: SealInkId; label: string }[] = [
-    { id: "cinnabar", label: "朱砂印泥" },
-    { id: "gold", label: "泥金印泥" },
-    { id: "lapis", label: "石青印泥" },
+  const sealOptions = (): { id: SealInkId; label: string }[] => [
+    { id: "cinnabar", label: tr("atelier.seasonal.seal_cinnabar") },
+    { id: "gold", label: tr("atelier.seasonal.seal_gold") },
+    { id: "lapis", label: tr("atelier.seasonal.seal_lapis") },
   ];
 
   const freeNodes = () => props.nodes.filter((n) => n.track === "free");
@@ -467,8 +651,8 @@ export function SeasonalPassPanel(props: {
   return (
     <Card>
       <SectionHeader
-        title={`岁时风物季票 · ${props.solarTerm}`}
-        subtitle={props.solarSubtitle ?? "晨露只因好好生活而积攒，不设限时焦虑"}
+        title={tr("atelier.seasonal.panel_title", { solarTerm: props.solarTerm })}
+        subtitle={props.solarSubtitle ?? tr("atelier.seasonal.panel_subtitle")}
         right={
           <View class="flex-row items-center gap-1 rounded-full bg-dew-soft px-3 py-1">
             <QiIcon name="droplet" size={13} color={token("dew-accent")} />
@@ -485,7 +669,7 @@ export function SeasonalPassPanel(props: {
       {/* 双轨奖励：清欢轨 vs 雅集轨 */}
       <View class="gap-3">
         <View class="gap-2">
-          <Text class="text-xs font-semibold text-vital-prime">清欢轨 · 人人可领</Text>
+          <Text class="text-xs font-semibold text-vital-prime">{tr("atelier.seasonal.free_track")}</Text>
           <View class="flex-row flex-wrap gap-2">
             <Each of={freeNodes()} key={(n) => n.id}>
               {(node) => (
@@ -503,7 +687,11 @@ export function SeasonalPassPanel(props: {
                     <Text class="text-[11px] text-muted-foreground">{node().description}</Text>
                   </If>
                   <ActionButton
-                    title={node().claimed ? "已收入窗台" : "采撷风物"}
+                    title={
+                      node().claimed
+                        ? tr("atelier.seasonal.claimed_free")
+                        : tr("atelier.seasonal.claim_free")
+                    }
                     size="sm"
                     variant={node().claimed ? "secondary" : "primary"}
                     disabled={node().claimed || props.dewBalance < node().dewCost}
@@ -517,10 +705,10 @@ export function SeasonalPassPanel(props: {
 
         <View class="gap-2">
           <View class="flex-row items-center justify-between">
-            <Text class="text-xs font-semibold text-atelier-accent">雅集轨 · 四时珍藏</Text>
+            <Text class="text-xs font-semibold text-atelier-accent">{tr("atelier.seasonal.pro_track")}</Text>
             <If when={!props.atelierUnlocked && Boolean(props.onOpenAtelier)}>
               <ActionButton
-                title="了解雅集"
+                title={tr("atelier.seasonal.learn_atelier")}
                 size="sm"
                 variant="outline"
                 shape="pill"
@@ -535,7 +723,7 @@ export function SeasonalPassPanel(props: {
                   class={`min-w-40 flex-1 gap-1.5 rounded-xl border p-3 ${
                     props.atelierUnlocked
                       ? "border-atelier-accent/40 bg-atelier-soft/65"
-                      : "border-border/65 border-dashed bg-surface-sunken opacity-85"
+                      : "border-dashed border-border/65 bg-surface-sunken opacity-85"
                   }`}
                 >
                   <View class="flex-row items-center justify-between gap-1">
@@ -553,10 +741,10 @@ export function SeasonalPassPanel(props: {
                   <ActionButton
                     title={
                       !props.atelierUnlocked
-                        ? "雅集解锁"
+                        ? tr("atelier.seasonal.unlock_pro")
                         : node().claimed
-                          ? "已珍藏"
-                          : "领取雅集风物"
+                          ? tr("atelier.seasonal.claimed_pro")
+                          : tr("atelier.seasonal.claim_pro")
                     }
                     size="sm"
                     variant={node().claimed ? "secondary" : "outline"}
@@ -580,9 +768,9 @@ export function SeasonalPassPanel(props: {
       {/* 窗台天象、服饰、印泥与 3 格摆件槽位 */}
       <If when={Boolean(props.onSelectWeatherMood)}>
         <View class="gap-1.5">
-          <Text class="text-xs font-semibold text-foreground">窗外岁时天象</Text>
+          <Text class="text-xs font-semibold text-foreground">{tr("atelier.seasonal.weather_label")}</Text>
           <View class="flex-row flex-wrap gap-1.5">
-            <Each of={weatherOptions} key={(w) => w.id}>
+            <Each of={weatherOptions()} key={(w) => w.id}>
               {(w) => (
                 <SelectChip
                   label={w().label}
@@ -597,12 +785,16 @@ export function SeasonalPassPanel(props: {
 
       <If when={Boolean(props.outfits && props.outfits.length > 0 && props.onSelectOutfit)}>
         <View class="gap-1.5">
-          <Text class="text-xs font-semibold text-foreground">伙伴节气小衫</Text>
+          <Text class="text-xs font-semibold text-foreground">{tr("atelier.seasonal.outfit_label")}</Text>
           <View class="flex-row flex-wrap gap-1.5">
             <Each of={props.outfits ?? []} key={(o) => o.id}>
               {(o) => (
                 <SelectChip
-                  label={o().atelierOnly && !props.atelierUnlocked ? `${o().label} · 雅集` : o().label}
+                  label={
+                    o().atelierOnly && !props.atelierUnlocked
+                      ? tr("atelier.seasonal.outfit_atelier_suffix", { label: o().label })
+                      : o().label
+                  }
                   selected={props.activeOutfit === o().id}
                   onPress={() => props.onSelectOutfit?.(o().id)}
                 />
@@ -614,9 +806,9 @@ export function SeasonalPassPanel(props: {
 
       <If when={Boolean(props.onSelectSealInk)}>
         <View class="gap-1.5">
-          <Text class="text-xs font-semibold text-foreground">日签与手账印泥</Text>
+          <Text class="text-xs font-semibold text-foreground">{tr("atelier.seasonal.seal_ink_label")}</Text>
           <View class="flex-row flex-wrap gap-1.5">
-            <Each of={sealOptions} key={(s) => s.id}>
+            <Each of={sealOptions()} key={(s) => s.id}>
               {(s) => (
                 <SelectChip
                   label={s().label}
@@ -632,12 +824,16 @@ export function SeasonalPassPanel(props: {
       <If when={Boolean(props.availableKeepsakes && props.onToggleEquipKeepsake)}>
         <View class="gap-1.5">
           <View class="flex-row items-center justify-between">
-            <Text class="text-xs font-semibold text-foreground">窗台 3 格陈列摆件</Text>
+            <Text class="text-xs font-semibold text-foreground">
+              {tr("atelier.seasonal.keepsakes_display_label")}
+            </Text>
             <Text
               class="text-[11px] text-muted-foreground"
               style={{ fontVariant: ["tabular-nums"] }}
             >
-              {`已陈列 ${(props.equippedKeepsakes ?? []).length}/3`}
+              {tr("atelier.seasonal.keepsakes_equipped_count", {
+                count: (props.equippedKeepsakes ?? []).length,
+              })}
             </Text>
           </View>
           <View class="flex-row flex-wrap gap-1.5">
@@ -659,7 +855,11 @@ export function SeasonalPassPanel(props: {
       <If when={Boolean(props.archiveItems && props.archiveItems.length > 0)}>
         <View class="gap-2 pt-1">
           <ActionButton
-            title={showArchive() ? "收起往期节气博物架" : "展开往期节气博物架"}
+            title={
+              showArchive()
+                ? tr("atelier.seasonal.archive_collapse")
+                : tr("atelier.seasonal.archive_expand")
+            }
             icon="handscroll"
             size="sm"
             variant="secondary"
@@ -673,7 +873,7 @@ export function SeasonalPassPanel(props: {
                     <View class="flex-row items-center justify-between">
                       <Text class="text-xs font-bold text-foreground">{item().solarTerm}</Text>
                       <Text class="text-[10px] font-semibold text-atelier-accent">
-                        {item().unlocked ? item().badge : "可补采"}
+                        {item().unlocked ? item().badge : tr("atelier.seasonal.archive_claimable")}
                       </Text>
                     </View>
                     <Text class="text-[11px] text-muted-foreground">{item().title}</Text>
@@ -714,16 +914,19 @@ export function StickerCameraMatPanel(props: {
   }) => void;
   onOpenAtelier?: () => void;
 }) {
-  const draftTitle = signal<string>("清蒸鲈鱼 · 温热汤饭");
+  const draftTitle = signal<string>("");
   const draftFrame = signal<StickerFrameStyle>("watercolor");
-  const draftHint = signal<string>("中低嘌呤 · 宜多饮温水");
+  const draftHint = signal<string>("");
   const limit = () => props.monthlyQuotaLimit ?? 5;
   const quotaReached = () => !props.atelierUnlocked && props.monthlyQuotaUsed >= limit();
 
-  const frameStyles: { id: StickerFrameStyle; label: string }[] = [
-    { id: "watercolor", label: "水彩模切" },
-    { id: "polaroid", label: "拍立得相纸" },
-    { id: "celadon", label: "青瓷釉框" },
+  const resolvedTitle = () => draftTitle().trim() || tr("atelier.camera_mat.default_title");
+  const resolvedHint = () => draftHint().trim() || tr("atelier.camera_mat.default_hint");
+
+  const frameStyles = (): { id: StickerFrameStyle; label: string }[] => [
+    { id: "watercolor", label: tr("atelier.camera_mat.tpl_watercolor") },
+    { id: "polaroid", label: tr("atelier.camera_mat.tpl_polaroid") },
+    { id: "celadon", label: tr("atelier.camera_mat.tpl_celadon") },
   ];
 
   const days = Array.from({ length: 28 }, (_, i) => i + 1);
@@ -731,12 +934,12 @@ export function StickerCameraMatPanel(props: {
   return (
     <Card>
       <SectionHeader
-        title="食光贴纸相机 · 人间烟火月历垫"
-        subtitle="把三餐变成可收藏的模切贴纸，附温柔嘌呤/钠盐小贴士"
+        title={tr("atelier.camera_mat.title")}
+        subtitle={tr("atelier.camera_mat.subtitle")}
         right={
           <View
             class={`rounded-full px-2.5 py-1 ${
-              props.atelierUnlocked ? "bg-atelier-soft" : "bg-surface-sunken border border-border/70"
+              props.atelierUnlocked ? "bg-atelier-soft" : "border border-border/70 bg-surface-sunken"
             }`}
           >
             <Text
@@ -746,8 +949,11 @@ export function StickerCameraMatPanel(props: {
               style={{ fontVariant: ["tabular-nums"] }}
             >
               {props.atelierUnlocked
-                ? "雅集无限贴纸"
-                : `本月免费 ${props.monthlyQuotaUsed}/${limit()}`}
+                ? tr("atelier.camera_mat.unlimited")
+                : tr("atelier.camera_mat.monthly_free", {
+                    used: props.monthlyQuotaUsed,
+                    limit: limit(),
+                  })}
             </Text>
           </View>
         }
@@ -761,6 +967,7 @@ export function StickerCameraMatPanel(props: {
             const w = size.width;
             const h = size.height;
             const style = draftFrame();
+            const isEn = isEnglishLocale();
             cx.clearRect(0, 0, w, h);
 
             // 外层模切白边
@@ -808,10 +1015,14 @@ export function StickerCameraMatPanel(props: {
             // 底部手写标签
             cx.save();
             cx.fillStyle = token("foreground");
-            cx.font = '600 10px "PingFang SC", sans-serif';
+            cx.font = isEn ? "600 10px system-ui, sans-serif" : '600 10px "PingFang SC", sans-serif';
             cx.textAlign = "center";
             cx.textBaseline = "middle";
-            const shortTitle = (draftTitle() || "今日好食").slice(0, 8);
+            const maxChars = isEn ? 14 : 8;
+            const shortTitle = (resolvedTitle() || tr("atelier.camera_mat.canvas_fallback")).slice(
+              0,
+              maxChars,
+            );
             cx.fillText(shortTitle, w / 2, h - 18);
             cx.restore();
           }}
@@ -820,11 +1031,11 @@ export function StickerCameraMatPanel(props: {
         <View class="min-w-52 flex-1 gap-2">
           <FieldInput
             value={draftTitle()}
-            placeholder="例如：清炒时蔬 · 糙米饭"
+            placeholder={tr("atelier.camera_mat.input_placeholder")}
             onChange={(val) => draftTitle.set(val)}
           />
           <View class="flex-row flex-wrap gap-1.5">
-            <Each of={frameStyles} key={(f) => f.id}>
+            <Each of={frameStyles()} key={(f) => f.id}>
               {(f) => (
                 <SelectChip
                   label={f().label}
@@ -836,11 +1047,15 @@ export function StickerCameraMatPanel(props: {
           </View>
           <View class="flex-row flex-wrap items-center gap-1.5">
             <View class="rounded-full bg-bento-amber px-2.5 py-0.5">
-              <Text class="text-[11px] font-medium text-foreground">{draftHint()}</Text>
+              <Text class="text-[11px] font-medium text-foreground">{resolvedHint()}</Text>
             </View>
           </View>
           <ActionButton
-            title={quotaReached() ? "本月 5 张免费贴纸已满 · 了解雅集无限贴纸" : "制作并贴入食光月历"}
+            title={
+              quotaReached()
+                ? tr("atelier.camera_mat.cta_quota_reached", { limit: limit() })
+                : tr("atelier.camera_mat.cta_create")
+            }
             icon="camera"
             size="sm"
             variant={quotaReached() ? "outline" : "primary"}
@@ -849,11 +1064,11 @@ export function StickerCameraMatPanel(props: {
                 props.onOpenAtelier?.();
                 return;
               }
-              const trimmed = draftTitle().trim() || "温润家常便当";
+              const trimmed = draftTitle().trim() || tr("atelier.camera_mat.create_fallback");
               props.onCreateSticker({
                 title: trimmed,
                 frameStyle: draftFrame(),
-                purineHint: draftHint(),
+                purineHint: resolvedHint(),
               });
             }}
           />
@@ -863,9 +1078,9 @@ export function StickerCameraMatPanel(props: {
       {/* 人间烟火月历垫网格 */}
       <View class="gap-2 rounded-2xl border border-border/65 bg-bento-amber/40 p-3">
         <View class="flex-row items-center justify-between">
-          <Text class="text-xs font-bold text-foreground">本月食光月历垫</Text>
+          <Text class="text-xs font-bold text-foreground">{tr("atelier.camera_mat.calendar_title")}</Text>
           <Text class="text-[11px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
-            {`已收录 ${props.stickers.length} 枚贴纸`}
+            {tr("atelier.camera_mat.calendar_count", { count: props.stickers.length })}
           </Text>
         </View>
         <View class="flex-row flex-wrap gap-1.5">
@@ -889,7 +1104,7 @@ export function StickerCameraMatPanel(props: {
                   <If when={matched().length > 0}>
                     <View class="mt-0.5 rounded-full bg-atelier-soft px-1.5">
                       <Text class="text-[9px] font-bold text-atelier-accent">
-                        {`${matched().length}贴`}
+                        {tr("atelier.camera_mat.day_sticker_badge", { count: matched().length })}
                       </Text>
                     </View>
                   </If>
@@ -945,10 +1160,16 @@ export function CompanionLetterModal(props: {
             <View class="flex-row items-center gap-2">
               <EnvelopeIcon size={18} color={token("wax-seal")} />
               <Text role="header" class="text-lg font-bold text-foreground">
-                周日夜话慢递
+                {tr("atelier.letter.title")}
               </Text>
             </View>
-            <ActionButton title="收好信笺" size="sm" variant="secondary" shape="pill" onPress={props.onClose} />
+            <ActionButton
+              title={tr("atelier.letter.keep_btn")}
+              size="sm"
+              variant="secondary"
+              shape="pill"
+              onPress={props.onClose}
+            />
           </View>
 
           {/* 周次选择器 */}
@@ -956,7 +1177,10 @@ export function CompanionLetterModal(props: {
             <Each of={props.letters} key={(l) => `week-${l.weekIndex}`}>
               {(letter) => (
                 <SelectChip
-                  label={`第 ${letter().weekIndex} 周 · ${letter().solarTerm}`}
+                  label={tr("atelier.letter.week_chip", {
+                    week: letter().weekIndex,
+                    solarTerm: letter().solarTerm,
+                  })}
                   selected={activeWeek() === letter().weekIndex}
                   onPress={() => chooseWeek(letter().weekIndex)}
                 />
@@ -983,7 +1207,10 @@ export function CompanionLetterModal(props: {
                   </View>
                   <Text class="text-sm font-bold text-foreground">{letter().title}</Text>
                   <Text class="text-xs text-muted-foreground">
-                    {`${letter().dateLabel} · ${letter().solarTerm}来信`}
+                    {tr("atelier.letter.date_solar", {
+                      date: letter().dateLabel,
+                      solarTerm: letter().solarTerm,
+                    })}
                   </Text>
                 </View>
 
@@ -992,14 +1219,12 @@ export function CompanionLetterModal(props: {
                   else={
                     <Card class="items-center gap-3 py-6">
                       <Text class="text-sm font-semibold text-foreground">
-                        第 1 周初遇信永久免费可读，第 2 周起收录于知气雅集
+                        {tr("atelier.letter.locked_title")}
                       </Text>
-                      <Text class="text-xs text-muted-foreground">
-                        你的生活轨迹不会被清空，随时开启即可读到陪伴伙伴为你写的长信。
-                      </Text>
+                      <Text class="text-xs text-muted-foreground">{tr("atelier.letter.locked_desc")}</Text>
                       <If when={Boolean(props.onOpenAtelier)}>
                         <ActionButton
-                          title="开启知气雅集"
+                          title={tr("atelier.letter.unlock_btn")}
                           icon="wax_seal"
                           onPress={() => props.onOpenAtelier?.()}
                         />
@@ -1020,7 +1245,7 @@ export function CompanionLetterModal(props: {
                       </View>
                       <View class="flex-1 gap-0.5">
                         <Text class="text-xs font-bold text-ink-lapis">
-                          {`节气藏书票 · ${letter().exLibrisTitle}`}
+                          {tr("atelier.letter.ex_libris_prefix", { title: letter().exLibrisTitle })}
                         </Text>
                         <Text class="text-xs italic text-foreground">{letter().exLibrisQuote}</Text>
                       </View>
@@ -1049,33 +1274,36 @@ export function CoSanctuarySheet(props: {
   onSendCare: (action: "warm_tea" | "blanket" | "paw_print") => void;
   onClose: () => void;
 }) {
-  const moodOptions: { id: "sunny_full" | "breeze_steady" | "rest_recharge"; label: string }[] = [
-    { id: "sunny_full", label: "晴朗满格" },
-    { id: "breeze_steady", label: "微风平稳" },
-    { id: "rest_recharge", label: "静养蓄力" },
+  const moodOptions = (): { id: "sunny_full" | "breeze_steady" | "rest_recharge"; label: string }[] => [
+    { id: "sunny_full", label: tr("atelier.co_sanctuary.mood_sunny_full") },
+    { id: "breeze_steady", label: tr("atelier.co_sanctuary.mood_breeze_steady") },
+    { id: "rest_recharge", label: tr("atelier.co_sanctuary.mood_rest_recharge") },
   ];
 
-  const careActions: { id: "warm_tea" | "blanket" | "paw_print"; label: string }[] = [
-    { id: "warm_tea", label: "递热茶" },
-    { id: "blanket", label: "盖薄被" },
-    { id: "paw_print", label: "按爪印" },
+  const careActions = (): { id: "warm_tea" | "blanket" | "paw_print"; label: string }[] => [
+    { id: "warm_tea", label: tr("atelier.co_sanctuary.care_warm_tea") },
+    { id: "blanket", label: tr("atelier.co_sanctuary.care_blanket") },
+    { id: "paw_print", label: tr("atelier.co_sanctuary.care_paw_print") },
   ];
 
   return (
-    <SheetDialog open={props.open} title="同窗共养 · 双人暖窗" onClose={props.onClose}>
+    <SheetDialog open={props.open} title={tr("atelier.co_sanctuary.title")} onClose={props.onClose}>
       {/* 隐私信任盾牌 */}
       <View class="flex-row items-center gap-2 rounded-2xl border border-vital-prime/35 bg-vital-prime-soft px-3.5 py-2.5">
         <QiIcon name="user_shield" size={16} color={token("vital-prime")} />
         <Text class="flex-1 text-xs font-semibold text-vital-prime">
-          绝不共享日记与化验 · 仅加密交换 1 字节心情枚举与合养盆栽成长值
+          {tr("atelier.co_sanctuary.privacy_banner")}
         </Text>
       </View>
 
       {/* 我的 1 字节心情状态 */}
       <Card>
-        <SectionHeader title="今日我的窗台心情" subtitle="只同步一句话的气象隐喻，不暴露具体分数或作息" />
+        <SectionHeader
+          title={tr("atelier.co_sanctuary.my_mood_title")}
+          subtitle={tr("atelier.co_sanctuary.my_mood_subtitle")}
+        />
         <View class="flex-row flex-wrap gap-2">
-          <Each of={moodOptions} key={(m) => m.id}>
+          <Each of={moodOptions()} key={(m) => m.id}>
             {(m) => (
               <SelectChip
                 label={m().label}
@@ -1093,26 +1321,31 @@ export function CoSanctuarySheet(props: {
           <View class="flex-row items-center gap-2">
             <CoSanctuaryIcon size={18} color={token("duo-accent")} />
             <View class="gap-0.5">
-              <Text class="text-sm font-bold text-foreground">窗台岁时金桂盆栽</Text>
+              <Text class="text-sm font-bold text-foreground">
+                {tr("atelier.co_sanctuary.osmanthus_title")}
+              </Text>
               <Text class="text-xs text-muted-foreground">
-                {`${props.partnerName ?? "同窗好友"}当前状态：${props.partnerMood ?? "微风平稳"}`}
+                {tr("atelier.co_sanctuary.partner_status", {
+                  partner: props.partnerName ?? tr("atelier.co_sanctuary.default_partner"),
+                  mood: props.partnerMood ?? tr("atelier.co_sanctuary.mood_breeze_steady"),
+                })}
               </Text>
             </View>
           </View>
-          <View class="rounded-full bg-card px-2.5 py-1 border border-duo-accent/35">
-            <Text
-              class="text-xs font-bold text-duo-accent"
-              style={{ fontVariant: ["tabular-nums"] }}
-            >
+          <View class="rounded-full border border-duo-accent/35 bg-card px-2.5 py-1">
+            <Text class="text-xs font-bold text-duo-accent" style={{ fontVariant: ["tabular-nums"] }}>
               {`Lv.${props.osmanthusLevel}`}
             </Text>
           </View>
         </View>
 
-        <MeterBar value={props.osmanthusProgressPct} accessibilityLabel="金桂盆栽共养成长进度" />
+        <MeterBar
+          value={props.osmanthusProgressPct}
+          accessibilityLabel={tr("atelier.co_sanctuary.meter_label")}
+        />
 
         <View class="flex-row flex-wrap gap-2 pt-1">
-          <Each of={careActions} key={(c) => c.id}>
+          <Each of={careActions()} key={(c) => c.id}>
             {(act) => (
               <ActionButton
                 title={act().label}
@@ -1129,7 +1362,9 @@ export function CoSanctuarySheet(props: {
 
       <If when={Boolean(props.careHistory && props.careHistory.length > 0)}>
         <SunkenBox>
-          <Text class="text-xs font-semibold text-foreground">近期暖窗互寄记录</Text>
+          <Text class="text-xs font-semibold text-foreground">
+            {tr("atelier.co_sanctuary.history_title")}
+          </Text>
           <Each of={props.careHistory ?? []} key={(h) => h.id}>
             {(row) => (
               <View class="flex-row flex-wrap items-center justify-between gap-1.5">
@@ -1174,10 +1409,16 @@ export function FourSeasonsScrollModal(props: {
             <View class="flex-row items-center gap-2">
               <HandscrollIcon size={18} color={token("ink-lapis")} />
               <Text role="header" class="text-lg font-bold text-foreground">
-                我的四时身体风物长卷
+                {tr("atelier.scroll.title")}
               </Text>
             </View>
-            <ActionButton title="卷起长卷" size="sm" variant="secondary" shape="pill" onPress={props.onClose} />
+            <ActionButton
+              title={tr("atelier.scroll.close_btn")}
+              size="sm"
+              variant="secondary"
+              shape="pill"
+              onPress={props.onClose}
+            />
           </View>
 
           {/* 横向卷轴插画 */}
@@ -1200,11 +1441,11 @@ export function FourSeasonsScrollModal(props: {
                     <Text class="text-sm font-bold text-foreground">{item().season}</Text>
                     <Text class="text-[11px] font-semibold text-atelier-accent">{item().solarRange}</Text>
                   </View>
-                  <Text
-                    class="text-xs font-semibold text-primary"
-                    style={{ fontVariant: ["tabular-nums"] }}
-                  >
-                    {`均元气 ${Math.round(item().avgQiScore)} · 晨露 ${item().dewCollected} 💧`}
+                  <Text class="text-xs font-semibold text-primary" style={{ fontVariant: ["tabular-nums"] }}>
+                    {tr("atelier.scroll.season_stats", {
+                      score: Math.round(item().avgQiScore),
+                      dew: item().dewCollected,
+                    })}
                   </Text>
                   <Text class="text-xs leading-relaxed text-muted-foreground">{item().highlight}</Text>
                 </View>
@@ -1214,7 +1455,10 @@ export function FourSeasonsScrollModal(props: {
 
           {/* 宋瓷成就徽章 */}
           <Card>
-            <SectionHeader title="宋瓷风物印章" subtitle="记录每一次自我觉察与温和证伪" />
+            <SectionHeader
+              title={tr("atelier.scroll.badges_title")}
+              subtitle={tr("atelier.scroll.badges_subtitle")}
+            />
             <View class="flex-row flex-wrap gap-2">
               <Each of={props.badges} key={(b) => b.id}>
                 {(badge) => (
@@ -1222,7 +1466,7 @@ export function FourSeasonsScrollModal(props: {
                     class={`min-w-40 flex-1 flex-row items-center gap-2.5 rounded-xl border p-3 ${
                       badge().unlocked
                         ? "border-ink-gold/45 bg-atelier-soft/60"
-                        : "border-border/60 border-dashed bg-surface-sunken opacity-70"
+                        : "border-dashed border-border/60 bg-surface-sunken opacity-70"
                     }`}
                   >
                     <BadgeCeramicIcon
@@ -1265,19 +1509,19 @@ export function WristWidgetPreviewCard(props: {
   return (
     <Card>
       <SectionHeader
-        title="抬腕嘴替 · 表盘与桌面微件"
-        subtitle="一抬腕就看懂今天该冲还是该歇，不制造评分负担"
+        title={tr("atelier.widget.title")}
+        subtitle={tr("atelier.widget.subtitle")}
         right={<WidgetIcon size={18} color={token("primary")} />}
       />
 
       <View class="flex-row gap-1.5">
         <SelectChip
-          label="诗意隐喻"
+          label={tr("atelier.widget.mode_poetic")}
           selected={activeMode() === "poetic"}
           onPress={() => setMode("poetic")}
         />
         <SelectChip
-          label="精准数值"
+          label={tr("atelier.widget.mode_numeric")}
           selected={activeMode() === "numeric"}
           onPress={() => setMode("numeric")}
         />
@@ -1287,7 +1531,7 @@ export function WristWidgetPreviewCard(props: {
       <View class="mx-auto w-full max-w-xs gap-2 rounded-3xl border-2 border-border bg-surface-sunken p-4">
         <View class="flex-row items-center justify-between">
           <Text class="text-[11px] font-semibold text-atelier-accent">
-            {props.solarTerm ? `知气 · ${props.solarTerm}` : "知气 · Qi"}
+            {props.solarTerm ? `${tr("app.name")} · ${props.solarTerm}` : tr("app.name")}
           </Text>
           <VitalBadge tone={props.state} label={props.stateBadge} />
         </View>
@@ -1296,24 +1540,18 @@ export function WristWidgetPreviewCard(props: {
           when={activeMode() === "poetic"}
           else={
             <View class="gap-1 py-1">
-              <Text
-                class="text-2xl font-bold text-foreground"
-                style={{ fontVariant: ["tabular-nums"] }}
-              >
-                {`元气 ${Math.round(props.score)} / 100`}
+              <Text class="text-2xl font-bold text-foreground" style={{ fontVariant: ["tabular-nums"] }}>
+                {tr("atelier.widget.score_out_of_100", { score: Math.round(props.score) })}
               </Text>
-              <Text
-                class="text-xs text-muted-foreground"
-                style={{ fontVariant: ["tabular-nums"] }}
-              >
-                {props.numericLine ?? `当前节律 ${props.stateBadge}`}
+              <Text class="text-xs text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
+                {props.numericLine ?? tr("atelier.widget.rhythm_status", { status: props.stateBadge })}
               </Text>
             </View>
           }
         >
           <View class="gap-1 py-1">
             <Text class="text-base font-bold leading-snug text-foreground">{props.poeticLine}</Text>
-            <Text class="text-[11px] text-muted-foreground">数字已温柔隐去 · 顺从体感节律</Text>
+            <Text class="text-[11px] text-muted-foreground">{tr("atelier.widget.poetic_caption")}</Text>
           </View>
         </If>
       </View>
@@ -1332,13 +1570,15 @@ export function FamilyPeaceLetterModal(props: {
   onCopyLetter: (fullText: string) => void;
   onClose: () => void;
 }) {
+  const recipient = () => props.recipientLabel ?? tr("atelier.family_letter.default_recipient");
+
   const fullLetterText = () =>
     [
-      `【气韵平安家书 · ${props.dateLabel}】`,
-      `${props.recipientLabel ?? "亲爱的爸妈"}：`,
+      tr("atelier.family_letter.export_header", { date: props.dateLabel }),
+      tr("atelier.family_letter.salutation", { recipient: recipient() }),
       props.peaceHeadline,
       ...props.bodyParagraphs,
-      props.signatureLine ?? "一切安好，勿念。—— 端侧加密温柔生成",
+      props.signatureLine ?? tr("atelier.family_letter.default_signature_export"),
     ].join("\n\n");
 
   return (
@@ -1349,54 +1589,61 @@ export function FamilyPeaceLetterModal(props: {
             <View class="flex-row items-center gap-2">
               <FamilyHeartIcon size={20} color={token("wax-seal")} />
               <Text role="header" class="text-lg font-bold text-foreground">
-                气韵平安家书（大字版）
+                {tr("atelier.family_letter.title")}
               </Text>
             </View>
-            <ActionButton title="合上家书" size="sm" variant="secondary" shape="pill" onPress={props.onClose} />
+            <ActionButton
+              title={tr("atelier.family_letter.close_btn")}
+              size="sm"
+              variant="secondary"
+              shape="pill"
+              onPress={props.onClose}
+            />
           </View>
 
           <View class="flex-row items-center gap-2 rounded-2xl border border-vital-prime/30 bg-vital-prime-soft px-3.5 py-2">
             <QiIcon name="cloud_lock" size={14} color={token("vital-prime")} />
             <Text class="flex-1 text-xs font-semibold text-vital-prime">
-              端侧本地摘要生成 · 不外泄任何隐私明细与化验原始数值
+              {tr("atelier.family_letter.privacy_banner")}
             </Text>
           </View>
 
           <View class="gap-4 rounded-3xl border-2 border-border bg-card p-6">
             <View class="flex-row items-center justify-between">
               <Text class="text-base font-bold text-wax-seal">
-                {`${props.recipientLabel ?? "亲爱的爸妈"}：`}
+                {tr("atelier.family_letter.salutation", { recipient: recipient() })}
               </Text>
               <Text class="text-xs text-muted-foreground">{props.dateLabel}</Text>
             </View>
 
-            <Text class="text-xl font-bold leading-relaxed text-foreground">
-              {props.peaceHeadline}
-            </Text>
+            <Text class="text-xl font-bold leading-relaxed text-foreground">{props.peaceHeadline}</Text>
 
             <View class="gap-3">
               <Each of={props.bodyParagraphs} key={(p, idx) => `peace-${idx}`}>
-                {(para) => (
-                  <Text class="text-base font-medium leading-loose text-foreground">{para()}</Text>
-                )}
+                {(para) => <Text class="text-base font-medium leading-loose text-foreground">{para()}</Text>}
               </Each>
             </View>
 
             <Hairline />
             <Text class="text-right text-sm font-semibold text-muted-foreground">
-              {props.signatureLine ?? "记挂你们，一切安好 · 知气护航"}
+              {props.signatureLine ?? tr("atelier.family_letter.default_signature_card")}
             </Text>
           </View>
 
           <View class="flex-row gap-2">
             <ActionButton
-              title="一键复制发给爸妈"
+              title={tr("atelier.family_letter.copy_btn")}
               icon="family_heart"
               size="lg"
               onPress={() => props.onCopyLetter(fullLetterText())}
               class="flex-1"
             />
-            <ActionButton title="返回" variant="secondary" size="lg" onPress={props.onClose} />
+            <ActionButton
+              title={tr("atelier.family_letter.back_btn")}
+              variant="secondary"
+              size="lg"
+              onPress={props.onClose}
+            />
           </View>
         </View>
       </Scroll>

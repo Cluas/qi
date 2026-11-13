@@ -3,16 +3,22 @@ import {
   addFoodSticker,
   addProfileLabMarker,
   generateParentsPeaceLetter,
+  getAppLocale,
   getDisclaimerText,
+  getLogSubTab,
   getState,
   importExternalHealthData,
   importLabReport,
+  type LogSubTab,
   logNaturalIntake,
   logQuickIntake,
+  openPetStudio,
   pickAndOcrLabPhoto,
   requestAiAction,
   searchFoods,
+  setLogSubTab,
   setShowAtelierModal,
+  setTab,
 } from "../store";
 import { StickerCameraMatPanel, type StickerFrameStyle } from "../ui/atelier";
 import {
@@ -32,70 +38,10 @@ import {
   VitalBadge,
 } from "../ui/components";
 import { QiIcon, type QiIconName } from "../ui/icons";
+import { tr } from "../ui/i18n";
 import { StickerMealTile } from "../ui/sanctuary";
 
-type LogSubTab = "diet" | "labs" | "wearable";
-
-const SUB_TABS: { id: LogSubTab; label: string }[] = [
-  { id: "diet", label: "饮食随记" },
-  { id: "labs", label: "体检档案" },
-  { id: "wearable", label: "穿戴导入" },
-];
-
-const QUICK_INTAKES: {
-  category: string;
-  item: string;
-  tag: string;
-  notes: string;
-  kcal: number;
-  icon: QiIconName;
-  caption: string;
-}[] = [
-  {
-    category: "caffeine",
-    item: "15:00后冰美式",
-    tag: "晚间咖啡",
-    notes: "下午提神咖啡因",
-    kcal: 15,
-    icon: "coffee",
-    caption: "午后提神 · 15 kcal",
-  },
-  {
-    category: "alcohol",
-    item: "晚间精酿小酌",
-    tag: "晚间饮酒",
-    notes: "聚餐小酌一杯",
-    kcal: 190,
-    icon: "sparkles",
-    caption: "夜间放松 · 190 kcal",
-  },
-  {
-    category: "late_meal",
-    item: "22:30夜宵烧烤",
-    tag: "夜间重餐",
-    notes: "睡前高油盐加餐",
-    kcal: 620,
-    icon: "moon",
-    caption: "深夜加餐 · 620 kcal",
-  },
-  {
-    category: "meal",
-    item: "均衡减脂正餐",
-    tag: "高蛋白轻食",
-    notes: "鸡胸糙米时蔬",
-    kcal: 430,
-    icon: "utensils",
-    caption: "轻盈正餐 · 430 kcal",
-  },
-];
-
-const SAMPLE_LAB_OCR = `某某市第一人民医院体检中心 检验报告单
-姓名：陈默 身份证号：31010419920518432X 手机：13912345678 住院号：ZY20261108
-尿酸(UA) 468↑ umol/L 208-428
-低密度脂蛋白胆固醇(LDL-C) 3.62↑ mmol/L 0.00-3.40
-空腹血糖(GLU) 5.08 mmol/L 3.90-6.10`;
-
-const SAMPLE_APPLE_XML = `<HealthData locale="zh_CN">
+const SAMPLE_APPLE_XML = `<HealthData locale="en_US">
   <Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" sourceName="Apple Watch" unit="ms" startDate="2026-11-12 06:10:00 +0800" value="44.2" />
   <Record type="HKQuantityTypeIdentifierRestingHeartRate" sourceName="Apple Watch" unit="count/min" startDate="2026-11-12 06:15:00 +0800" value="59" />
   <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-11-12 20:00:00 +0800" value="8420" />
@@ -104,38 +50,22 @@ const SAMPLE_APPLE_XML = `<HealthData locale="zh_CN">
 const SAMPLE_CSV_DATA = `date,hrv_rmssd_ms,resting_heart_rate_bpm,sleep_minutes,steps,source
 2026-11-12,51.6,58,438,9120,csv_import`;
 
-function formatLabChange(trend: string | null, delta: number | null, unit: string): string {
-  if (delta === null || trend === null) return "";
-  const sign = delta > 0 ? "+" : "";
-  const suffix =
-    trend === "improved"
-      ? " · 趋势向好"
-      : trend === "worsened"
-        ? " · 建议留意"
-        : " · 保持平稳";
-  return `${sign}${delta.toFixed(2)} ${unit}${suffix}`;
-}
-
-function labFlagLabel(flag: string): string {
-  if (flag === "high") return "偏高提醒";
-  if (flag === "low") return "偏低提醒";
-  return "参考区间内";
-}
+const SAMPLE_JSONL_DATA =
+  '{"kind":"daily_metric","date":"2026-11-12","metric":"steps","source":"mi_band","value":7880,"unit":"count"}';
 
 export function LogLabsPage() {
-  const activeSubTab = signal<LogSubTab>("diet");
   const naturalInput = signal("");
   const foodSearchQuery = signal("");
   const speechListening = signal(false);
   const speechHint = signal<string | null>(null);
 
-  const customLabText = signal(SAMPLE_LAB_OCR);
+  const customLabDraft = signal<string | null>(null);
   const showCustomLab = signal(false);
 
   const externalFormat = signal<"apple_health_xml" | "csv" | "jsonl">("apple_health_xml");
   const externalText = signal(SAMPLE_APPLE_XML);
   const selectedProfileId = signal<"self" | "partner" | "parents">("self");
-  const profileMarkerName = signal("ALT(谷丙转氨酶)");
+  const profileMarkerName = signal("");
   const profileMarkerVal = signal("34");
   const profileMarkerHigh = signal("40");
 
@@ -143,6 +73,81 @@ export function LogLabsPage() {
   const snap = () => state().snapshot;
   const solar = () => state().solar_atelier;
   const entitlements = () => state().entitlements;
+
+  const subTabs = (): { id: LogSubTab; label: string }[] => [
+    { id: "quick", label: tr("log.subtab_quick") },
+    { id: "labs", label: tr("log.subtab_labs") },
+    { id: "vault", label: tr("log.subtab_vault") },
+  ];
+
+  const quickIntakes = (): {
+    category: string;
+    item: string;
+    tag: string;
+    notes: string;
+    kcal: number;
+    icon: QiIconName;
+    caption: string;
+  }[] => [
+    {
+      category: "caffeine",
+      item: tr("log.quick_coffee_item"),
+      tag: tr("log.quick_coffee_tag"),
+      notes: tr("log.quick_coffee_note"),
+      kcal: 15,
+      icon: "coffee",
+      caption: tr("log.quick_coffee_caption"),
+    },
+    {
+      category: "alcohol",
+      item: tr("log.quick_drink_item"),
+      tag: tr("log.quick_drink_tag"),
+      notes: tr("log.quick_drink_note"),
+      kcal: 190,
+      icon: "sparkles",
+      caption: tr("log.quick_drink_caption"),
+    },
+    {
+      category: "late_meal",
+      item: tr("log.quick_late_item"),
+      tag: tr("log.quick_late_tag"),
+      notes: tr("log.quick_late_note"),
+      kcal: 620,
+      icon: "moon",
+      caption: tr("log.quick_late_caption"),
+    },
+    {
+      category: "meal",
+      item: tr("log.quick_meal_item"),
+      tag: tr("log.quick_meal_tag"),
+      notes: tr("log.quick_meal_note"),
+      kcal: 430,
+      icon: "utensils",
+      caption: tr("log.quick_meal_caption"),
+    },
+  ];
+
+  const effectiveLabText = () => customLabDraft() ?? tr("log.sample_lab_text");
+  const effectiveMarkerName = () => profileMarkerName() || tr("log.default_marker_alt");
+
+  const formatLabChange = (trend: string | null, delta: number | null, unit: string): string => {
+    if (delta === null || trend === null) return "";
+    const sign = delta > 0 ? "+" : "";
+    const suffix =
+      trend === "improved"
+        ? tr("log.lab_trend_improved")
+        : trend === "worsened"
+          ? tr("log.lab_trend_worsened")
+          : tr("log.lab_trend_stable");
+    return `${sign}${delta.toFixed(2)} ${unit} · ${suffix}`;
+  };
+
+  const labFlagLabel = (flag: string): string => {
+    if (flag === "high") return tr("log.flag_high");
+    if (flag === "low") return tr("log.flag_low");
+    return tr("log.flag_normal");
+  };
+
   const ulnSeries = (): UlnProfileSeries[] => {
     const map = new Map<string, UlnProfileSeries>();
     for (const pt of state().multi_profile_uln_trends) {
@@ -161,6 +166,7 @@ export function LogLabsPage() {
     }
     return Array.from(map.values());
   };
+
   const intakes = () => state().intakes;
   const labs = () => state().labs;
   const lastImport = () => state().last_lab_import;
@@ -184,12 +190,15 @@ export function LogLabsPage() {
     try {
       const ok = await Speech.available();
       if (!ok) {
-        speechHint.set("当前设备暂不支持系统语音输入，可直接键入一句话速记");
+        speechHint.set(tr("log.speech_unavailable"));
         return;
       }
       speechListening.set(true);
-      speechHint.set("正在聆听你的饮食描述…");
-      const sess = Speech.start({ lang: "zh-CN", interim: true });
+      speechHint.set(tr("log.speech_listening"));
+      const sess = Speech.start({
+        lang: getAppLocale() === "en" ? "en-US" : "zh-CN",
+        interim: true,
+      });
       sess.on("result", (res) => {
         if (res.text) naturalInput.set(res.text);
       });
@@ -197,45 +206,45 @@ export function LogLabsPage() {
         speechListening.set(false);
         if (end.text) {
           naturalInput.set(end.text);
-          speechHint.set("语音听写完成，点「记入今日饮食」即可入库");
+          speechHint.set(tr("log.speech_done"));
         } else if (end.error) {
-          speechHint.set(`语音识别结束（${end.error}），可继续手动编辑`);
+          speechHint.set(tr("log.speech_error", { error: end.error }));
         }
       });
     } catch {
       speechListening.set(false);
-      speechHint.set("麦克风权限未授权，可直接键入一句话饮食描述");
+      speechHint.set(tr("log.speech_denied"));
     }
   };
 
   return (
     <View class="gap-4">
       <SegmentedTabs
-        items={SUB_TABS}
-        activeId={activeSubTab()}
-        onSelect={(id) => activeSubTab.set(id as LogSubTab)}
+        items={subTabs()}
+        activeId={getLogSubTab()}
+        onSelect={(id) => setLogSubTab(id)}
       />
 
-      {/* 子视图 1：饮食随记 */}
-      <If when={activeSubTab() === "diet"}>
+      {/* Subview 1: Quick Log */}
+      <If when={getLogSubTab() === "quick"}>
         <View class="gap-4">
           <Card>
             <SectionHeader
-              title="一句话随手记饮食"
-              subtitle="无需称重打卡，写下吃过喝过的内容即可自动识别时段与热量"
+              title={tr("log.nlp_title")}
+              subtitle={tr("log.nlp_subtitle")}
             />
 
             <View class="flex-row flex-wrap items-center gap-2">
               <View class="min-w-48 flex-1">
                 <FieldInput
                   value={naturalInput()}
-                  placeholder="如：下午三点喝了生椰拿铁，晚上吃牛肉面"
+                  placeholder={tr("log.nlp_placeholder")}
                   onChange={(v) => naturalInput.set(v)}
                 />
               </View>
-              <ActionButton title="记入今日饮食" icon="plus" onPress={submitNatural} />
+              <ActionButton title={tr("log.save_entry")} icon="plus" onPress={submitNatural} />
               <ActionButton
-                title={speechListening() ? "停止语音" : "语音速记"}
+                title={speechListening() ? tr("log.voice_stop") : tr("log.voice_start")}
                 icon="mic"
                 variant="outline"
                 onPress={() => void toggleVoiceDictation()}
@@ -246,14 +255,13 @@ export function LogLabsPage() {
               <Text class="text-xs text-muted-foreground">{speechHint()!}</Text>
             </If>
 
-            {/* 4 枚模切食光贴纸高频场景 */}
             <View class="gap-2 pt-1">
               <View class="flex-row items-center justify-between gap-2">
-                <Text class="text-xs font-semibold text-foreground">食光贴纸 · 轻点即贴入今日记录</Text>
-                <Text class="text-[11px] font-medium text-dew-accent">每次记录自动集 +1 💧</Text>
+                <Text class="text-xs font-semibold text-foreground">{tr("log.sticker_tiles_title")}</Text>
+                <Text class="text-[11px] font-medium text-dew-accent">{tr("log.sticker_tiles_dew")}</Text>
               </View>
               <View class="flex-row flex-wrap gap-2">
-                <Each of={QUICK_INTAKES} key={(q) => q.item}>
+                <Each of={quickIntakes()} key={(q) => q.category}>
                   {(q) => (
                     <StickerMealTile
                       title={q().item}
@@ -268,12 +276,11 @@ export function LogLabsPage() {
               </View>
             </View>
 
-            {/* 中式 60+ 餐饮词典搜索 */}
             <SunkenBox>
-              <Text class="text-xs font-semibold text-foreground">中式常见餐饮与补剂速查（60+ 预设）</Text>
+              <Text class="text-xs font-semibold text-foreground">{tr("log.food_dict_title")}</Text>
               <FieldInput
                 value={foodSearchQuery()}
-                placeholder="搜菜名、饮品或补剂，如：生椰拿铁、牛肉面、酸菜鱼、镁"
+                placeholder={tr("log.food_dict_placeholder")}
                 onChange={(v) => foodSearchQuery.set(v)}
               />
               <View class="flex-row flex-wrap gap-2">
@@ -292,12 +299,11 @@ export function LogLabsPage() {
             </SunkenBox>
           </Card>
 
-          {/* D -> D+1 身体反馈 */}
           <If when={snap().lagged_impacts.length > 0}>
             <Card>
               <SectionHeader
-                title="饮食与次日身体反馈"
-                subtitle="基于过往记录统计当日饮食对次日恢复节律的温和影响"
+                title={tr("log.lag_feedback_title")}
+                subtitle={tr("log.lag_feedback_sub")}
               />
               <View class="gap-2">
                 <Each of={snap().lagged_impacts} key={(imp) => `${imp.tag}-${imp.outcome_label}`}>
@@ -320,14 +326,13 @@ export function LogLabsPage() {
             </Card>
           </If>
 
-          {/* 最近饮食记录 */}
           <Card>
-            <SectionHeader title="近期饮食记录" subtitle="全部保存在本机加密健康库" />
+            <SectionHeader title={tr("log.recent_entries")} subtitle={tr("common.local_only")} />
             <If
               when={intakes().length > 0}
               else={
                 <SunkenBox>
-                  <Text class="text-xs text-muted-foreground">暂无饮食记录，点上方快捷卡或输入一句话即可开启。</Text>
+                  <Text class="text-xs text-muted-foreground">{tr("log.recent_empty")}</Text>
                 </SunkenBox>
               }
             >
@@ -354,7 +359,6 @@ export function LogLabsPage() {
             </If>
           </Card>
 
-          {/* 模切食光贴纸造物机 & 人间烟火月历垫 */}
           <StickerCameraMatPanel
             stickers={solar().stickers.map((st, idx) => ({
               id: String(st.id),
@@ -377,25 +381,25 @@ export function LogLabsPage() {
         </View>
       </If>
 
-      {/* 子视图 2：体检档案 */}
-      <If when={activeSubTab() === "labs"}>
+      {/* Subview 2: Labs & Supplements */}
+      <If when={getLogSubTab() === "labs"}>
         <View class="gap-4">
           <Card>
             <SectionHeader
-              title="体检单红绿灯私密档案"
-              subtitle="相册识图全程本机完成，导入前自动遮盖姓名与证件号"
-              right={<VitalBadge tone="prime_ready" label="隐私脱敏守护" />}
+              title={tr("log.labs_card_title")}
+              subtitle={tr("log.ocr_privacy_hint")}
+              right={<VitalBadge tone="prime_ready" label={tr("log.pii_shield_badge")} />}
             />
 
             <View class="flex-row flex-wrap gap-2">
               <ActionButton
-                title="相册选图离线识图"
+                title={tr("log.import_ocr_btn")}
                 icon="camera"
                 onPress={() => void pickAndOcrLabPhoto()}
                 class="flex-1"
               />
               <ActionButton
-                title="录入 / 粘贴化验单"
+                title={tr("log.paste_lab_btn")}
                 icon="file_lab"
                 variant="outline"
                 onPress={() => showCustomLab.set(!showCustomLab())}
@@ -404,31 +408,31 @@ export function LogLabsPage() {
             </View>
 
             <View class="flex-row items-center justify-between gap-2">
-              <Text class="flex-1 text-xs text-muted-foreground">暂无手头化验单？可体验一次脱敏建档流程</Text>
+              <Text class="flex-1 text-xs text-muted-foreground">{tr("log.sample_lab_prompt")}</Text>
               <ActionButton
-                title="试用示例报告体验脱敏"
+                title={tr("log.sample_lab_btn")}
                 size="sm"
                 variant="secondary"
                 shape="pill"
-                onPress={() => requestAiAction(() => importLabReport("2026-11-13", SAMPLE_LAB_OCR))}
+                onPress={() => requestAiAction(() => importLabReport("2026-11-13", tr("log.sample_lab_text")))}
               />
             </View>
 
             <If when={showCustomLab()}>
               <SunkenBox>
-                <Text class="text-xs font-semibold text-foreground">粘贴化验单文本（支持血脂、血糖、尿酸、肝功、维 D 等）</Text>
+                <Text class="text-xs font-semibold text-foreground">{tr("log.paste_lab_title")}</Text>
                 <FieldInput
-                  value={customLabText()}
+                  value={effectiveLabText()}
                   multiline={true}
-                  placeholder="粘贴化验单识别文本，系统会先在本机遮盖敏感个人信息"
-                  onChange={(v) => customLabText.set(v)}
+                  placeholder={tr("log.paste_lab_placeholder")}
+                  onChange={(v) => customLabDraft.set(v)}
                 />
                 <ActionButton
-                  title="脱敏并解析建档"
+                  title={tr("log.paste_lab_submit")}
                   icon="check"
                   onPress={() => {
                     requestAiAction(() => {
-                      importLabReport("2026-11-13", customLabText());
+                      importLabReport("2026-11-13", effectiveLabText());
                       showCustomLab.set(false);
                     });
                   }}
@@ -436,13 +440,14 @@ export function LogLabsPage() {
               </SunkenBox>
             </If>
 
-            {/* PII 端侧遮盖盾牌反馈 */}
             <If when={Boolean(lastImport())}>
               <View class="gap-2 rounded-xl border border-vital-prime/30 bg-vital-prime-soft p-3.5">
                 <View class="flex-row items-center gap-2">
                   <QiIcon name="user_shield" size={16} color={token("vital-prime")} />
                   <Text class="flex-1 text-xs font-semibold text-vital-prime">
-                    {`端侧隐私盾牌已生效：自动遮盖 [${lastImport()!.redacted_fields.join("、") || "无个人敏感字段"}]`}
+                    {tr("log.pii_redacted_summary", {
+                      fields: lastImport()!.redacted_fields.join(", ") || tr("common.no_data"),
+                    })}
                   </Text>
                 </View>
                 <Text class="text-xs leading-relaxed text-foreground">{lastImport()!.scrubbed_preview}</Text>
@@ -450,19 +455,16 @@ export function LogLabsPage() {
             </If>
           </Card>
 
-          {/* 化验指标列表（红绿灯 + 子弹图 + 跨期对比） */}
           <Card>
             <SectionHeader
-              title="已归档化验指标"
-              subtitle={`共 ${labs().length} 条纵向检验记录`}
+              title={tr("log.labs_archived_title")}
+              subtitle={tr("log.labs_archived_count", { count: labs().length })}
             />
             <If
               when={labs().length > 0}
               else={
                 <SunkenBox>
-                  <Text class="text-xs text-muted-foreground">
-                    尚未归档体检指标。可点击上方「相册选图离线识图」或「试用示例报告体验脱敏」。
-                  </Text>
+                  <Text class="text-xs text-muted-foreground">{tr("log.labs_archived_empty")}</Text>
                 </SunkenBox>
               }
             >
@@ -473,7 +475,9 @@ export function LogLabsPage() {
                       <View class="flex-row items-center justify-between gap-2">
                         <View class="flex-1 gap-0.5">
                           <Text class="text-sm font-semibold text-foreground">{lb().marker_name}</Text>
-                          <Text class="text-xs text-muted-foreground">{`检验日期 ${lb().test_date}`}</Text>
+                          <Text class="text-xs text-muted-foreground">
+                            {tr("log.lab_date_row", { date: lb().test_date })}
+                          </Text>
                         </View>
                         <VitalBadge tone={lb().flag} label={labFlagLabel(lb().flag)} />
                       </View>
@@ -490,8 +494,11 @@ export function LogLabsPage() {
                           style={{ fontVariant: ["tabular-nums"] }}
                         >
                           {lb().ref_low !== null && lb().ref_high !== null
-                            ? `参考区间 ${lb().ref_low} – ${lb().ref_high}`
-                            : "无标准参考区间"}
+                            ? tr("log.lab_ref_bounds", {
+                                low: lb().ref_low ?? "--",
+                                high: lb().ref_high ?? "--",
+                              })
+                            : tr("log.lab_no_ref")}
                         </Text>
                       </View>
 
@@ -510,7 +517,12 @@ export function LogLabsPage() {
                               class="text-[11px] font-medium text-primary"
                               style={{ fontVariant: ["tabular-nums"] }}
                             >
-                              {`上期 (${lb().prev_date ?? "—"}): ${lb().prev_value} ${lb().unit} · ${formatLabChange(lb().trend, lb().delta, lb().unit)}`}
+                              {tr("log.lab_prev_line", {
+                                date: lb().prev_date ?? "—",
+                                val: lb().prev_value ?? 0,
+                                unit: lb().unit,
+                                change: formatLabChange(lb().trend, lb().delta, lb().unit),
+                              })}
                             </Text>
                           </View>
                         </View>
@@ -526,17 +538,16 @@ export function LogLabsPage() {
             <Text class="text-[11px] leading-relaxed text-muted-foreground">{getDisclaimerText()}</Text>
           </Card>
 
-          {/* 亲友多档案 %ULN 归一化趋势、90 天复查提醒与大字《气韵平安家书》 */}
           <Card>
             <SectionHeader
-              title="亲友多档案 %ULN 归一化趋势 & 平安家书"
-              subtitle="按各自化验单上限 (ULN%) 消除参考区间差异，并端侧脱敏生成父母大字平安报"
+              title={tr("log.family_uln_title")}
+              subtitle={tr("log.family_uln_subtitle")}
               right={
                 <ActionButton
-                  title="生成《气韵平安家书》"
+                  title={tr("log.family_letter_btn")}
                   icon="family_heart"
                   size="sm"
-                  onPress={() => generateParentsPeaceLetter("爸妈")}
+                  onPress={() => generateParentsPeaceLetter()}
                 />
               }
             />
@@ -544,9 +555,9 @@ export function LogLabsPage() {
             <View class="flex-row flex-wrap gap-1.5">
               <Each
                 of={[
-                  { id: "self", label: "本人档案" },
-                  { id: "partner", label: "伴侣档案" },
-                  { id: "parents", label: "父母长辈" },
+                  { id: "self", label: tr("log.profile_self") },
+                  { id: "partner", label: tr("log.profile_partner") },
+                  { id: "parents", label: tr("log.profile_parents_default") },
                 ]}
                 key={(p) => p.id}
               >
@@ -563,27 +574,27 @@ export function LogLabsPage() {
             <View class="flex-row flex-wrap items-center gap-2">
               <View class="min-w-36 flex-1">
                 <FieldInput
-                  value={profileMarkerName()}
-                  placeholder="指标名（如：ALT / UA）"
+                  value={effectiveMarkerName()}
+                  placeholder={tr("log.marker_name_placeholder")}
                   onChange={(v) => profileMarkerName.set(v)}
                 />
               </View>
               <View class="w-24">
                 <FieldInput
                   value={profileMarkerVal()}
-                  placeholder="实测值"
+                  placeholder={tr("log.lab_value")}
                   onChange={(v) => profileMarkerVal.set(v)}
                 />
               </View>
               <View class="w-24">
                 <FieldInput
                   value={profileMarkerHigh()}
-                  placeholder="上限 ULN"
+                  placeholder={tr("log.uln_upper_placeholder")}
                   onChange={(v) => profileMarkerHigh.set(v)}
                 />
               </View>
               <ActionButton
-                title="录入亲友档案"
+                title={tr("log.add_lab_btn")}
                 icon="plus"
                 size="sm"
                 onPress={() => {
@@ -593,7 +604,7 @@ export function LogLabsPage() {
                     addProfileLabMarker(
                       selectedProfileId(),
                       snap().target_date,
-                      profileMarkerName(),
+                      effectiveMarkerName(),
                       v,
                       "U/L",
                       null,
@@ -607,18 +618,23 @@ export function LogLabsPage() {
             <If when={ulnSeries().length > 0}>
               <UlnTrajectoryCanvas
                 series={ulnSeries()}
-                markerName="多档案 ULN% 归一化纵览"
+                markerName={tr("log.uln_chart_title")}
               />
             </If>
 
             <If when={state().recheck_reminders.length > 0}>
               <View class="gap-1.5 pt-1">
-                <Text class="text-xs font-semibold text-foreground">90 天温柔复查提醒</Text>
+                <Text class="text-xs font-semibold text-foreground">{tr("log.recheck_title")}</Text>
                 <Each of={state().recheck_reminders.slice(0, 4)} key={(r) => `${r.profile_id}-${r.canonical_key}`}>
                   {(r) => (
                     <SunkenBox>
                       <Text class="text-xs leading-relaxed text-foreground">
-                        {`${r().profile_label} · ${r().marker_name}（距今 ${r().days_since_last} 天）：${r().reminder_text}`}
+                        {tr("log.recheck_row", {
+                          profile: r().profile_label,
+                          marker: r().marker_name,
+                          days: r().days_since_last,
+                          text: r().reminder_text,
+                        })}
                       </Text>
                     </SunkenBox>
                   )}
@@ -629,63 +645,90 @@ export function LogLabsPage() {
         </View>
       </If>
 
-      {/* 子视图 3：穿戴导入 */}
-      <If when={activeSubTab() === "wearable"}>
-        <Card>
-          <SectionHeader
-            title="外部穿戴历史数据导入"
-            subtitle="支持 Apple Health 导出 XML、CSV 日报与 OpenHealthSync JSONL"
-            right={<VitalBadge tone="neutral" label="自动口径区分" />}
-          />
-
-          <View class="flex-row flex-wrap gap-2">
-            <SelectChip
-              label="Apple Health XML"
-              selected={externalFormat() === "apple_health_xml"}
-              onPress={() => {
-                externalFormat.set("apple_health_xml");
-                externalText.set(SAMPLE_APPLE_XML);
-              }}
+      {/* Subview 3: Hearth Vault & Wearable Sources */}
+      <If when={getLogSubTab() === "vault"}>
+        <View class="gap-4">
+          <Card>
+            <SectionHeader
+              title={tr("log.wearable_title")}
+              subtitle={tr("log.wearable_subtitle")}
+              right={<VitalBadge tone="neutral" label={tr("log.wearable_badge")} />}
             />
-            <SelectChip
-              label="CSV 日报"
-              selected={externalFormat() === "csv"}
-              onPress={() => {
-                externalFormat.set("csv");
-                externalText.set(SAMPLE_CSV_DATA);
-              }}
+
+            <View class="flex-row flex-wrap gap-2">
+              <SelectChip
+                label="Apple Health XML"
+                selected={externalFormat() === "apple_health_xml"}
+                onPress={() => {
+                  externalFormat.set("apple_health_xml");
+                  externalText.set(SAMPLE_APPLE_XML);
+                }}
+              />
+              <SelectChip
+                label={tr("log.format_csv")}
+                selected={externalFormat() === "csv"}
+                onPress={() => {
+                  externalFormat.set("csv");
+                  externalText.set(SAMPLE_CSV_DATA);
+                }}
+              />
+              <SelectChip
+                label="OpenHealthSync JSONL"
+                selected={externalFormat() === "jsonl"}
+                onPress={() => {
+                  externalFormat.set("jsonl");
+                  externalText.set(SAMPLE_JSONL_DATA);
+                }}
+              />
+            </View>
+
+            <FieldInput
+              value={externalText()}
+              multiline={true}
+              placeholder={tr("log.wearable_placeholder")}
+              onChange={(v) => externalText.set(v)}
             />
-            <SelectChip
-              label="OpenHealthSync JSONL"
-              selected={externalFormat() === "jsonl"}
-              onPress={() => {
-                externalFormat.set("jsonl");
-                externalText.set(
-                  '{"kind":"daily_metric","date":"2026-11-12","metric":"steps","source":"mi_band","value":7880,"unit":"count"}',
-                );
-              }}
+
+            <ActionButton
+              title={tr("log.wearable_import_btn")}
+              icon="refresh"
+              onPress={() => importExternalHealthData(externalFormat(), externalText())}
             />
-          </View>
 
-          <FieldInput
-            value={externalText()}
-            multiline={true}
-            placeholder="粘贴 Apple Health export.xml 片段、CSV 或 JSONL"
-            onChange={(v) => externalText.set(v)}
-          />
+            <SunkenBox>
+              <Text class="text-xs leading-relaxed text-muted-foreground">
+                {tr("log.wearable_merge_note")}
+              </Text>
+            </SunkenBox>
+          </Card>
 
-          <ActionButton
-            title="导入历史穿戴记录"
-            icon="refresh"
-            onPress={() => importExternalHealthData(externalFormat(), externalText())}
-          />
-
-          <SunkenBox>
-            <Text class="text-xs leading-relaxed text-muted-foreground">
-              不同手表与手环的采集指标会自动分源留档与优先级合并，并在本机重算近期节律常态。
-            </Text>
-          </SunkenBox>
-        </Card>
+          <Card>
+            <SectionHeader
+              title={tr("log.hearth_summary_title")}
+              subtitle={tr("log.hearth_summary_sub", {
+                intakes: intakes().length,
+                labs: labs().length,
+                stickers: solar().stickers.length,
+              })}
+            />
+            <View class="flex-row flex-wrap gap-2">
+              <ActionButton
+                title={tr("today.open_custom_pet")}
+                icon="custom_pet"
+                variant="outline"
+                size="sm"
+                onPress={() => openPetStudio()}
+              />
+              <ActionButton
+                title={tr("me.vault_section")}
+                icon="cloud_lock"
+                variant="secondary"
+                size="sm"
+                onPress={() => setTab("me")}
+              />
+            </View>
+          </Card>
+        </View>
       </If>
     </View>
   );

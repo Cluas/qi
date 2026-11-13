@@ -9,12 +9,15 @@ use serde_json::json;
 
 use crate::analytics::{DailyMetricRow, IntakeLogRow, LabBiomarkerRow, WorkoutRow};
 use crate::crypto_sync::{generate_device_id, generate_recovery_phrase};
+use crate::entitlements::{DEFAULT_LOCALE, is_en_locale, normalize_locale};
 use crate::experiments::ExperimentRow;
 use crate::safety_ai::{
     ParsedLabMarkerDraft, biomarker_plain_note, enrich_lab_longitudinal_trends,
     parse_lab_text_and_verify, scrub_lab_text_pii,
 };
-use crate::solar_atelier::{DewLedgerEntry, FoodSticker, SanctuaryPreset};
+use crate::solar_atelier::{
+    CustomPetCompanion, DewLedgerEntry, FoodSticker, PetWeeklyLetter, SanctuaryPreset,
+};
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS daily_metrics_by_source (
@@ -113,6 +116,35 @@ CREATE TABLE IF NOT EXISTS sanctuary_presets (
     keepsakes_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS custom_pets (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    species TEXT NOT NULL DEFAULT 'cat',
+    persona TEXT NOT NULL DEFAULT '',
+    photo_data_url TEXT NOT NULL DEFAULT '',
+    die_cut_frame TEXT NOT NULL DEFAULT 'celadon_oval',
+    starlight_memorial INTEGER NOT NULL DEFAULT 0,
+    paw_stamp_title TEXT NOT NULL DEFAULT '',
+    is_active INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pet_weekly_letters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pet_id TEXT NOT NULL,
+    pet_name TEXT NOT NULL,
+    species TEXT NOT NULL,
+    week_number INTEGER NOT NULL,
+    solar_term TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    ex_libris_seal TEXT NOT NULL,
+    starlight_memorial INTEGER NOT NULL DEFAULT 0,
+    locale TEXT NOT NULL DEFAULT 'zh-CN',
+    created_at TEXT NOT NULL
+);
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,6 +205,8 @@ pub struct AppSettings {
     pub bonsai_dew: i64,
     #[serde(default = "default_seal_ink")]
     pub active_seal_ink: String,
+    #[serde(default = "default_locale")]
+    pub locale: String,
 }
 
 macro_rules! string_or {
@@ -205,6 +239,9 @@ fn default_pair_code() -> String {
 }
 fn default_seal_ink() -> String {
     "cinnabar".to_owned()
+}
+fn default_locale() -> String {
+    DEFAULT_LOCALE.to_owned()
 }
 
 impl Default for AppSettings {
@@ -251,6 +288,7 @@ impl Default for AppSettings {
             partner_mood: 0,
             bonsai_dew: 0,
             active_seal_ink: default_seal_ink(),
+            locale: default_locale(),
         }
     }
 }
@@ -335,6 +373,12 @@ impl VaultDatabase {
         if settings_count == 0 {
             self.save_settings(&AppSettings::default())?;
         }
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('locale', ?1)",
+                params![DEFAULT_LOCALE],
+            )
+            .map_err(|e| e.to_string())?;
         if auto_seed {
             let count: i64 = self
                 .conn
@@ -408,6 +452,7 @@ impl VaultDatabase {
             ("partner_mood", s.partner_mood.to_string()),
             ("bonsai_dew", s.bonsai_dew.to_string()),
             ("active_seal_ink", s.active_seal_ink.clone()),
+            ("locale", normalize_locale(&s.locale).to_owned()),
         ];
         for (k, v) in pairs {
             self.conn
@@ -478,6 +523,9 @@ impl VaultDatabase {
         if let Some(v) = map.get("partner_mood") { s.partner_mood = v.parse().unwrap_or(0); }
         if let Some(v) = map.get("bonsai_dew") { s.bonsai_dew = v.parse().unwrap_or(0); }
         if let Some(v) = map.get("active_seal_ink") { s.active_seal_ink = v.clone(); }
+        if let Some(v) = map.get("locale") {
+            s.locale = normalize_locale(v).to_owned();
+        }
         Ok(s)
     }
 
@@ -1398,6 +1446,226 @@ impl VaultDatabase {
         }
     }
 
+    pub fn list_custom_pets(&self) -> Result<Vec<CustomPetCompanion>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, name, species, persona, photo_data_url, die_cut_frame,
+                        starlight_memorial, paw_stamp_title, is_active, created_at, updated_at
+                 FROM custom_pets
+                 ORDER BY is_active DESC, created_at ASC, id ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(CustomPetCompanion {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    species: r.get(2)?,
+                    persona: r.get(3)?,
+                    photo_data_url: r.get(4)?,
+                    die_cut_frame: r.get(5)?,
+                    starlight_memorial: r.get::<_, i64>(6)? != 0,
+                    paw_stamp_title: r.get(7)?,
+                    is_active: r.get::<_, i64>(8)? != 0,
+                    created_at: r.get(9)?,
+                    updated_at: r.get(10)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    pub fn get_custom_pet(&self, pet_id: &str) -> Result<Option<CustomPetCompanion>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, name, species, persona, photo_data_url, die_cut_frame,
+                        starlight_memorial, paw_stamp_title, is_active, created_at, updated_at
+                 FROM custom_pets WHERE id = ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map(params![pet_id], |r| {
+                Ok(CustomPetCompanion {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    species: r.get(2)?,
+                    persona: r.get(3)?,
+                    photo_data_url: r.get(4)?,
+                    die_cut_frame: r.get(5)?,
+                    starlight_memorial: r.get::<_, i64>(6)? != 0,
+                    paw_stamp_title: r.get(7)?,
+                    is_active: r.get::<_, i64>(8)? != 0,
+                    created_at: r.get(9)?,
+                    updated_at: r.get(10)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        if let Some(r) = rows.next() {
+            Ok(Some(r.map_err(|e| e.to_string())?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn count_custom_pets(&self) -> Result<usize, String> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM custom_pets", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        Ok(count.max(0) as usize)
+    }
+
+    pub fn next_custom_pet_id(&self) -> String {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let existing = self.count_custom_pets().unwrap_or(0) + 1;
+        format!("pet_{now_ms}_{existing}")
+    }
+
+    pub fn upsert_custom_pet(&self, pet: &CustomPetCompanion) -> Result<(), String> {
+        if pet.is_active {
+            self.conn
+                .execute("UPDATE custom_pets SET is_active = 0", [])
+                .map_err(|e| e.to_string())?;
+        }
+        self.conn
+            .execute(
+                "INSERT INTO custom_pets
+                 (id, name, species, persona, photo_data_url, die_cut_frame,
+                  starlight_memorial, paw_stamp_title, is_active, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 ON CONFLICT(id) DO UPDATE SET
+                   name = excluded.name,
+                   species = excluded.species,
+                   persona = excluded.persona,
+                   photo_data_url = excluded.photo_data_url,
+                   die_cut_frame = excluded.die_cut_frame,
+                   starlight_memorial = excluded.starlight_memorial,
+                   paw_stamp_title = excluded.paw_stamp_title,
+                   is_active = excluded.is_active,
+                   updated_at = excluded.updated_at",
+                params![
+                    pet.id,
+                    pet.name,
+                    pet.species,
+                    pet.persona,
+                    pet.photo_data_url,
+                    pet.die_cut_frame,
+                    if pet.starlight_memorial { 1_i64 } else { 0_i64 },
+                    pet.paw_stamp_title,
+                    if pet.is_active { 1_i64 } else { 0_i64 },
+                    pet.created_at,
+                    pet.updated_at,
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn set_active_custom_pet(&self, pet_id: &str) -> Result<Option<CustomPetCompanion>, String> {
+        let trimmed = pet_id.trim();
+        if trimmed.is_empty() {
+            self.conn
+                .execute("UPDATE custom_pets SET is_active = 0", [])
+                .map_err(|e| e.to_string())?;
+            return Ok(None);
+        }
+        let target = self.get_custom_pet(trimmed)?;
+        if target.is_none() {
+            return Err("custom_pet_not_found".to_owned());
+        }
+        self.conn
+            .execute("UPDATE custom_pets SET is_active = 0", [])
+            .map_err(|e| e.to_string())?;
+        self.conn
+            .execute(
+                "UPDATE custom_pets SET is_active = 1 WHERE id = ?1",
+                params![trimmed],
+            )
+            .map_err(|e| e.to_string())?;
+        self.get_custom_pet(trimmed)
+    }
+
+    pub fn delete_custom_pet(&self, pet_id: &str) -> Result<bool, String> {
+        let trimmed = pet_id.trim();
+        self.conn
+            .execute(
+                "DELETE FROM pet_weekly_letters WHERE pet_id = ?1",
+                params![trimmed],
+            )
+            .map_err(|e| e.to_string())?;
+        let deleted = self
+            .conn
+            .execute("DELETE FROM custom_pets WHERE id = ?1", params![trimmed])
+            .map_err(|e| e.to_string())?;
+        Ok(deleted > 0)
+    }
+
+    pub fn insert_pet_weekly_letter(&self, letter: &PetWeeklyLetter) -> Result<i64, String> {
+        self.conn
+            .execute(
+                "INSERT INTO pet_weekly_letters
+                 (pet_id, pet_name, species, week_number, solar_term, title, body,
+                  ex_libris_seal, starlight_memorial, locale, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    letter.pet_id,
+                    letter.pet_name,
+                    letter.species,
+                    letter.week_number as i64,
+                    letter.solar_term,
+                    letter.title,
+                    letter.body,
+                    letter.ex_libris_seal,
+                    if letter.starlight_memorial { 1_i64 } else { 0_i64 },
+                    normalize_locale(&letter.locale),
+                    letter.created_at,
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn list_pet_weekly_letters(&self) -> Result<Vec<PetWeeklyLetter>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, pet_id, pet_name, species, week_number, solar_term, title, body,
+                        ex_libris_seal, starlight_memorial, locale, created_at
+                 FROM pet_weekly_letters
+                 ORDER BY week_number DESC, id DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(PetWeeklyLetter {
+                    id: r.get(0)?,
+                    pet_id: r.get(1)?,
+                    pet_name: r.get(2)?,
+                    species: r.get(3)?,
+                    week_number: r.get::<_, i64>(4)?.max(1) as u32,
+                    solar_term: r.get(5)?,
+                    title: r.get(6)?,
+                    body: r.get(7)?,
+                    ex_libris_seal: r.get(8)?,
+                    starlight_memorial: r.get::<_, i64>(9)? != 0,
+                    locale: r.get(10)?,
+                    created_at: r.get(11)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
     /// 合规物理销毁本机健康库（App Review 5.1.1(v)）
     pub fn wipe_all_data(&self) -> Result<(), String> {
         self.clear_business_data()?;
@@ -1405,7 +1673,9 @@ impl VaultDatabase {
             .execute_batch(
                 "DELETE FROM dew_ledger;
                  DELETE FROM sticker_journal;
-                 DELETE FROM sanctuary_presets;",
+                 DELETE FROM sanctuary_presets;
+                 DELETE FROM custom_pets;
+                 DELETE FROM pet_weekly_letters;",
             )
             .map_err(|e| e.to_string())?;
         let mut s = self.load_settings()?;
@@ -1418,7 +1688,11 @@ impl VaultDatabase {
         s.bonsai_dew = 0;
         s.weather_mood = "sunny_crisp".to_owned();
         s.active_seal_ink = "cinnabar".to_owned();
-        s.last_sync_summary = "本机与会话凭证已物理清空".to_owned();
+        s.last_sync_summary = if is_en_locale(&s.locale) {
+            "Local vault and session credentials cleared".to_owned()
+        } else {
+            "本机与会话凭证已物理清空".to_owned()
+        };
         self.save_settings(&s)?;
         Ok(())
     }
@@ -1448,5 +1722,49 @@ mod tests {
         assert!(db.load_metrics().unwrap().is_empty());
         assert!(db.load_labs().unwrap().is_empty());
         assert!(db.load_experiments().unwrap().is_empty());
+        assert!(db.list_custom_pets().unwrap().is_empty());
+        assert!(db.list_pet_weekly_letters().unwrap().is_empty());
+    }
+
+    #[test]
+    fn legacy_settings_without_locale_defaults_to_zh_cn() {
+        let legacy = json!({
+            "active_persona": "urban_overwork",
+            "onboarding_done": true,
+            "primary_goal": "energy_sleep",
+            "hardware_tier": "tier_a",
+            "morning_feeling": 4,
+            "sync_mode": "icloud_drive",
+            "webdav_url": "https://dav.jianguoyun.com/dav/qi-vault/",
+            "webdav_username": "",
+            "webdav_password": "",
+            "byo_server_url": "http://127.0.0.1:8788",
+            "cloud_url": "http://127.0.0.1:8788",
+            "cloud_handle": "",
+            "cloud_token": "",
+            "ai_mode": "official_zdr_cloud",
+            "zdr_consented": false,
+            "lan_ai_url": "http://127.0.0.1:11434/v1",
+            "lan_ai_model": "qwen3:latest",
+            "morning_push_enabled": true,
+            "morning_push_time": "08:30",
+            "thermal_throttled": false,
+            "simulated_ram_gb": 8,
+            "recovery_phrase": "test phrase",
+            "device_id": "dev-legacy",
+            "sync_seq": 0,
+            "pull_cursor_id": 0,
+            "last_sync_summary": "",
+            "checked_action_today": false,
+            "entitlement_token": "",
+            "max_seen_epoch": 0,
+            "guardian_sponsor": false,
+            "companion_loyalty_days": 0
+        });
+        let parsed: AppSettings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(parsed.locale, "zh-CN");
+
+        let db = VaultDatabase::open_empty_memory().unwrap();
+        assert_eq!(db.load_settings().unwrap().locale, "zh-CN");
     }
 }

@@ -6,6 +6,7 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 use crate::analytics::{AnalyticsSnapshot, LabBiomarkerRow};
+use crate::entitlements::{is_en_locale, DEFAULT_LOCALE};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScrubResult {
@@ -35,6 +36,26 @@ pub struct BriefingResult {
 
 pub const WELLNESS_DISCLAIMER: &str =
     "仅供日常健康节律、作息与生活方式管理参考，不构成临床医疗诊断或治疗建议。";
+
+pub const WELLNESS_DISCLAIMER_EN: &str =
+    "For everyday wellness rhythms, sleep, and lifestyle reference only. Not clinical medical diagnosis or treatment advice.";
+
+pub fn wellness_disclaimer_for_locale(locale: &str) -> &'static str {
+    if is_en_locale(locale) {
+        WELLNESS_DISCLAIMER_EN
+    } else {
+        WELLNESS_DISCLAIMER
+    }
+}
+
+pub fn contains_cjk(text: &str) -> bool {
+    text.chars().any(|c| {
+        ('\u{4E00}'..='\u{9FFF}').contains(&c)
+            || ('\u{3400}'..='\u{4DBF}').contains(&c)
+            || ('\u{3000}'..='\u{303F}').contains(&c)
+            || ('\u{FF00}'..='\u{FFEF}').contains(&c)
+    })
+}
 
 /// 在化验单文本离开本机前精准遮盖页眉/个人隐私字段，同时 100% 保留化验数值与参考区间。
 pub fn scrub_lab_text_pii(raw: &str) -> ScrubResult {
@@ -170,11 +191,19 @@ fn parse_range_token(tok: &str) -> Option<(f64, f64)> {
 
 /// 确定性提取检验行并由 Rust 重算 `ref_low..ref_high` 状态（防小模型误判升降箭头）。
 pub fn parse_lab_text_and_verify(scrubbed: &str) -> Vec<ParsedLabMarkerDraft> {
+    parse_lab_text_and_verify_localized(scrubbed, DEFAULT_LOCALE)
+}
+
+pub fn parse_lab_text_and_verify_localized(
+    scrubbed: &str,
+    locale: &str,
+) -> Vec<ParsedLabMarkerDraft> {
     let mut results = Vec::new();
     for raw_line in scrubbed.lines() {
         let trimmed = raw_line.trim();
         if trimmed.is_empty()
             || trimmed.starts_with("[已遮盖")
+            || trimmed.starts_with("[Redacted")
             || trimmed.contains("姓名：[已脱敏]")
         {
             continue;
@@ -248,10 +277,11 @@ pub fn parse_lab_text_and_verify(scrubbed: &str) -> Vec<ParsedLabMarkerDraft> {
         };
 
         let canonical_key = canonicalize_marker(&marker_name);
-        let plain_note = biomarker_plain_note(&canonical_key, flag);
+        let display_name = localized_marker_name(&canonical_key, &marker_name, locale);
+        let plain_note = biomarker_plain_note_localized(&canonical_key, flag, locale);
 
         results.push(ParsedLabMarkerDraft {
-            marker_name,
+            marker_name: display_name,
             canonical_key,
             value: val,
             unit: unit.to_owned(),
@@ -264,7 +294,104 @@ pub fn parse_lab_text_and_verify(scrubbed: &str) -> Vec<ParsedLabMarkerDraft> {
     results
 }
 
+pub fn localized_marker_name(canonical_key: &str, raw_marker_name: &str, locale: &str) -> String {
+    if !is_en_locale(locale) {
+        return raw_marker_name.to_owned();
+    }
+    if !contains_cjk(raw_marker_name) && !raw_marker_name.trim().is_empty() {
+        return raw_marker_name.to_owned();
+    }
+    match canonical_key {
+        "uric_acid" => "Uric acid (UA)".to_owned(),
+        "ldl_c" => "LDL cholesterol (LDL-C)".to_owned(),
+        "hdl_c" => "HDL cholesterol (HDL-C)".to_owned(),
+        "total_cholesterol" => "Total cholesterol (TC)".to_owned(),
+        "triglycerides" => "Triglycerides (TG)".to_owned(),
+        "hba1c" => "HbA1c".to_owned(),
+        "fasting_glucose" => "Fasting glucose (GLU)".to_owned(),
+        "alt" => "Alanine aminotransferase (ALT)".to_owned(),
+        "ast" => "Aspartate aminotransferase (AST)".to_owned(),
+        "ggt" => "Gamma-GT (GGT)".to_owned(),
+        "creatinine" => "Creatinine (Cr)".to_owned(),
+        "egfr" => "eGFR".to_owned(),
+        "bun" => "Blood urea nitrogen (BUN)".to_owned(),
+        "tsh" => "Thyroid-stimulating hormone (TSH)".to_owned(),
+        "ft3" => "Free T3 (FT3)".to_owned(),
+        "ft4" => "Free T4 (FT4)".to_owned(),
+        "vitamin_d" => "25-OH Vitamin D".to_owned(),
+        "ferritin" => "Ferritin".to_owned(),
+        "hemoglobin" => "Hemoglobin (Hb)".to_owned(),
+        "wbc" => "White blood cell count (WBC)".to_owned(),
+        "platelets" => "Platelets (PLT)".to_owned(),
+        "hs_crp" => "High-sensitivity CRP".to_owned(),
+        "homocysteine" => "Homocysteine (Hcy)".to_owned(),
+        "potassium" => "Serum potassium (K)".to_owned(),
+        "sodium" => "Serum sodium (Na)".to_owned(),
+        other => {
+            let trimmed = raw_marker_name.trim();
+            if !trimmed.is_empty() && !contains_cjk(trimmed) {
+                trimmed.to_owned()
+            } else {
+                other.replace('_', " ")
+            }
+        }
+    }
+}
+
 pub fn biomarker_plain_note(canonical_key: &str, flag: &str) -> String {
+    biomarker_plain_note_localized(canonical_key, flag, DEFAULT_LOCALE)
+}
+
+pub fn biomarker_plain_note_localized(canonical_key: &str, flag: &str, locale: &str) -> String {
+    if is_en_locale(locale) {
+        let msg = match (canonical_key, flag) {
+            ("uric_acid", "high") => {
+                "Above reference upper bound: aim for >=2000 ml water daily and cut back on beer, rich broths, and high-purine seafood or organ meats."
+            }
+            ("ldl_c", "high") => {
+                "LDL cholesterol needs attention: limit fried takeout and trans fats, and add oily fish, oats, and dietary fiber."
+            }
+            ("hdl_c", "low") => {
+                "HDL cholesterol is low: work toward 150 weekly minutes of Zone 2 cardio and healthy monounsaturated fats like olive oil and nuts."
+            }
+            ("triglycerides", "high") => {
+                "Triglycerides are above range: ease up on refined grains, sugary drinks, and late-night alcohol, favoring whole-grain carbs."
+            }
+            ("total_cholesterol", "high") => {
+                "Total cholesterol is above the upper bound: check dietary saturated fat alongside LDL-C and keep steady aerobic activity."
+            }
+            ("fasting_glucose", "high") | ("hba1c", "high") => {
+                "Glucose marker needs attention: try eating vegetables and protein before starches, with a 15-minute walk after meals."
+            }
+            ("alt", "high") | ("ast", "high") | ("ggt", "high") => {
+                "Liver enzyme is above the upper limit: recent late nights, intense strength blocks, or alcohol can nudge it up; lighten late meals and recheck on schedule."
+            }
+            ("vitamin_d", "low") => {
+                "Vitamin D is low: get ~15 minutes of morning sunlight daily and pair fatty fish or egg yolks with supplements as needed."
+            }
+            ("ferritin", "low") | ("hemoglobin", "low") => {
+                "Ferritin or hemoglobin is low: endurance stamina and fatigue can feel heavier; pair lean red meat with vitamin C for absorption."
+            }
+            ("hs_crp", "high") => {
+                "hs-CRP needs attention: may reflect recent training load or mild recovery strain; prioritize deep sleep and anti-inflammatory meals."
+            }
+            ("homocysteine", "high") => {
+                "Homocysteine is above range: add dark leafy greens and keep regular aerobic movement."
+            }
+            ("tsh", "high") | ("tsh", "low") => {
+                "TSH sits outside the reference range: if you notice persistent energy shifts, bring this report to an endocrinology clinician."
+            }
+            (_, "high") => {
+                "Above the lab reference upper bound; review recent sleep and meals and recheck at a routine follow-up."
+            }
+            (_, "low") => {
+                "Below the lab reference lower bound; keep nutrition balanced and allow steady rest recovery."
+            }
+            _ => "Within the standard reference range. Keep up your steady sleep and balanced meals.",
+        };
+        return msg.to_owned();
+    }
+
     let msg = match (canonical_key, flag) {
         ("uric_acid", "high") => {
             "偏高于参考上限：建议每日饮水 ≥2000ml，减少啤酒、浓肉汤与高嘌呤海鲜内脏摄入。"
@@ -469,10 +596,50 @@ pub fn enforce_wellness_guardrails(text: &str) -> String {
         ("临床诊断", "生理趋势提示"),
         ("诊断", "节律评估"),
         ("心律失常预警", "节律波动提醒"),
+        ("clinical diagnosis", "physiological trend cue"),
+        ("Clinical diagnosis", "Physiological trend cue"),
+        ("medical diagnosis", "wellness rhythm note"),
+        ("Medical diagnosis", "Wellness rhythm note"),
+        ("treatment plan", "daily wellness routine"),
+        ("Treatment plan", "Daily wellness routine"),
+        ("prescribe medication", "suggest nutrition and rest adjustments"),
+        ("prescription", "lifestyle suggestion"),
+        ("Prescription", "Lifestyle suggestion"),
+        ("diagnose", "assess rhythm trends for"),
+        ("diagnosis", "rhythm summary"),
+        ("arrhythmia alert", "rhythm fluctuation cue"),
     ] {
         safe = safe.replace(bad, good);
     }
     safe
+}
+
+fn english_snapshot_summary(snapshot: &AnalyticsSnapshot) -> (&'static str, &'static str, &'static str) {
+    let badge = if !contains_cjk(&snapshot.state_badge) && !snapshot.state_badge.trim().is_empty() {
+        // Prefer deterministic static str or map by state for &'static str consistency
+        match snapshot.state.as_str() {
+            "prime_ready" => "Well rested",
+            "recovery_priority" => "Rest gently",
+            _ => "Balanced",
+        }
+    } else {
+        match snapshot.state.as_str() {
+            "prime_ready" => "Well rested",
+            "recovery_priority" => "Rest gently",
+            _ => "Balanced",
+        }
+    };
+    let headline = match snapshot.state.as_str() {
+        "prime_ready" => "Steady sleep and autonomic tone leave good headroom for focused work or light cardio.",
+        "recovery_priority" => "Recent rest and heart rate variability suggest easing intensity and prioritizing early wind-down.",
+        _ => "Daily rhythms remain steady; keep hydration, balanced meals, and consistent sleep timing.",
+    };
+    let micro_action = match snapshot.state.as_str() {
+        "prime_ready" => "Take a 20-minute outdoor walk in daylight and keep hydration steady.",
+        "recovery_priority" => "Pause vigorous sets today; stretch gently for 10 minutes and wind down 30 minutes earlier.",
+        _ => "Enjoy a warm beverage after meals and aim for a calm evening screen-free window.",
+    };
+    (badge, headline, micro_action)
 }
 
 /// 根据当前 AI 模式、设备热降频状态与确定性快照生成早安简报（确保零阻塞、零幻觉）。
@@ -484,7 +651,120 @@ pub fn build_morning_briefing(
     thermal_throttled: bool,
     ram_gb: u32,
 ) -> BriefingResult {
+    build_morning_briefing_localized(
+        snapshot,
+        labs,
+        ai_mode,
+        lan_url,
+        thermal_throttled,
+        ram_gb,
+        DEFAULT_LOCALE,
+    )
+}
+
+pub fn build_morning_briefing_localized(
+    snapshot: &AnalyticsSnapshot,
+    labs: &[LabBiomarkerRow],
+    ai_mode: &str,
+    lan_url: &str,
+    thermal_throttled: bool,
+    ram_gb: u32,
+    locale: &str,
+) -> BriefingResult {
+    let en = is_en_locale(locale);
     let flagged_count = labs.iter().filter(|l| l.flag != "normal").count();
+
+    if en {
+        let (fallback_badge, fallback_headline, fallback_action) = english_snapshot_summary(snapshot);
+        let badge = if contains_cjk(&snapshot.state_badge) || snapshot.state_badge.trim().is_empty()
+        {
+            fallback_badge
+        } else {
+            snapshot.state_badge.as_str()
+        };
+        let headline = if contains_cjk(&snapshot.headline) || snapshot.headline.trim().is_empty() {
+            fallback_headline
+        } else {
+            snapshot.headline.as_str()
+        };
+        let micro_action =
+            if contains_cjk(&snapshot.micro_action) || snapshot.micro_action.trim().is_empty() {
+                fallback_action
+            } else {
+                snapshot.micro_action.as_str()
+            };
+        let lab_hint = if flagged_count > 0 {
+            format!(
+                " You have {flagged_count} lab markers sitting slightly outside range—favor lighter, lower-sodium meals today."
+            )
+        } else {
+            String::new()
+        };
+
+        if thermal_throttled && ai_mode == "on_device_local" {
+            let text = enforce_wellness_guardrails(&format!(
+                "Device is warm, so Qi switched smoothly to deterministic stats: today's vitality score is {} ({badge}). {headline}{lab_hint}",
+                snapshot.qi_score
+            ));
+            return BriefingResult {
+                provider_label: "Warm device · Fell back to deterministic Rust summary".to_owned(),
+                degraded: true,
+                text,
+                disclaimer: WELLNESS_DISCLAIMER_EN.to_owned(),
+            };
+        }
+
+        let (provider_label, lead) = match ai_mode {
+            "on_device_local" => {
+                if ram_gb < 6 {
+                    (
+                        "Memory <6GB guard · Deterministic baseline only".to_owned(),
+                        format!(
+                            "Device memory is {ram_gb}GB, skipping heavy on-device model weights; computed locally by Rust: "
+                        ),
+                    )
+                } else {
+                    (
+                        "On-device local model (0 network traffic · data stays local)".to_owned(),
+                        "Fully offline with zero cloud upload: ".to_owned(),
+                    )
+                }
+            }
+            "lan_ollama" => {
+                let target = if lan_url.trim().is_empty() {
+                    "http://192.168.x.x:11434/v1"
+                } else {
+                    lan_url.trim()
+                };
+                (
+                    "Home LAN local model (Ollama / self-hosted · private network)".to_owned(),
+                    format!("Ready via local network endpoint ({target}): "),
+                )
+            }
+            _ => (
+                "Official ZDR zero-retention cloud (de-identified feature summary only)".to_owned(),
+                "Prepared via scrubbed zero-retention summary gateway: ".to_owned(),
+            ),
+        };
+
+        let sleep_part = snapshot
+            .sleep_last_night_hours
+            .map(|h| format!("Last night's sleep was {h:.1} hours; "))
+            .unwrap_or_default();
+
+        let raw_text = format!(
+            "{lead}today's vitality is {} ({badge}). {sleep_part}{headline} Gentle step: {micro_action}{lab_hint}",
+            snapshot.qi_score
+        );
+
+        return BriefingResult {
+            provider_label,
+            degraded: false,
+            text: enforce_wellness_guardrails(raw_text.trim()),
+            disclaimer: WELLNESS_DISCLAIMER_EN.to_owned(),
+        };
+    }
+
     let lab_hint = if flagged_count > 0 {
         format!(" 体检档案中当前有 {flagged_count} 项临界关注指标，餐饮宜保持清淡低盐。")
     } else {
@@ -599,16 +879,35 @@ pub struct ParentsPeaceLetter {
 }
 
 pub fn profile_display_label(profile_id: &str) -> &'static str {
-    match profile_id.trim() {
-        "partner" => "伴侣",
-        "parents" => "父母长辈",
-        _ => "本人",
+    profile_display_label_localized(profile_id, DEFAULT_LOCALE)
+}
+
+pub fn profile_display_label_localized(profile_id: &str, locale: &str) -> &'static str {
+    if is_en_locale(locale) {
+        match profile_id.trim() {
+            "partner" => "Partner",
+            "parents" => "Parents & elders",
+            _ => "Self",
+        }
+    } else {
+        match profile_id.trim() {
+            "partner" => "伴侣",
+            "parents" => "父母长辈",
+            _ => "本人",
+        }
     }
 }
 
 /// 跨档案 %ULN 归一化趋势与 90 天复查提醒（支持 `self` / `partner` / `parents`）。
 pub fn compute_multi_profile_uln_trends(
     markers: &[LabBiomarkerRow],
+) -> (Vec<MultiProfileUlnPoint>, Vec<MultiProfileRecheckReminder>) {
+    compute_multi_profile_uln_trends_localized(markers, DEFAULT_LOCALE)
+}
+
+pub fn compute_multi_profile_uln_trends_localized(
+    markers: &[LabBiomarkerRow],
+    locale: &str,
 ) -> (Vec<MultiProfileUlnPoint>, Vec<MultiProfileRecheckReminder>) {
     let today = chrono::Local::now().date_naive();
     let max_marker_date = markers
@@ -617,7 +916,7 @@ pub fn compute_multi_profile_uln_trends(
         .max()
         .unwrap_or(today);
     let ref_str = max_marker_date.max(today).format("%Y-%m-%d").to_string();
-    compute_multi_profile_uln_trends_at(markers, &ref_str)
+    compute_multi_profile_uln_trends_at_localized(markers, &ref_str, locale)
 }
 
 /// 指定参考日期的跨档案 %ULN 归一化趋势与 90 天复查提醒。
@@ -625,6 +924,15 @@ pub fn compute_multi_profile_uln_trends_at(
     markers: &[LabBiomarkerRow],
     reference_date: &str,
 ) -> (Vec<MultiProfileUlnPoint>, Vec<MultiProfileRecheckReminder>) {
+    compute_multi_profile_uln_trends_at_localized(markers, reference_date, DEFAULT_LOCALE)
+}
+
+pub fn compute_multi_profile_uln_trends_at_localized(
+    markers: &[LabBiomarkerRow],
+    reference_date: &str,
+    locale: &str,
+) -> (Vec<MultiProfileUlnPoint>, Vec<MultiProfileRecheckReminder>) {
+    let en = is_en_locale(locale);
     let ref_date = NaiveDate::parse_from_str(reference_date.trim(), "%Y-%m-%d")
         .unwrap_or_else(|_| chrono::Local::now().date_naive());
 
@@ -637,13 +945,14 @@ pub fn compute_multi_profile_uln_trends_at(
         } else {
             m.profile_id.clone()
         };
+        let marker_display = localized_marker_name(&m.canonical_key, &m.marker_name, locale);
         if let Some(hi) = m.reference_high.or(m.ref_high).filter(|v| v.is_finite() && *v > 0.0) {
             let uln_pct = (((m.value / hi) * 100.0) * 10.0).round() / 10.0;
             uln_points.push(MultiProfileUlnPoint {
                 profile_id: profile_id.clone(),
-                profile_label: profile_display_label(&profile_id).to_owned(),
+                profile_label: profile_display_label_localized(&profile_id, locale).to_owned(),
                 canonical_key: m.canonical_key.clone(),
-                marker_name: m.marker_name.clone(),
+                marker_name: marker_display,
                 test_date: m.test_date.clone(),
                 value: m.value,
                 unit: m.unit.clone(),
@@ -674,16 +983,25 @@ pub fn compute_multi_profile_uln_trends_at(
         if let Ok(last_d) = NaiveDate::parse_from_str(&latest.test_date, "%Y-%m-%d") {
             let days_since = (ref_date - last_d).num_days();
             if days_since >= 90 {
-                let profile_label = profile_display_label(&profile_id).to_owned();
-                let reminder_text = format!(
-                    "{profile_label}的「{}」距离上次检验（{}）已过 {days_since} 天，已满 90 天复查窗口，可择期随访对照。",
-                    latest.marker_name, latest.test_date
-                );
+                let profile_label = profile_display_label_localized(&profile_id, locale).to_owned();
+                let marker_display =
+                    localized_marker_name(&latest.canonical_key, &latest.marker_name, locale);
+                let reminder_text = if en {
+                    format!(
+                        "{profile_label}'s {marker_display} has been {days_since} days since the last test ({}) — ready for a routine 90-day follow-up.",
+                        latest.test_date
+                    )
+                } else {
+                    format!(
+                        "{profile_label}的「{}」距离上次检验（{}）已过 {days_since} 天，已满 90 天复查窗口，可择期随访对照。",
+                        marker_display, latest.test_date
+                    )
+                };
                 reminders.push(MultiProfileRecheckReminder {
                     profile_id,
                     profile_label,
                     canonical_key,
-                    marker_name: latest.marker_name.clone(),
+                    marker_name: marker_display,
                     last_test_date: latest.test_date.clone(),
                     days_since_last: days_since,
                     flag: latest.flag.clone(),
@@ -703,6 +1021,104 @@ pub fn build_parents_peace_letter(
     snapshot: &AnalyticsSnapshot,
     reminders: &[MultiProfileRecheckReminder],
 ) -> ParentsPeaceLetter {
+    build_parents_peace_letter_localized(recipient_label, snapshot, reminders, DEFAULT_LOCALE)
+}
+
+pub fn build_parents_peace_letter_localized(
+    recipient_label: &str,
+    snapshot: &AnalyticsSnapshot,
+    reminders: &[MultiProfileRecheckReminder],
+    locale: &str,
+) -> ParentsPeaceLetter {
+    if is_en_locale(locale) {
+        let raw_recipient = recipient_label.trim();
+        let recipient = if raw_recipient.is_empty() || raw_recipient == "爸妈" {
+            "Mom & Dad".to_owned()
+        } else {
+            raw_recipient.to_owned()
+        };
+
+        let (_, _, fallback_action) = english_snapshot_summary(snapshot);
+        let action_text =
+            if contains_cjk(&snapshot.micro_action) || snapshot.micro_action.trim().is_empty() {
+                fallback_action
+            } else {
+                snapshot.micro_action.as_str()
+            };
+
+        let sleep_phrase = snapshot
+            .sleep_last_night_hours
+            .map(|h| format!("I slept {h:.1} hours last night, and "))
+            .unwrap_or_default();
+        let mood_phrase = match snapshot.state.as_str() {
+            "prime_ready" => "energy has been bright and my daily schedule feels well-paced",
+            "recovery_priority" => "I have been intentionally slowing down for extra rest and gentle walks",
+            _ => "my daily routine stays calm and balanced with warm regular meals",
+        };
+
+        let mut highlights = vec![
+            format!("Recent vitality: {mood_phrase} (vitality index {}).", snapshot.qi_score),
+            format!("{sleep_phrase}today's small habit: {action_text}"),
+        ];
+        if let Some(steps) = snapshot.metrics.get("steps").and_then(|m| m.value) {
+            highlights.push(format!("Daily movement: around {:.0} gentle steps.", steps));
+        }
+
+        let recheck_notes: Vec<String> = reminders
+            .iter()
+            .take(3)
+            .map(|r| {
+                format!(
+                    "Gentle reminder: {}'s {} was logged {} days ago — good timing for a calm routine checkup whenever the weather is nice.",
+                    r.profile_label, r.marker_name, r.days_since_last
+                )
+            })
+            .collect();
+
+        let title = format!("Family Peace Letter for {recipient}");
+        let greeting = format!("Dear {recipient},");
+        let body = enforce_wellness_guardrails(&format!(
+            "Hope this letter brings warmth as the season shifts. Things are going smoothly on my side: {sleep_phrase}{mood_phrase}. I am eating on time, winding down early, and keeping track of my daily rhythm here, so please do not worry. Remember to dress warmly, sip warm water morning and evening, and enjoy a relaxed walk outdoors."
+        ));
+        let closing = "Wishing you warmth and peace,\n— Thinking of you always".to_owned();
+
+        let mut md_lines = vec![
+            format!("# {title}"),
+            String::new(),
+            greeting.clone(),
+            String::new(),
+            body.clone(),
+            String::new(),
+            "### This week's gentle notes".to_owned(),
+        ];
+        for h in &highlights {
+            md_lines.push(format!("- {h}"));
+        }
+        if !recheck_notes.is_empty() {
+            md_lines.push(String::new());
+            md_lines.push("### Seasonal care reminders".to_owned());
+            for rn in &recheck_notes {
+                md_lines.push(format!("- {rn}"));
+            }
+        }
+        md_lines.push(String::new());
+        md_lines.push(closing.clone());
+        md_lines.push(String::new());
+        md_lines.push(format!("> {WELLNESS_DISCLAIMER_EN}"));
+
+        return ParentsPeaceLetter {
+            recipient_label: recipient,
+            title,
+            greeting,
+            body,
+            highlights,
+            recheck_notes,
+            closing,
+            large_print_markdown: enforce_wellness_guardrails(&md_lines.join("\n")),
+            e2ee_note: "Generated locally · Only shares this warm large-print summary, never raw lab values or personal IDs.".to_owned(),
+        };
+    }
+
     let recipient = if recipient_label.trim().is_empty() {
         "爸妈".to_owned()
     } else {

@@ -1,5 +1,6 @@
 import { setTheme, token, type Theme, type Tokens } from "nsh";
 import type { QiIconName } from "./icons";
+import { tr } from "./i18n";
 
 export type VisualThemeId = "cat_window" | "zen_garden" | "playful_bento";
 
@@ -11,8 +12,12 @@ export interface WorldTheme {
   readonly waxSealSoft: string;
   readonly duoAccent: string;
   readonly duoSoft: string;
+  readonly dewAccent: string;
+  readonly dewSoft: string;
   readonly inkLapis: string;
   readonly inkGold: string;
+  readonly starlightAccent: string;
+  readonly starlightSoft: string;
 }
 
 export function semanticColor<K extends keyof Tokens>(key: K): Tokens[K] {
@@ -39,54 +44,91 @@ export interface VisualThemeMeta {
   keepsakes: KeepsakeSpec[];
 }
 
-export const VISUAL_THEMES: VisualThemeMeta[] = [
+interface KeepsakeTemplate {
+  id: string;
+  threshold: number;
+  icon: QiIconName;
+}
+
+interface VisualThemeTemplate {
+  id: VisualThemeId;
+  recommended?: boolean;
+  keepsakes: readonly KeepsakeTemplate[];
+}
+
+const VISUAL_THEME_SPECS: readonly VisualThemeTemplate[] = [
   {
     id: "cat_window",
-    shortLabel: "窗畔有猫",
-    title: "窗畔有猫 · 小满",
-    subtitle: "暖木窗台茶席 × 三花猫小满 × 爪印手账",
-    companionName: "三花猫「小满」",
-    stampLabel: "已盖爪印",
-    posterHeader: "立冬微晴 · 窗畔知气日签",
     recommended: true,
     keepsakes: [
-      { id: "tea_cup", name: "天青茶盏", hint: "点亮第一缕暖茶香", threshold: 1, icon: "tea_cup" },
-      { id: "osmanthus", name: "金桂小瓶", hint: "窗台秋意暗香来", threshold: 3, icon: "flower_branch" },
-      { id: "cushion", name: "编织软垫", hint: "小满午睡更松软", threshold: 5, icon: "paw" },
-      { id: "night_lantern", name: "暖纸夜灯", hint: "雨夜亮一盏安眠灯", threshold: 8, icon: "lantern" },
+      { id: "tea_cup", threshold: 1, icon: "tea_cup" },
+      { id: "osmanthus", threshold: 3, icon: "flower_branch" },
+      { id: "cushion", threshold: 5, icon: "paw" },
+      { id: "night_lantern", threshold: 8, icon: "lantern" },
     ],
   },
   {
     id: "zen_garden",
-    shortLabel: "掌上山水",
-    title: "掌上山水 · 养气灵境",
-    subtitle: "宋式太湖石微景 × 青瓷香炉 × 朱砂闲章",
-    companionName: "养气松石灵境",
-    stampLabel: "朱砂已钤",
-    posterHeader: "清欢雅集 · 养气日签",
     keepsakes: [
-      { id: "celadon_cup", name: "汝窑香茗", hint: "一盏清茶定心神", threshold: 1, icon: "tea_cup" },
-      { id: "pine_twig", name: "迎客苍松", hint: "四时青翠守呼吸", threshold: 3, icon: "flower_branch" },
-      { id: "cinnabar_seal", name: "寿山闲章", hint: "每日钤印留清记", threshold: 5, icon: "stamp_seal" },
-      { id: "stone_lantern", name: "庭院石灯", hint: "听雨观心夜微明", threshold: 8, icon: "lantern" },
+      { id: "celadon_cup", threshold: 1, icon: "tea_cup" },
+      { id: "pine_twig", threshold: 3, icon: "flower_branch" },
+      { id: "cinnabar_seal", threshold: 5, icon: "stamp_seal" },
+      { id: "stone_lantern", threshold: 8, icon: "lantern" },
     ],
   },
   {
     id: "playful_bento",
-    shortLabel: "元气手账",
-    title: "元气手账机 · 煤球",
-    subtitle: "奶油抹茶撞色 × 软胶煤球猫 × 拍立得贴纸",
-    companionName: "软胶猫「煤球」",
-    stampLabel: "星爪已贴",
-    posterHeader: "今日元气补给 · 拍立得日签",
     keepsakes: [
-      { id: "matcha_latte", name: "抹茶云朵杯", hint: "元气满满开场饮", threshold: 1, icon: "tea_cup" },
-      { id: "lucky_clover", name: "奶油四叶草", hint: "收集今日小确幸", threshold: 3, icon: "flower_branch" },
-      { id: "enamel_paw", name: "立体星爪章", hint: "手账贴纸亮晶晶", threshold: 5, icon: "paw" },
-      { id: "moon_pod", name: "薰衣草夜灯", hint: "抱云酣睡充电舱", threshold: 8, icon: "lantern" },
+      { id: "matcha_latte", threshold: 1, icon: "tea_cup" },
+      { id: "lucky_clover", threshold: 3, icon: "flower_branch" },
+      { id: "enamel_paw", threshold: 5, icon: "paw" },
+      { id: "moon_pod", threshold: 8, icon: "lantern" },
     ],
   },
 ];
+
+function buildLocalizedKeepsakes(
+  themeId: VisualThemeId,
+  templates: readonly KeepsakeTemplate[],
+): KeepsakeSpec[] {
+  return templates.map((item) => ({
+    id: item.id,
+    get name() {
+      return tr(`themes.${themeId}.keepsakes.${item.id}.name`);
+    },
+    get hint() {
+      return tr(`themes.${themeId}.keepsakes.${item.id}.hint`);
+    },
+    threshold: item.threshold,
+    icon: item.icon,
+  }));
+}
+
+export const VISUAL_THEMES: VisualThemeMeta[] = VISUAL_THEME_SPECS.map((spec) => ({
+  id: spec.id,
+  recommended: spec.recommended,
+  get shortLabel() {
+    return tr(`themes.${spec.id}.shortLabel`);
+  },
+  get title() {
+    return tr(`themes.${spec.id}.title`);
+  },
+  get subtitle() {
+    return tr(`themes.${spec.id}.subtitle`);
+  },
+  get companionName() {
+    return tr(`themes.${spec.id}.companionName`);
+  },
+  get stampLabel() {
+    return tr(`themes.${spec.id}.stampLabel`);
+  },
+  get posterHeader() {
+    return tr(`themes.${spec.id}.posterHeader`);
+  },
+  get keepsakes() {
+    return buildLocalizedKeepsakes(spec.id, spec.keepsakes);
+  },
+}));
 
 const SHARED_THEME_VARS = {
   radius: "0.875rem",
@@ -445,11 +487,23 @@ function createWorldTheme(id: VisualThemeId): WorldTheme {
     get duoSoft() {
       return token("duo-soft");
     },
+    get dewAccent() {
+      return token("dew-accent");
+    },
+    get dewSoft() {
+      return token("dew-soft");
+    },
     get inkLapis() {
       return token("ink-lapis");
     },
     get inkGold() {
       return token("ink-gold");
+    },
+    get starlightAccent() {
+      return token("ink-lapis");
+    },
+    get starlightSoft() {
+      return token("atelier-soft");
     },
   };
 }

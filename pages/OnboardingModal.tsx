@@ -1,62 +1,69 @@
 import { Scroll, signal, Text, token, View } from "nsh";
-import { completeOnboarding, getState, getVisualTheme, setVisualTheme } from "../store";
+import {
+  completeOnboarding,
+  getAppLocale,
+  getState,
+  getVisualTheme,
+  setVisualTheme,
+  toggleAppLocale,
+} from "../store";
 import { ActionButton, Card, ChoiceCard, ModalSurface, SunkenBox, VitalBadge } from "../ui/components";
 import { QiIcon, type QiIconName } from "../ui/icons";
+import { tr } from "../ui/i18n";
 import { ThemeSwitcherStrip } from "../ui/sanctuary";
 
-const GOALS: { id: string; title: string; subtitle: string; icon: QiIconName }[] = [
-  {
-    id: "energy_sleep",
-    title: "早安精力与好眠修复",
-    subtitle: "感知每日元气节律，顺应睡眠欠账与恢复节奏",
-    icon: "sun",
-  },
-  {
-    id: "diet_balance",
-    title: "随手记餐与吃练平衡",
-    subtitle: "3 秒一句话记录日常饮食，看见身体次日反馈",
-    icon: "utensils",
-  },
-  {
-    id: "lab_archive",
-    title: "体检报告长期私密建档",
-    subtitle: "端侧识图脱敏与跨期参考区间可视化对照",
-    icon: "file_lab",
-  },
-  {
-    id: "smart_training",
-    title: "运动节奏与温和防过劳",
-    subtitle: "把握适度运动甜区，让每次训练都恰到好处",
-    icon: "heart_pulse",
-  },
-];
-
-const WEAR_MODES: { id: string; title: string; subtitle: string; icon: QiIconName }[] = [
-  {
-    id: "tier_a",
-    title: "佩戴智能手表（如 Apple Watch / Garmin）",
-    subtitle: "自动融合夜间恢复节律、静息心率与四期睡眠结构",
-    icon: "heart_pulse",
-  },
-  {
-    id: "tier_b",
-    title: "佩戴基础健康手环",
-    subtitle: "围绕睡眠时长、静息心率与每日步数平稳评估",
-    icon: "moon",
-  },
-  {
-    id: "tier_c",
-    title: "暂不佩戴穿戴设备",
-    subtitle: "仅凭手机每日步数与晨起精神感受，轻盈开启记录",
-    icon: "compass",
-  },
-];
-
-/** 诗意极简冷启动引导：零术语高信任开启知气节律 */
 export function OnboardingModal() {
   const goal = signal("energy_sleep");
   const tier = signal("tier_a");
   const isOpen = () => !getState().settings.onboarding_done;
+
+  const goals = (): { id: string; title: string; subtitle: string; icon: QiIconName }[] => [
+    {
+      id: "energy_sleep",
+      title: tr("onboarding.goal_energy_title"),
+      subtitle: tr("onboarding.goal_energy_sub"),
+      icon: "sun",
+    },
+    {
+      id: "diet_balance",
+      title: tr("onboarding.goal_diet_title"),
+      subtitle: tr("onboarding.goal_diet_sub"),
+      icon: "utensils",
+    },
+    {
+      id: "lab_archive",
+      title: tr("onboarding.goal_lab_title"),
+      subtitle: tr("onboarding.goal_lab_sub"),
+      icon: "file_lab",
+    },
+    {
+      id: "smart_training",
+      title: tr("onboarding.goal_train_title"),
+      subtitle: tr("onboarding.goal_train_sub"),
+      icon: "heart_pulse",
+    },
+  ];
+
+  const wearModes = (): { id: string; title: string; subtitle: string; icon: QiIconName }[] => [
+    {
+      id: "tier_a",
+      title: tr("onboarding.tier_a_title"),
+      subtitle: tr("onboarding.tier_a_sub"),
+      icon: "heart_pulse",
+    },
+    {
+      id: "tier_b",
+      title: tr("onboarding.tier_b_title"),
+      subtitle: tr("onboarding.tier_b_sub"),
+      icon: "moon",
+    },
+    {
+      id: "tier_c",
+      title: tr("onboarding.tier_c_title"),
+      subtitle: tr("onboarding.tier_c_sub"),
+      icon: "compass",
+    },
+  ];
 
   return (
     <ModalSurface open={isOpen()} presentation="pageSheet" closeOnBackdropPress={false}>
@@ -66,26 +73,34 @@ export function OnboardingModal() {
             <View class="size-8 items-center justify-center rounded-xl bg-accent">
               <QiIcon name="sun" size={18} color={token("primary")} />
             </View>
-            <VitalBadge tone="prime_ready" label="宋韵极简 · 私密守护" />
+            <VitalBadge tone="prime_ready" label={tr("onboarding.privacy_badge")} />
           </View>
-          <Text class="text-xs text-muted-foreground">60 秒温润开启</Text>
+          <ActionButton
+            title={tr("common.lang_toggle_compact")}
+            icon="globe"
+            size="sm"
+            variant="ghost"
+            shape="pill"
+            accessibilityLabel={`${tr("common.language")} (${getAppLocale()})`}
+            onPress={() => toggleAppLocale()}
+          />
         </View>
 
         <View class="gap-1.5">
           <Text role="header" class="text-2xl font-bold text-foreground">
-            欢迎来到「知气 · Qi」
+            {tr("onboarding.welcome_title")}
           </Text>
           <Text class="text-sm leading-relaxed text-muted-foreground">
-            以温润留白的节律视角，陪伴你安顿每日睡眠、饮食与长期体征变化。无机械圆环催促，亦无繁杂统计压力。
+            {tr("onboarding.welcome_subtitle")}
           </Text>
         </View>
 
         <Card>
           <Text role="header" class="text-sm font-semibold text-foreground">
-            1. 此刻最想先关照的生活方向
+            {tr("onboarding.step_goal_title")}
           </Text>
           <View class="gap-2">
-            <Each of={GOALS} key={(g) => g.id}>
+            <Each of={goals()} key={(g) => g.id}>
               {(g) => (
                 <ChoiceCard
                   title={g().title}
@@ -101,13 +116,13 @@ export function OnboardingModal() {
 
         <Card>
           <Text role="header" class="text-sm font-semibold text-foreground">
-            2. 选择你的日常穿戴习惯
+            {tr("onboarding.step_wear_title")}
           </Text>
           <Text class="text-xs leading-relaxed text-muted-foreground">
-            不同穿戴方式会匹配对应温和算法，绝不凭空臆造未采集到的体征。
+            {tr("onboarding.step_wear_subtitle")}
           </Text>
           <View class="gap-2">
-            <Each of={WEAR_MODES} key={(m) => m.id}>
+            <Each of={wearModes()} key={(m) => m.id}>
               {(m) => (
                 <ChoiceCard
                   title={m().title}
@@ -124,16 +139,18 @@ export function OnboardingModal() {
         <SunkenBox>
           <View class="flex-row items-center gap-2">
             <QiIcon name="cloud_lock" size={16} color={token("primary")} />
-            <Text class="text-xs font-semibold text-primary">数据仅存本机与个人云</Text>
+            <Text class="text-xs font-semibold text-primary">
+              {tr("onboarding.step_privacy_title")}
+            </Text>
           </View>
           <Text class="text-xs leading-relaxed text-muted-foreground">
-            你的生理节律、饮食笔记与体检档案均加密保存在手机本机或你指定的个人云空间，官方服务器零留存。
+            {tr("onboarding.step_privacy_desc")}
           </Text>
         </SunkenBox>
 
         <Card>
           <Text role="header" class="text-sm font-semibold text-foreground">
-            3. 选择陪伴你的灵境画风（可随时切换）
+            {tr("onboarding.step_theme_title")}
           </Text>
           <ThemeSwitcherStrip
             activeId={getVisualTheme()}
@@ -143,7 +160,7 @@ export function OnboardingModal() {
         </Card>
 
         <ActionButton
-          title="开启今日知气"
+          title={tr("onboarding.begin_btn")}
           icon="sparkles"
           size="lg"
           onPress={() => completeOnboarding(goal(), tier())}
