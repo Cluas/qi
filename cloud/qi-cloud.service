@@ -1,0 +1,25 @@
+[Unit]
+Description=Qi (知气) Zero-Health-DB Control Plane & ZDR AI Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qi-cloud
+Group=qi-cloud
+WorkingDirectory=/opt/qi-cloud
+Environment=QI_CLOUD_BIND=127.0.0.1:8788
+Environment=QI_CLOUD_DB=/var/lib/qi-cloud/qi_control_plane.sqlite3
+# 可选：接入备案大模型或内网 Magpie / Ollama OpenAI 兼容网关
+# Environment=QI_ZDR_UPSTREAM_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+# Environment=QI_ZDR_UPSTREAM_KEY=sk-replace-me
+# Environment=QI_ZDR_UPSTREAM_MODEL=qwen-plus
+ExecStart=/usr/local/bin/qi-cloud
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/qi-cloud
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,5 @@
 //! E2EE 个人云增量同步编码与 12 词保险箱恢复码。
-//! 采用设备目录隔离的 `ops/{device_id}/{batch_seq}.enc` 不可变分片，
+//! 采用 HKDF-SHA256 派生 256-bit 密钥 + 设备目录隔离的 `ops/{device_id}/{batch_seq}.enc` 不可变分片，
 //! 彻底规避裸同步 `.sqlite` 文件造成的跨端并发锁损坏。
 
 use chacha20poly1305::{
@@ -7,8 +7,9 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
 };
 use getrandom::getrandom;
+use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
 /// 64 词东方生活风轻量助记词表（确保无拼写歧义、跨端易抄录）
 const MNEMONIC_WORDS: [&str; 64] = [
@@ -32,6 +33,13 @@ pub struct EncryptedBatchEnvelope {
     pub payload_bytes: usize,
 }
 
+/// 生成唯一持久化设备 ID
+pub fn generate_device_id() -> String {
+    let mut bytes = [0u8; 6];
+    let _ = getrandom(&mut bytes);
+    format!("qi-dev-{}", hex::encode(bytes))
+}
+
 /// 生成 12 词个人健康保险箱恢复码
 pub fn generate_recovery_phrase() -> String {
     let mut entropy = [0u8; 16];
@@ -45,7 +53,7 @@ pub fn generate_recovery_phrase() -> String {
         .join(" ")
 }
 
-/// 从 12 词助记恢复码确定性派生 256-bit AEAD 主密钥
+/// 从 12 词助记恢复码通过 HKDF-SHA256 确定性派生 256-bit AEAD 主密钥
 pub fn derive_master_key(phrase: &str) -> Result<[u8; 32], String> {
     let normalized = phrase
         .split_whitespace()
@@ -55,12 +63,10 @@ pub fn derive_master_key(phrase: &str) -> Result<[u8; 32], String> {
     if normalized.split_whitespace().count() < 8 {
         return Err("恢复码至少需要 8–12 个助记词".to_owned());
     }
-    let mut hasher = Sha256::new();
-    hasher.update(b"qi-personal-vault-v1:");
-    hasher.update(normalized.as_bytes());
-    let digest = hasher.finalize();
+    let hk = Hkdf::<Sha256>::new(Some(b"qi-personal-vault-salt-v2"), normalized.as_bytes());
     let mut key = [0u8; 32];
-    key.copy_from_slice(&digest);
+    hk.expand(b"qi-xchacha20-e2ee-master-key", &mut key)
+        .map_err(|_| "HKDF 密钥派生失败".to_owned())?;
     Ok(key)
 }
 

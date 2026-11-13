@@ -1,0 +1,11 @@
+# 「知气 · Qi」官方极简 Control Plane + ZDR 网关 Caddy 反向代理示例
+api.qi-health.example.com {
+    encode zstd gzip
+    header {
+        -Server
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    }
+    reverse_proxy 127.0.0.1:8788 {
+        flush_interval -1
+    }
+}

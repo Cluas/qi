@@ -90,6 +90,14 @@ pub struct LabBiomarkerRow {
     pub ref_high: Option<f64>,
     pub flag: String,
     pub plain_note: String,
+    #[serde(default)]
+    pub prev_value: Option<f64>,
+    #[serde(default)]
+    pub prev_date: Option<String>,
+    #[serde(default)]
+    pub delta: Option<f64>,
+    #[serde(default)]
+    pub trend: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

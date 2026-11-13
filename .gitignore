@@ -1,5 +1,7 @@
 .nsh/
 target/
+cloud/target/
+bin/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm

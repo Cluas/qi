@@ -1,4 +1,6 @@
-//! 端侧前置隐私脱敏、体检结构化纠偏、四级 AiProvider 路由与 SaMD 医疗红线护栏。
+//! 端侧前置隐私脱敏、25+ 体检指标结构化纠偏、纵深变化趋势与 SaMD 医疗红线护栏。
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -80,7 +82,6 @@ pub fn scrub_lab_text_pii(raw: &str) -> ScrubResult {
                     if tail.trim_start().starts_with("[已脱敏]") {
                         continue;
                     }
-                    // 截断至下一个空格分隔的独立字段（例如 "姓名：张三 性别：男" 只遮张三）
                     let rest = tail
                         .trim_start()
                         .split_once(char::is_whitespace)
@@ -94,7 +95,6 @@ pub fn scrub_lab_text_pii(raw: &str) -> ScrubResult {
             }
         }
 
-        // 遮盖 18 位身份证号与 11 位中国大陆手机号
         cleaned = redact_digit_runs(&cleaned, &mut redacted);
         out_lines.push(cleaned);
     }
@@ -141,16 +141,45 @@ fn redact_digit_runs(input: &str, redacted: &mut Vec<String>) -> String {
     out
 }
 
-/// 确定性提取检验行并由 Rust 重算 ref_low..ref_high 状态（防小模型误判升降箭头）。
+/// 标准化化验单行（解决 Vision/PDF OCR 常见的全角括号无空格粘连如 `谷丙转氨酶（ALT）56`）
+fn normalize_lab_line(line: &str) -> String {
+    let mut s = line
+        .replace('（', "(")
+        .replace('）', ") ")
+        .replace('–', "-")
+        .replace('—', "-")
+        .replace('\t', " ")
+        .replace('|', " ");
+    // 兼容 "指标名: 数值" 或 "指标名：数值"
+    s = s.replace("：", " ").replace(": ", " ");
+    s
+}
+
+fn parse_range_token(tok: &str) -> Option<(f64, f64)> {
+    let cleaned = tok.trim_matches(|c: char| c == '[' || c == ']' || c == '(' || c == ')');
+    for sep in ['-', '~'] {
+        if let Some((l_s, h_s)) = cleaned.split_once(sep)
+            && let (Ok(l), Ok(h)) = (l_s.trim().parse::<f64>(), h_s.trim().parse::<f64>())
+        {
+            return Some((l, h));
+        }
+    }
+    None
+}
+
+/// 确定性提取检验行并由 Rust 重算 `ref_low..ref_high` 状态（防小模型误判升降箭头）。
 pub fn parse_lab_text_and_verify(scrubbed: &str) -> Vec<ParsedLabMarkerDraft> {
     let mut results = Vec::new();
-    for line in scrubbed.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("[已遮盖") {
+    for raw_line in scrubbed.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty()
+            || trimmed.starts_with("[已遮盖")
+            || trimmed.contains("姓名：[已脱敏]")
+        {
             continue;
         }
-        // 提取行内所有浮点数与范围 x-y
-        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        let normalized = normalize_lab_line(trimmed);
+        let tokens: Vec<&str> = normalized.split_whitespace().collect();
         if tokens.len() < 2 {
             continue;
         }
@@ -183,24 +212,13 @@ pub fn parse_lab_text_and_verify(scrubbed: &str) -> Vec<ParsedLabMarkerDraft> {
         let mut ref_low = None;
         let mut ref_high = None;
         for tok in &tokens[value_idx + 1..] {
-            let sep = if tok.contains('-') {
-                Some('-')
-            } else if tok.contains('~') {
-                Some('~')
-            } else {
-                None
-            };
-            if let Some(s) = sep
-                && let Some((l_s, h_s)) = tok.split_once(s)
-                && let (Ok(l), Ok(h)) = (l_s.parse::<f64>(), h_s.parse::<f64>())
-            {
+            if let Some((l, h)) = parse_range_token(tok) {
                 ref_low = Some(l);
                 ref_high = Some(h);
                 break;
             }
         }
 
-        // 强制由 Rust 依据参考区间重算红绿灯状态
         let flag = match (ref_low, ref_high) {
             (Some(lo), Some(hi)) => {
                 if val > hi {
@@ -229,20 +247,7 @@ pub fn parse_lab_text_and_verify(scrubbed: &str) -> Vec<ParsedLabMarkerDraft> {
         };
 
         let canonical_key = canonicalize_marker(&marker_name);
-        let plain_note = match (canonical_key.as_str(), flag) {
-            ("uric_acid", "high") => {
-                "偏高于参考区间上限：建议增加日常饮水、减少高嘌呤海鲜/内脏与浓肉汤及酒精摄入。"
-            }
-            ("ldl_c", "high") => {
-                "低密度脂蛋白提示关注：建议减少反式脂肪与油炸食物，增加深海鱼与膳食纤维。"
-            }
-            ("vitamin_d", "low") => {
-                "维生素 D 偏低：建议每日上午适度户外日照 15 分钟，可在膳食中搭配富含维 D 食材。"
-            }
-            (_, "high") => "数值高于检验单参考区间上限，建议结合近期作息与饮食调整后定期复查。",
-            (_, "low") => "数值低于检验单参考区间下限，建议留意营养均衡与休息恢复节奏。",
-            _ => "位于常规参考区间内，继续保持良好作息与饮食平衡即可。",
-        };
+        let plain_note = biomarker_plain_note(&canonical_key, flag);
 
         results.push(ParsedLabMarkerDraft {
             marker_name,
@@ -252,46 +257,204 @@ pub fn parse_lab_text_and_verify(scrubbed: &str) -> Vec<ParsedLabMarkerDraft> {
             ref_low,
             ref_high,
             flag: flag.to_owned(),
-            plain_note: plain_note.to_owned(),
+            plain_note,
         });
     }
     results
 }
 
-fn canonicalize_marker(name: &str) -> String {
+fn biomarker_plain_note(canonical_key: &str, flag: &str) -> String {
+    let msg = match (canonical_key, flag) {
+        ("uric_acid", "high") => {
+            "偏高于参考上限：建议每日饮水 ≥2000ml，减少啤酒、浓肉汤与高嘌呤海鲜内脏摄入。"
+        }
+        ("ldl_c", "high") => {
+            "低密度脂蛋白提示关注：建议减少反式脂肪与油炸外卖，增加深海鱼、燕麦及膳食纤维。"
+        }
+        ("hdl_c", "low") => {
+            "高密度脂蛋白偏低：适度增加每周 150 分钟 Zone 2 有氧与优质单不饱和脂肪（橄榄油/坚果）。"
+        }
+        ("triglycerides", "high") => {
+            "甘油三酯偏高：建议控制精制米面、含糖奶茶与夜间饮酒，优先全谷物碳水。"
+        }
+        ("total_cholesterol", "high") => {
+            "总胆固醇高于参考上限：可结合 LDL-C 一起留意膳食饱和脂肪比例并加强有氧活动。"
+        }
+        ("fasting_glucose", "high") | ("hba1c", "high") => {
+            "糖代谢指标提示关注：推荐“先菜后肉再主食”的进食顺序，餐后快走 15 分钟有助平稳血糖。"
+        }
+        ("alt", "high") | ("ast", "high") | ("ggt", "high") => {
+            "转氨酶高于参考上限：可能与近期熬夜、高强度力量训练或饮酒相关，建议减少酒精与高脂夜宵并按期复查。"
+        }
+        ("vitamin_d", "low") => {
+            "维生素 D 偏低：建议每日上午适度户外日照 15 分钟，膳食搭配深海鱼/蛋黄或按需补充。"
+        }
+        ("ferritin", "low") | ("hemoglobin", "low") => {
+            "铁蛋白/血红蛋白偏低：耐力训练与疲劳感易受影响，膳食中可适度增加瘦红肉与维 C 促铁吸收。"
+        }
+        ("hs_crp", "high") => {
+            "超敏 C 反应蛋白提示关注：可能反映近期训练负荷偏大或轻度恢复期应激，宜保证充足睡眠与抗炎饮食。"
+        }
+        ("homocysteine", "high") => {
+            "同型半胱氨酸高于参考区间：建议多摄入深绿色叶菜，保持规律有氧作息。"
+        }
+        ("tsh", "high") | ("tsh", "low") => {
+            "促甲状腺激素位于区间边缘之外：若近期伴有明显精力波动，建议带着报告向内分泌科医师咨询。"
+        }
+        (_, "high") => "数值高于检验单参考区间上限，建议结合近期作息与饮食调整后定期复查。",
+        (_, "low") => "数值低于检验单参考区间下限，建议留意营养均衡与休息恢复节奏。",
+        _ => "位于常规参考区间内，继续保持良好作息与饮食平衡即可。",
+    };
+    msg.to_owned()
+}
+
+/// 25+ 项核心体检指标规范化映射
+pub fn canonicalize_marker(name: &str) -> String {
     let lower = name.to_ascii_lowercase();
-    if name.contains("尿酸") || lower.contains("ua") {
+    if name.contains("尿酸") || lower.contains("(ua)") || lower == "ua" {
         "uric_acid".to_owned()
     } else if name.contains("低密度") || lower.contains("ldl") {
         "ldl_c".to_owned()
-    } else if name.contains("维生素D") || name.contains("维生素d") || lower.contains("25-oh") {
-        "vitamin_d".to_owned()
+    } else if name.contains("高密度") || lower.contains("hdl") {
+        "hdl_c".to_owned()
+    } else if name.contains("总胆固醇") || lower == "tc" || lower.contains("(tc)") {
+        "total_cholesterol".to_owned()
+    } else if name.contains("甘油三酯") || lower.contains("(tg)") || lower == "tg" {
+        "triglycerides".to_owned()
+    } else if name.contains("糖化血红蛋白") || lower.contains("hba1c") {
+        "hba1c".to_owned()
     } else if name.contains("空腹血糖") || lower.contains("glucose") || lower.contains("glu") {
         "fasting_glucose".to_owned()
+    } else if name.contains("谷丙转氨酶") || lower.contains("(alt)") || lower.contains("alt") {
+        "alt".to_owned()
+    } else if name.contains("谷草转氨酶") || lower.contains("(ast)") || lower.contains("ast") {
+        "ast".to_owned()
+    } else if name.contains("谷氨酰") || lower.contains("ggt") {
+        "ggt".to_owned()
+    } else if name.contains("肌酐") || lower.contains("(cr)") || lower.contains("crea") {
+        "creatinine".to_owned()
+    } else if name.contains("肾小球滤过率") || lower.contains("egfr") {
+        "egfr".to_owned()
+    } else if name.contains("尿素氮") || lower.contains("bun") {
+        "bun".to_owned()
+    } else if name.contains("促甲状腺") || lower.contains("tsh") {
+        "tsh".to_owned()
+    } else if name.contains("游离三碘") || lower.contains("ft3") {
+        "ft3".to_owned()
+    } else if name.contains("游离甲状腺") || lower.contains("ft4") {
+        "ft4".to_owned()
+    } else if name.contains("维生素D") || name.contains("维生素d") || lower.contains("25-oh") {
+        "vitamin_d".to_owned()
+    } else if name.contains("铁蛋白") || lower.contains("ferritin") {
+        "ferritin".to_owned()
+    } else if name.contains("血红蛋白") || lower.contains("(hb)") || lower == "hb" {
+        "hemoglobin".to_owned()
+    } else if name.contains("白细胞") || lower.contains("wbc") {
+        "wbc".to_owned()
+    } else if name.contains("血小板") || lower.contains("plt") {
+        "platelets".to_owned()
+    } else if name.contains("C反应蛋白") || name.contains("C 反应蛋白") || lower.contains("crp") {
+        "hs_crp".to_owned()
+    } else if name.contains("同型半胱氨酸") || lower.contains("hcy") {
+        "homocysteine".to_owned()
+    } else if name.contains("血钾") || lower.contains("(k)") {
+        "potassium".to_owned()
+    } else if name.contains("血钠") || lower.contains("(na)") {
+        "sodium".to_owned()
     } else {
-        lower
+        let ascii: String = lower
             .chars()
             .filter(|c| c.is_ascii_alphanumeric())
-            .collect::<String>()
-            .chars()
             .take(24)
-            .collect::<String>()
-            .if_empty_then(|| format!("marker_{}", name.chars().count()))
+            .collect();
+        if ascii.is_empty() {
+            format!("marker_{}", name.chars().count())
+        } else {
+            ascii
+        }
     }
 }
 
-trait StrExt {
-    fn if_empty_then(self, f: impl FnOnce() -> String) -> String;
-}
-impl StrExt for String {
-    fn if_empty_then(self, f: impl FnOnce() -> String) -> String {
-        if self.is_empty() { f() } else { self }
+/// 为同一 `canonical_key` 的多年多期体检记录补充纵向变化趋势（较上一期改善/回升/平稳）
+pub fn enrich_lab_longitudinal_trends(mut rows: Vec<LabBiomarkerRow>) -> Vec<LabBiomarkerRow> {
+    let mut by_key: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (idx, r) in rows.iter().enumerate() {
+        by_key.entry(r.canonical_key.clone()).or_default().push(idx);
     }
+
+    for indices in by_key.values() {
+        // 按检验日期升序串联前期历史
+        let mut sorted = indices.clone();
+        sorted.sort_by(|&a, &b| rows[a].test_date.cmp(&rows[b].test_date));
+
+        for pos in 0..sorted.len() {
+            let cur_idx = sorted[pos];
+            if pos == 0 {
+                rows[cur_idx].trend = Some("new".to_owned());
+                continue;
+            }
+            let prev_idx = sorted[pos - 1];
+            let prev_val = rows[prev_idx].value;
+            let prev_date = rows[prev_idx].test_date.clone();
+            let cur_val = rows[cur_idx].value;
+            let delta = ((cur_val - prev_val) * 100.0).round() / 100.0;
+
+            let trend = if delta.abs() < 1e-4 {
+                "stable".to_owned()
+            } else {
+                // 若此前在区间外而本期距离区间中心更近，或回归 normal，则判定为 improved
+                let mid_opt = match (rows[cur_idx].ref_low, rows[cur_idx].ref_high) {
+                    (Some(lo), Some(hi)) => Some((lo + hi) / 2.0),
+                    _ => None,
+                };
+                if rows[cur_idx].flag == "normal" && rows[prev_idx].flag != "normal" {
+                    "improved".to_owned()
+                } else if rows[cur_idx].flag != "normal" && rows[prev_idx].flag == "normal" {
+                    "worsened".to_owned()
+                } else if let Some(mid) = mid_opt {
+                    let prev_dist = (prev_val - mid).abs();
+                    let cur_dist = (cur_val - mid).abs();
+                    if cur_dist + 1e-4 < prev_dist {
+                        "improved".to_owned()
+                    } else if cur_dist > prev_dist + 1e-4 {
+                        "worsened".to_owned()
+                    } else {
+                        "stable".to_owned()
+                    }
+                } else {
+                    "stable".to_owned()
+                }
+            };
+
+            rows[cur_idx].prev_value = Some(prev_val);
+            rows[cur_idx].prev_date = Some(prev_date);
+            rows[cur_idx].delta = Some(delta);
+            rows[cur_idx].trend = Some(trend);
+        }
+    }
+    rows
+}
+
+/// 剥离推理模型的 `<think>...</think>` 思考过程
+pub fn strip_think_tags(input: &str) -> String {
+    let mut rest = input;
+    let mut out = String::with_capacity(input.len());
+    while let Some(start) = rest.find("<think>") {
+        out.push_str(&rest[..start]);
+        if let Some(end) = rest[start..].find("</think>") {
+            rest = &rest[start + end + "</think>".len()..];
+        } else {
+            rest = "";
+            break;
+        }
+    }
+    out.push_str(rest);
+    out.trim().to_owned()
 }
 
 /// 强制医疗红线词过滤（SaMD Guardrails），防止越界措辞。
 pub fn enforce_wellness_guardrails(text: &str) -> String {
-    let mut safe = text.to_owned();
+    let mut safe = strip_think_tags(text);
     for (bad, good) in [
         ("确诊为", "提示关注"),
         ("确诊", "参考提示"),
@@ -299,6 +462,8 @@ pub fn enforce_wellness_guardrails(text: &str) -> String {
         ("处方", "调整参考"),
         ("治疗方案", "日常调养方案"),
         ("治疗", "调养参考"),
+        ("临床诊断", "生理趋势提示"),
+        ("诊断", "节律评估"),
         ("心律失常预警", "节律波动提醒"),
     ] {
         safe = safe.replace(bad, good);
@@ -359,12 +524,12 @@ pub fn build_morning_briefing(
             };
             (
                 "家庭局域网本地大模型（Ollama / 自建网关 · 数据不出内网）",
-                format!("经家庭局域网节点（{target}）生成："),
+                format!("经家庭局域网节点（{target}）就绪："),
             )
         }
         _ => (
             "官方 ZDR 零留存极速云端（仅发脱敏特征摘要 · 阅后即焚）",
-            "经端侧去标识化摘要与阅后即焚网关润色：".to_owned(),
+            "经端侧去标识化摘要与阅后即焚网关待命：".to_owned(),
         ),
     };
 
@@ -396,7 +561,7 @@ mod tests {
 
     #[test]
     fn scrubs_pii_without_touching_lab_numbers() {
-        let raw = "某某市第一人民医院体检中心\n姓名：张伟 身份证号：31010119900101123X 手机：13800138000\n尿酸(UA) 468 umol/L 208-428\n25-羟维生素D 16.5 ng/mL 30.0-100.0";
+        let raw = "某某市第一人民医院体检中心\n姓名：张伟 身份证号：31010119900101123X 手机：13800138000\n尿酸（UA）468 umol/L 208-428\n谷丙转氨酶（ALT）56 U/L 9-50\n25-羟维生素D 16.5 ng/mL 30.0-100.0";
         let res = scrub_lab_text_pii(raw);
         assert!(!res.scrubbed_text.contains("张伟"));
         assert!(!res.scrubbed_text.contains("31010119900101123X"));
@@ -404,16 +569,19 @@ mod tests {
         assert!(res.redacted_fields.contains(&"姓名".to_owned()));
 
         let parsed = parse_lab_text_and_verify(&res.scrubbed_text);
-        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed.len(), 3);
         assert_eq!(parsed[0].canonical_key, "uric_acid");
         assert_eq!(parsed[0].flag, "high");
-        assert_eq!(parsed[1].canonical_key, "vitamin_d");
-        assert_eq!(parsed[1].flag, "low");
+        assert_eq!(parsed[1].canonical_key, "alt");
+        assert_eq!(parsed[1].flag, "high");
+        assert_eq!(parsed[2].canonical_key, "vitamin_d");
+        assert_eq!(parsed[2].flag, "low");
     }
 
     #[test]
     fn guardrails_replace_medical_terms() {
-        let filtered = enforce_wellness_guardrails("建议确诊后开药并制定治疗方案");
+        let filtered = enforce_wellness_guardrails("<think>reasoning</think>建议确诊后开药并制定治疗方案");
+        assert!(!filtered.contains("reasoning"));
         assert!(!filtered.contains("确诊"));
         assert!(!filtered.contains("开药"));
         assert!(!filtered.contains("治疗方案"));
