@@ -26,12 +26,18 @@
       "input": "#DDD7C9",
       "ring": "#2A6F5B",
       "surface-sunken": "#EFECE4",
+      "surface-elevated": "#FFFFFF",
+      "ink-subtle": "#8C918A",
       "vital-prime": "#2A6F5B",
       "vital-prime-soft": "#E6F1ED",
       "vital-steady": "#B87D2B",
       "vital-steady-soft": "#FBF2E1",
       "vital-recover": "#B84A39",
-      "vital-recover-soft": "#FBEAE7"
+      "vital-recover-soft": "#FBEAE7",
+      "sleep-deep": "#2A6F5B",
+      "sleep-core": "#5E9683",
+      "sleep-rem": "#8574A8",
+      "sleep-awake": "#D49A45"
     },
     "dark": {
       "background": "#121413",
@@ -54,12 +60,18 @@
       "input": "#353B37",
       "ring": "#4CA68A",
       "surface-sunken": "#171A18",
+      "surface-elevated": "#222624",
+      "ink-subtle": "#757A73",
       "vital-prime": "#4CA68A",
       "vital-prime-soft": "#192C26",
       "vital-steady": "#D99E46",
       "vital-steady-soft": "#2E2414",
       "vital-recover": "#E06C59",
-      "vital-recover-soft": "#331A16"
+      "vital-recover-soft": "#331A16",
+      "sleep-deep": "#4CA68A",
+      "sleep-core": "#357A66",
+      "sleep-rem": "#9C8BC4",
+      "sleep-awake": "#D99E46"
     }
   }
 }

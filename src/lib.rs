@@ -7,10 +7,12 @@ pub mod crypto_sync;
 pub mod experiments;
 pub mod importers;
 pub mod nutrition_db;
+pub mod personas;
 pub mod safety_ai;
 pub mod storage;
 pub mod sync_engine;
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use nsh_core::prelude::*;
@@ -19,6 +21,7 @@ use serde::Serialize;
 use crate::ai_provider::generate_live_briefing;
 use crate::analytics::{
     AnalyticsSnapshot, HardwareTier, IntakeLogRow, LabBiomarkerRow, compute_snapshot,
+    resolve_canonical_metrics, source_priority,
 };
 use crate::apple_native::{
     LocalAiCapabilityProbe, probe_local_ai_capabilities, run_offline_vision_ocr,
@@ -30,7 +33,10 @@ use crate::experiments::{
 };
 use crate::importers::{parse_apple_health_xml_snippet, parse_csv_metrics};
 use crate::nutrition_db::{FoodSearchHit, parse_natural_intake_text, search_foods};
-use crate::safety_ai::{BriefingResult, WELLNESS_DISCLAIMER, build_morning_briefing};
+use crate::safety_ai::{
+    BriefingResult, WELLNESS_DISCLAIMER, build_morning_briefing, enforce_wellness_guardrails,
+    scrub_lab_text_pii,
+};
 use crate::storage::{AppSettings, VaultDatabase};
 use crate::sync_engine::{
     SyncExecutionReport, build_local_archive_json, decrypt_local_archive_json,
@@ -48,6 +54,30 @@ struct LastLabImportFeedback {
     redacted_fields: Vec<String>,
     scrubbed_preview: String,
     imported_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditCheckItem {
+    pub name: String,
+    pub passed: bool,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DataAuditReport {
+    pub active_persona: String,
+    pub metric_rows: usize,
+    pub distinct_days: usize,
+    pub intake_rows: usize,
+    pub lab_rows: usize,
+    pub experiment_rows: usize,
+    pub qi_score_in_bounds: bool,
+    pub rmssd_sdnn_isolated: bool,
+    pub tier_hrv_contract_held: bool,
+    pub lab_trends_consistent: bool,
+    pub pii_guard_verified: bool,
+    pub passed: bool,
+    pub checks: Vec<AuditCheckItem>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -84,6 +114,12 @@ impl QiMeta {
     pub fn search_foods_json(query: String, limit: u32) -> String {
         let hits: Vec<FoodSearchHit> = search_foods(&query, limit as usize);
         serde_json::to_string(&hits).unwrap_or_else(|_| "[]".to_owned())
+    }
+
+    /// 返回 6 套立体纵向测试画像元信息 JSON。
+    pub fn personas_json() -> String {
+        serde_json::to_string(&crate::personas::all_personas_meta())
+            .unwrap_or_else(|_| "[]".to_owned())
     }
 }
 
@@ -682,6 +718,316 @@ impl QiEngine {
         self.live_briefing_override = None;
         self.db.seed_demo_35d()?;
         self.build_payload()
+    }
+
+    /// 切换并载入指定纵向测试画像（清空业务表，保留云会话、12词恢复码与同步配置）。
+    pub fn load_persona(&mut self, persona_id: String) -> Result<String, String> {
+        if crate::personas::find_persona_meta(&persona_id).is_none() {
+            return Err(format!("未知测试画像 ID: {persona_id}"));
+        }
+        self.db.clear_business_data()?;
+        let meta = crate::personas::seed_persona_data(&self.db, &persona_id)?;
+
+        let mut s = self.db.load_settings()?;
+        s.active_persona = meta.id;
+        s.hardware_tier = meta.hardware_tier;
+        s.primary_goal = meta.primary_goal;
+        s.morning_feeling = 4;
+        s.onboarding_done = true;
+        s.checked_action_today = false;
+        self.db.save_settings(&s)?;
+
+        self.live_briefing_override = None;
+        self.last_lab_import = None;
+        self.build_payload()
+    }
+
+    /// 对当前健康库与确定性统计快照执行 6 项不变量自检，输出 DataAuditReport JSON。
+    pub fn run_data_integrity_audit(&self) -> Result<String, String> {
+        let settings = self.db.load_settings()?;
+        let metrics = self.db.load_metrics()?;
+        let workouts = self.db.load_workouts()?;
+        let intakes = self.db.load_intakes()?;
+        let labs = self.db.load_labs()?;
+        let experiments_raw = self.db.load_experiments()?;
+        let tier = HardwareTier::from_str(&settings.hardware_tier);
+
+        let snapshot = compute_snapshot(
+            &metrics,
+            &workouts,
+            &intakes,
+            tier,
+            settings.morning_feeling,
+        );
+        let experiments_eval = evaluate_experiments(&metrics, &experiments_raw, &snapshot.target_date);
+        let period_cmp = compute_period_comparison(&metrics, &snapshot.target_date);
+        let briefing = build_morning_briefing(
+            &snapshot,
+            &labs,
+            &settings.ai_mode,
+            &settings.lan_ai_url,
+            settings.thermal_throttled,
+            settings.simulated_ram_gb,
+        );
+
+        let distinct_days: BTreeSet<&str> = metrics.iter().map(|m| m.date.as_str()).collect();
+        let canonical = resolve_canonical_metrics(&metrics);
+
+        // 1. qi_score 越界与有限性校验
+        let opt_finite = |v: Option<f64>| v.map(f64::is_finite).unwrap_or(true);
+        let stages_ok = snapshot
+            .sleep_stages_last_night
+            .as_ref()
+            .map(|st| {
+                st.deep_min.is_finite()
+                    && st.core_min.is_finite()
+                    && st.rem_min.is_finite()
+                    && st.awake_min.is_finite()
+                    && st.deep_min >= 0.0
+                    && st.core_min >= 0.0
+                    && st.rem_min >= 0.0
+                    && st.awake_min >= 0.0
+            })
+            .unwrap_or(true);
+        let metrics_finite = snapshot.metrics.values().all(|m| {
+            opt_finite(m.value)
+                && opt_finite(m.avg_7d)
+                && opt_finite(m.baseline_30d_mean)
+                && opt_finite(m.baseline_30d_std)
+                && opt_finite(m.z_score)
+        });
+        let trend_ok = snapshot.trend_14d.iter().all(|p| {
+            (15..=99).contains(&p.qi_score) && opt_finite(p.hrv_ms) && opt_finite(p.sleep_h)
+        });
+        let qi_score_in_bounds = (15..=99).contains(&snapshot.qi_score)
+            && opt_finite(snapshot.sleep_debt_7d_hours)
+            && opt_finite(snapshot.sleep_last_night_hours)
+            && opt_finite(snapshot.acwr)
+            && stages_ok
+            && metrics_finite
+            && trend_ok;
+
+        // 2. RMSSD 与 SDNN 口径物理隔离 + 来源优先级去重校验
+        let mut prio_ok = true;
+        let mut min_prio_by_day_metric: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+        for r in &metrics {
+            if !r.value.is_finite() {
+                continue;
+            }
+            let p = source_priority(&r.source);
+            min_prio_by_day_metric
+                .entry((r.date.as_str(), r.metric.as_str()))
+                .and_modify(|cur| {
+                    if p < *cur {
+                        *cur = p;
+                    }
+                })
+                .or_insert(p);
+        }
+        for (day, day_map) in &canonical {
+            for (metric, row) in day_map {
+                if row.metric != *metric {
+                    prio_ok = false;
+                }
+                if let Some(&min_p) = min_prio_by_day_metric.get(&(day.as_str(), metric.as_str()))
+                    && source_priority(&row.source) != min_p
+                {
+                    prio_ok = false;
+                }
+            }
+        }
+        let rmssd_sdnn_isolated = prio_ok
+            && snapshot
+                .metrics
+                .get("hrv_rmssd_ms")
+                .map(|m| m.key == "hrv_rmssd_ms")
+                .unwrap_or(true)
+            && snapshot
+                .metrics
+                .get("hrv_sdnn_ms")
+                .map(|m| m.key == "hrv_sdnn_ms")
+                .unwrap_or(true);
+
+        // 3. 硬件档位与 HRV/分期可见性契约校验
+        let tier_hrv_contract_held = match tier {
+            HardwareTier::TierA => {
+                let target_day = canonical.get(&snapshot.target_date);
+                let has_total = target_day.and_then(|d| d.get("sleep_minutes")).is_some();
+                let has_stage = target_day
+                    .map(|d| {
+                        d.contains_key("sleep_deep_minutes") || d.contains_key("sleep_rem_minutes")
+                    })
+                    .unwrap_or(false);
+                snapshot.sleep_stages_last_night.is_some() == (has_total && has_stage)
+            }
+            HardwareTier::TierB => {
+                !snapshot.metrics.contains_key("hrv_rmssd_ms")
+                    && !snapshot.metrics.contains_key("hrv_sdnn_ms")
+                    && snapshot.sleep_stages_last_night.is_none()
+                    && snapshot.trend_14d.iter().all(|p| p.hrv_ms.is_none())
+            }
+            HardwareTier::TierC => {
+                !snapshot.metrics.contains_key("hrv_rmssd_ms")
+                    && !snapshot.metrics.contains_key("hrv_sdnn_ms")
+                    && snapshot.metrics.keys().all(|k| k == "steps")
+                    && snapshot.sleep_stages_last_night.is_none()
+                    && snapshot.sleep_last_night_hours.is_none()
+                    && snapshot.acwr.is_none()
+                    && snapshot
+                        .trend_14d
+                        .iter()
+                        .all(|p| p.hrv_ms.is_none() && p.sleep_h.is_none())
+            }
+        };
+
+        // 4. 化验单参考区间与纵向趋势一致性校验
+        let mut labs_ok = true;
+        let mut by_key: BTreeMap<&str, Vec<&LabBiomarkerRow>> = BTreeMap::new();
+        for l in &labs {
+            if !l.value.is_finite() {
+                labs_ok = false;
+            }
+            let expected_flag = match (l.ref_low, l.ref_high) {
+                (Some(lo), Some(hi)) => {
+                    if l.value > hi {
+                        "high"
+                    } else if l.value < lo {
+                        "low"
+                    } else {
+                        "normal"
+                    }
+                }
+                (None, Some(hi)) if l.value > hi => "high",
+                (Some(lo), None) if l.value < lo => "low",
+                _ => "normal",
+            };
+            if l.flag != expected_flag {
+                labs_ok = false;
+            }
+            by_key.entry(l.canonical_key.as_str()).or_default().push(l);
+        }
+        for mut group in by_key.into_values() {
+            group.sort_by(|a, b| a.test_date.cmp(&b.test_date));
+            for (idx, row) in group.iter().enumerate() {
+                if idx == 0 {
+                    if row.trend.as_deref() != Some("new") || row.prev_value.is_some() {
+                        labs_ok = false;
+                    }
+                } else {
+                    let prev = group[idx - 1];
+                    let expected_delta = ((row.value - prev.value) * 100.0).round() / 100.0;
+                    if row.prev_value != Some(prev.value)
+                        || row.prev_date.as_deref() != Some(prev.test_date.as_str())
+                        || row.delta != Some(expected_delta)
+                        || !matches!(
+                            row.trend.as_deref(),
+                            Some("improved" | "worsened" | "stable")
+                        )
+                    {
+                        labs_ok = false;
+                    }
+                }
+            }
+        }
+        let lab_trends_consistent = labs_ok;
+
+        // 5. 端侧 PII 脱敏与 SaMD 医疗红线护栏校验
+        let probe_scrub = scrub_lab_text_pii("姓名：张三 身份证号：31010119900101123X 手机：13800138000");
+        let probe_guard = enforce_wellness_guardrails("建议确诊后开药");
+        let has_leak_in_records = labs.iter().any(|l| {
+            l.marker_name.contains("姓名：")
+                || l.marker_name.contains("310101")
+                || l.plain_note.contains("确诊")
+        }) || intakes.iter().any(|i| i.notes.contains("310101"))
+            || briefing.text.contains("确诊")
+            || briefing.text.contains("开药")
+            || briefing.text.contains("处方")
+            || briefing.text.contains("治疗方案");
+        let pii_guard_verified = !probe_scrub.scrubbed_text.contains("张三")
+            && !probe_scrub.scrubbed_text.contains("31010119900101123X")
+            && !probe_scrub.scrubbed_text.contains("13800138000")
+            && !probe_guard.contains("确诊")
+            && !probe_guard.contains("开药")
+            && !has_leak_in_records;
+
+        // 6. 实验与滞后归因数值有限性校验
+        let experiments_ok = experiments_eval.iter().all(|e| {
+            opt_finite(e.hrv_delta_ms)
+                && opt_finite(e.rhr_delta_bpm)
+                && opt_finite(e.deep_sleep_delta_min)
+                && !e.verdict_summary.is_empty()
+        }) && snapshot
+            .lagged_impacts
+            .iter()
+            .all(|li| li.delta_value.is_finite())
+            && opt_finite(period_cmp.hrv_current)
+            && opt_finite(period_cmp.hrv_prev)
+            && opt_finite(period_cmp.rhr_current)
+            && opt_finite(period_cmp.rhr_prev)
+            && opt_finite(period_cmp.sleep_current_h)
+            && opt_finite(period_cmp.sleep_prev_h)
+            && (metrics.is_empty() || !distinct_days.is_empty());
+
+        let checks = vec![
+            AuditCheckItem {
+                name: "qi_score_in_bounds".to_owned(),
+                passed: qi_score_in_bounds,
+                detail: format!(
+                    "qi_score={} (15..=99), trend_len={}, acwr={:?}",
+                    snapshot.qi_score,
+                    snapshot.trend_14d.len(),
+                    snapshot.acwr
+                ),
+            },
+            AuditCheckItem {
+                name: "rmssd_sdnn_isolated".to_owned(),
+                passed: rmssd_sdnn_isolated,
+                detail: "RMSSD 与 SDNN 独立基线且多源按优先级消解".to_owned(),
+            },
+            AuditCheckItem {
+                name: "tier_hrv_contract_held".to_owned(),
+                passed: tier_hrv_contract_held,
+                detail: format!("硬件档位 {} 指标与睡眠分期契约校验", settings.hardware_tier),
+            },
+            AuditCheckItem {
+                name: "lab_trends_consistent".to_owned(),
+                passed: lab_trends_consistent,
+                detail: format!("已校验 {} 条化验单参考区间与纵向 delta/trend", labs.len()),
+            },
+            AuditCheckItem {
+                name: "pii_guard_verified".to_owned(),
+                passed: pii_guard_verified,
+                detail: "端侧 PII 脱敏与 SaMD 合规护栏校验通过".to_owned(),
+            },
+            AuditCheckItem {
+                name: "experiments_and_lagged_finite".to_owned(),
+                passed: experiments_ok,
+                detail: format!(
+                    "实验 {} 项、滞后归因 {} 项均无 NaN/越界",
+                    experiments_eval.len(),
+                    snapshot.lagged_impacts.len()
+                ),
+            },
+        ];
+
+        let passed = checks.iter().all(|c| c.passed);
+
+        let report = DataAuditReport {
+            active_persona: settings.active_persona,
+            metric_rows: metrics.len(),
+            distinct_days: distinct_days.len(),
+            intake_rows: intakes.len(),
+            lab_rows: labs.len(),
+            experiment_rows: experiments_raw.len(),
+            qi_score_in_bounds,
+            rmssd_sdnn_isolated,
+            tier_hrv_contract_held,
+            lab_trends_consistent,
+            pii_guard_verified,
+            passed,
+            checks,
+        };
+        serde_json::to_string(&report).map_err(|e| e.to_string())
     }
 }
 

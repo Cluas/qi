@@ -20,6 +20,15 @@ export interface TrendPoint {
   short_label: string;
   qi_score: number;
   state: string;
+  hrv_ms?: number | null;
+  sleep_h?: number | null;
+}
+
+export interface SleepStagesBreakdown {
+  deep_min: number;
+  core_min: number;
+  rem_min: number;
+  awake_min: number;
 }
 
 export interface LaggedImpact {
@@ -43,6 +52,7 @@ export interface AnalyticsSnapshot {
   signals: string[];
   sleep_debt_7d_hours: number | null;
   sleep_last_night_hours: number | null;
+  sleep_stages_last_night?: SleepStagesBreakdown | null;
   acwr: number | null;
   metrics: Record<string, MetricSummary>;
   trend_14d: TrendPoint[];
@@ -133,7 +143,41 @@ export interface LocalAiCapabilityProbe {
   summary: string;
 }
 
+export interface PersonaMeta {
+  id: string;
+  name: string;
+  badge: string;
+  hardware_tier: string;
+  primary_goal: string;
+  days_count: number;
+  summary: string;
+  highlight_metrics: string[];
+}
+
+export interface AuditCheckItem {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface DataAuditReport {
+  active_persona: string;
+  metric_rows: number;
+  distinct_days: number;
+  intake_rows: number;
+  lab_rows: number;
+  experiment_rows: number;
+  qi_score_in_bounds: boolean;
+  rmssd_sdnn_isolated: boolean;
+  tier_hrv_contract_held: boolean;
+  lab_trends_consistent: boolean;
+  pii_guard_verified: boolean;
+  passed: boolean;
+  checks: AuditCheckItem[];
+}
+
 export interface AppSettings {
+  active_persona: string;
   onboarding_done: boolean;
   primary_goal: string;
   hardware_tier: string;
@@ -212,6 +256,8 @@ const cloudEntitlements = signal<CloudEntitlementsView | null>(null);
 const appearancePref = signal<AppearancePreference>("system");
 const showZdrConsentModal = signal<boolean>(false);
 const showQuickCaptureModal = signal<boolean>(false);
+const showQaStudio = signal<boolean>(false);
+const lastAuditReport = signal<DataAuditReport | null>(null);
 let pendingZdrCallback: (() => void) | null = null;
 
 function applyJson(raw: string) {
@@ -231,6 +277,9 @@ export const getAppearancePref = () => appearancePref();
 export const getShowZdrConsentModal = () => showZdrConsentModal();
 export const getShowQuickCaptureModal = () => showQuickCaptureModal();
 export const setShowQuickCaptureModal = (open: boolean) => showQuickCaptureModal.set(open);
+export const getShowQaStudio = () => showQaStudio();
+export const setShowQaStudio = (open: boolean) => showQaStudio.set(open);
+export const getLastAuditReport = () => lastAuditReport();
 export const getNoticeText = () => QiMeta.noticeText();
 export const getDisclaimerText = () => QiMeta.disclaimer();
 
@@ -241,6 +290,41 @@ function notify(msg: string) {
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+export function getPersonas(): PersonaMeta[] {
+  try {
+    return JSON.parse(QiMeta.personasJson()) as PersonaMeta[];
+  } catch {
+    return [];
+  }
+}
+
+export function loadPersona(personaId: string) {
+  try {
+    applyJson(engine.loadPersona(personaId));
+    lastAuditReport.set(null);
+    const matched = getPersonas().find((p) => p.id === personaId);
+    notify(`已切换画像：${matched ? matched.name : personaId}`);
+  } catch (err) {
+    notify(`画像切换失败：${errorMessage(err)}`);
+  }
+}
+
+export function runDataIntegrityAudit(): DataAuditReport | null {
+  try {
+    const report = JSON.parse(engine.runDataIntegrityAudit()) as DataAuditReport;
+    lastAuditReport.set(report);
+    notify(
+      report.passed
+        ? "所有 6 项不变量校验通过"
+        : "数据自检发现异常项，请查看校验明细",
+    );
+    return report;
+  } catch (err) {
+    notify(`数据完整性自检失败：${errorMessage(err)}`);
+    return null;
+  }
 }
 
 export function cycleAppearance() {
@@ -259,7 +343,7 @@ export function cycleAppearance() {
 
 export function completeOnboarding(goal: string, tier: string) {
   applyJson(engine.completeOnboarding(goal, tier));
-  notify("已启用端侧健康计算，个人数据零上传");
+  notify("已启用端侧健康计算，个人数据仅存本机");
 }
 
 export function setHardwareTier(tier: string, feeling?: number) {
@@ -278,7 +362,7 @@ export function logQuickIntake(
   caloriesKcal?: number | null,
 ) {
   applyJson(engine.logQuickIntake(category, itemName, tag, notes, caloriesKcal ?? null));
-  notify(`已记入「${itemName}」并更新 D+1 归因`);
+  notify(`已记入「${itemName}」并更新节律关联`);
 }
 
 export function logNaturalIntake(sentence: string) {
@@ -286,7 +370,7 @@ export function logNaturalIntake(sentence: string) {
   if (!text) return;
   try {
     applyJson(engine.logNaturalIntake(text));
-    notify(`已完成一句话智能解析并记入「${text}」`);
+    notify(`已完成一句话解析并记入「${text}」`);
   } catch (err) {
     notify(`速记解析失败：${errorMessage(err)}`);
   }
@@ -372,16 +456,16 @@ export async function pickAndOcrLabPhoto() {
     const ext = file.name.toLowerCase().endsWith(".png") ? "png" : "jpg";
     applyJson(engine.ocrAndImportLabBytes("2026-11-13", ext, bytes));
     const last = uiState().last_lab_import;
-    notify(`相册化验单离线 OCR 完成：提取 ${last?.imported_count ?? 0} 项指标`);
+    notify(`相册化验单离线识别完成：提取 ${last?.imported_count ?? 0} 项指标`);
   } catch (err) {
-    notify(`相册 OCR 失败：${errorMessage(err)}`);
+    notify(`相册识图失败：${errorMessage(err)}`);
   }
 }
 
 export function importExternalHealthData(format: string, rawContent: string) {
   try {
     applyJson(engine.importExternalHealthData(format, rawContent));
-    notify("外部穿戴健康数据已标准化入库并重算个人基线");
+    notify("历史穿戴健康数据已标准化入库并更新个人节律");
   } catch (err) {
     notify(`外部数据导入失败：${errorMessage(err)}`);
   }
@@ -390,7 +474,7 @@ export function importExternalHealthData(format: string, rawContent: string) {
 export function startExperiment(title: string, hypothesis: string, targetDays: number) {
   try {
     applyJson(engine.startExperiment(title, hypothesis, targetDays));
-    notify(`已开启 ${targetDays} 天 N-of-1 实验「${title}」`);
+    notify(`已开启 ${targetDays} 天微习惯实验「${title}」`);
   } catch (err) {
     notify(`开启实验失败：${errorMessage(err)}`);
   }
@@ -399,7 +483,7 @@ export function startExperiment(title: string, hypothesis: string, targetDays: n
 export function toggleExperimentToday(experimentId: number) {
   try {
     applyJson(engine.toggleExperimentToday(experimentId));
-    notify("已更新今日实验打卡并重算前后指标对照");
+    notify("已更新今日实验打卡并重算前后变化");
   } catch (err) {
     notify(`实验打卡失败：${errorMessage(err)}`);
   }
@@ -452,7 +536,7 @@ export async function connectCloudSession(cloudUrl: string, handle: string) {
       body: JSON.stringify({ handle: cleanHandle }),
     });
     if (!resp.ok) {
-      notify(`控制面登录返回 HTTP ${resp.status}`);
+      notify(`账号会话连接返回 HTTP ${resp.status}`);
       return;
     }
     const data = (await resp.json()) as {
@@ -462,9 +546,9 @@ export async function connectCloudSession(cloudUrl: string, handle: string) {
     };
     applyJson(engine.updateCloudSession(cleanUrl, data.handle, data.token));
     cloudEntitlements.set(data.entitlements);
-    notify(`已连接知气控制面（${data.entitlements.plan_tier.toUpperCase()}）`);
+    notify(`已连接知气服务（${data.entitlements.plan_tier.toUpperCase()}）`);
   } catch (err) {
-    notify(`控制面未启动或离线，本机核心功能不受影响 (${errorMessage(err)})`);
+    notify(`云端服务当前离线，本机核心功能不受影响 (${errorMessage(err)})`);
   }
 }
 
@@ -472,7 +556,7 @@ export async function activateCloudPro() {
   const s = uiState().settings;
   const cleanUrl = s.cloud_url.trim().replace(/\/+$/, "");
   if (!s.cloud_token) {
-    notify("请先点击「连接控制面会话」获取 Bearer Token");
+    notify("请先连接账号会话获取凭证");
     return;
   }
   try {
@@ -490,9 +574,9 @@ export async function activateCloudPro() {
     }
     const ent = (await resp.json()) as CloudEntitlementsView;
     cloudEntitlements.set(ent);
-    notify("Pro 订阅演示权益已生效（ZDR 无限次 + WebDAV/Ollama 解锁）");
+    notify("Pro 权益已生效");
   } catch (err) {
-    notify(`控制面离线，无法激活 Pro (${errorMessage(err)})`);
+    notify(`云端服务离线，暂无法激活 Pro (${errorMessage(err)})`);
   }
 }
 
@@ -522,7 +606,7 @@ export function generateEncryptedPreview() {
 export function runE2eeSyncNow() {
   try {
     applyJson(engine.runE2eeSyncNow());
-    notify(uiState().settings.last_sync_summary || "个人云 E2EE 同步完成");
+    notify(uiState().settings.last_sync_summary || "个人云加密同步完成");
   } catch (err) {
     notify(`个人云同步失败：${errorMessage(err)}`);
   }
@@ -565,7 +649,7 @@ export async function sendMorningTestNotification() {
   try {
     const perm = await Notifications.requestPermission();
     if (perm === "denied" || perm === "unavailable") {
-      notify(`系统通知当前不可用 (${perm})：打包为已签名 .app 或手机端即可接收 08:30 推送`);
+      notify(`系统通知当前不可用 (${perm})：打包为已签名应用后即可接收 08:30 推送`);
       return;
     }
     const snap = uiState().snapshot;
@@ -576,7 +660,7 @@ export async function sendMorningTestNotification() {
     });
     notify(shown ? "已发送 08:30 早安本地通知预览" : "系统暂未展示通知（无窗口或免打扰）");
   } catch (err) {
-    notify(`本地通知调试提示：${errorMessage(err)}`);
+    notify(`本地通知提示：${errorMessage(err)}`);
   }
 }
 
@@ -594,10 +678,13 @@ export function wipeVaultAndReset() {
   encryptedArchivePreview.set(null);
   jsonlExportPreview.set(null);
   cloudEntitlements.set(null);
+  lastAuditReport.set(null);
+  showQaStudio.set(false);
   notify("已物理清空本机健康数据库");
 }
 
 export function reseedDemoData() {
   applyJson(engine.reseedDemo());
+  lastAuditReport.set(null);
   notify("已重新载入 35 天节律演示数据");
 }

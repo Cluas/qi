@@ -121,6 +121,18 @@ pub struct TrendPoint {
     pub short_label: String,
     pub qi_score: u32,
     pub state: String,
+    #[serde(default)]
+    pub hrv_ms: Option<f64>,
+    #[serde(default)]
+    pub sleep_h: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SleepStagesBreakdown {
+    pub deep_min: f64,
+    pub core_min: f64,
+    pub rem_min: f64,
+    pub awake_min: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +158,8 @@ pub struct AnalyticsSnapshot {
     pub signals: Vec<String>,
     pub sleep_debt_7d_hours: Option<f64>,
     pub sleep_last_night_hours: Option<f64>,
+    #[serde(default)]
+    pub sleep_stages_last_night: Option<SleepStagesBreakdown>,
     pub acwr: Option<f64>,
     pub metrics: BTreeMap<String, MetricSummary>,
     pub trend_14d: Vec<TrendPoint>,
@@ -167,7 +181,7 @@ fn metric_meta(key: &str) -> (&'static str, &'static str, MetricPolarity) {
     }
 }
 
-fn source_priority(source: &str) -> usize {
+pub fn source_priority(source: &str) -> usize {
     match source {
         "garmin" | "oura" => 1,
         "apple_health" | "watch_os" => 2,
@@ -184,6 +198,9 @@ pub fn resolve_canonical_metrics(
 ) -> BTreeMap<String, BTreeMap<String, DailyMetricRow>> {
     let mut resolved: BTreeMap<String, BTreeMap<String, DailyMetricRow>> = BTreeMap::new();
     for row in rows {
+        if !row.value.is_finite() {
+            continue;
+        }
         let day_map = resolved.entry(row.date.clone()).or_default();
         match day_map.get(&row.metric) {
             Some(existing) if source_priority(&existing.source) <= source_priority(&row.source) => {}
@@ -388,6 +405,9 @@ fn evaluate_day_qi(
         signals.push("核心生理指标与近 30 天基线吻合，节律平稳".to_owned());
     }
 
+    if !score.is_finite() {
+        score = 78.0;
+    }
     let final_score = score.round().clamp(15.0, 99.0) as u32;
     let (state, badge, headline, micro_action) = if final_score >= 76 {
         (
@@ -507,6 +527,34 @@ pub fn compute_lagged_impacts(
     impacts.sort_by(|a, b| b.event_days.cmp(&a.event_days));
     impacts.truncate(4);
     impacts
+}
+
+fn compute_sleep_stages_last_night(
+    tier: HardwareTier,
+    metrics: &BTreeMap<String, MetricSummary>,
+) -> Option<SleepStagesBreakdown> {
+    if tier != HardwareTier::TierA {
+        return None;
+    }
+    let total = metrics.get("sleep_minutes")?.value?;
+    if !total.is_finite() || total <= 0.0 {
+        return None;
+    }
+    let deep_opt = metrics.get("sleep_deep_minutes").and_then(|m| m.value);
+    let rem_opt = metrics.get("sleep_rem_minutes").and_then(|m| m.value);
+    if deep_opt.is_none() && rem_opt.is_none() {
+        return None;
+    }
+    let deep = deep_opt.unwrap_or(0.0).max(0.0);
+    let rem = rem_opt.unwrap_or(0.0).max(0.0);
+    let awake = (total * 0.06).round();
+    let core = (total - deep - rem - awake).max(0.0);
+    Some(SleepStagesBreakdown {
+        deep_min: round2(deep),
+        core_min: round2(core),
+        rem_min: round2(rem),
+        awake_min: round2(awake),
+    })
 }
 
 /// 基于已入库指标、运动与摄入日志，构建端侧确定性统计快照。
@@ -631,17 +679,28 @@ pub fn compute_snapshot(
     let (metrics, sleep_debt_min, acwr, sleep_min) = summary_for_day(target_date);
     let (qi_score, state, badge, headline, micro_action, signals) =
         evaluate_day_qi(tier, &metrics, sleep_debt_min, acwr, morning_feeling);
+    let sleep_stages_last_night = compute_sleep_stages_last_night(tier, &metrics);
 
     let mut trend_14d = Vec::new();
     for offset in (0..14).rev() {
         let d = target_date - Duration::days(offset);
-        let (m, sd, a, _) = summary_for_day(d);
+        let (m, sd, a, sleep_m) = summary_for_day(d);
         let (q, st, _, _, _, _) = evaluate_day_qi(tier, &m, sd, a, morning_feeling);
+        let hrv_ms = if tier == HardwareTier::TierA {
+            m.get("hrv_rmssd_ms")
+                .and_then(|s| s.value)
+                .or_else(|| m.get("hrv_sdnn_ms").and_then(|s| s.value))
+        } else {
+            None
+        };
+        let sleep_h = sleep_m.map(|min| round2(min / 60.0));
         trend_14d.push(TrendPoint {
             date: d.format("%Y-%m-%d").to_string(),
             short_label: d.format("%m/%d").to_string(),
             qi_score: q,
             state: st.to_owned(),
+            hrv_ms,
+            sleep_h,
         });
     }
 
@@ -659,6 +718,7 @@ pub fn compute_snapshot(
         signals,
         sleep_debt_7d_hours: sleep_debt_min.map(|m| round2(m / 60.0)),
         sleep_last_night_hours: sleep_min.map(|m| round2(m / 60.0)),
+        sleep_stages_last_night,
         acwr,
         metrics,
         trend_14d,

@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use chrono::{Duration, NaiveDate};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -84,6 +83,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
+    #[serde(default = "default_persona")]
+    pub active_persona: String,
     pub onboarding_done: bool,
     pub primary_goal: String,
     pub hardware_tier: String,
@@ -119,9 +120,14 @@ macro_rules! string_or {
 }
 pub(crate) use string_or;
 
+fn default_persona() -> String {
+    "urban_overwork".to_owned()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            active_persona: default_persona(),
             onboarding_done: false,
             primary_goal: "energy_sleep".to_owned(),
             hardware_tier: "tier_a".to_owned(),
@@ -206,6 +212,7 @@ impl VaultDatabase {
 
     pub fn save_settings(&self, s: &AppSettings) -> Result<(), String> {
         let pairs = [
+            ("active_persona", s.active_persona.clone()),
             ("onboarding_done", if s.onboarding_done { "1" } else { "0" }.to_owned()),
             ("primary_goal", s.primary_goal.clone()),
             ("hardware_tier", s.hardware_tier.clone()),
@@ -270,6 +277,7 @@ impl VaultDatabase {
         }
 
         let mut s = AppSettings::default();
+        if let Some(v) = map.get("active_persona") { s.active_persona = v.clone(); }
         if let Some(v) = map.get("onboarding_done") { s.onboarding_done = v == "1"; }
         if let Some(v) = map.get("primary_goal") { s.primary_goal = v.clone(); }
         if let Some(v) = map.get("hardware_tier") { s.hardware_tier = v.clone(); }
@@ -311,138 +319,52 @@ impl VaultDatabase {
         Ok(())
     }
 
-    pub fn seed_demo_35d(&self) -> Result<(), String> {
-        let start = NaiveDate::from_ymd_opt(2026, 10, 10).unwrap();
-        for i in 0..35_i64 {
-            let d = (start + Duration::days(i)).format("%Y-%m-%d").to_string();
-            let late_coffee_effect = i == 12 || i == 23 || i == 31;
-            let alcohol_effect = i == 18 || i == 27;
-
-            let rmssd = if alcohol_effect {
-                41.0
-            } else if late_coffee_effect {
-                46.5
-            } else {
-                55.0 + ((i * 7) % 6) as f64
-            };
-            let sdnn = 43.0 + ((i * 5) % 5) as f64;
-            let rhr = if alcohol_effect {
-                61.0
-            } else if late_coffee_effect {
-                58.0
-            } else {
-                53.0 + (i % 3) as f64
-            };
-            let sleep_min = if late_coffee_effect || alcohol_effect {
-                375.0
-            } else {
-                442.0 + ((i * 3) % 24) as f64
-            };
-            let deep_min = if alcohol_effect {
-                52.0
-            } else if late_coffee_effect {
-                68.0
-            } else {
-                88.0 + (i % 14) as f64
-            };
-            let steps = 7200.0 + ((i * 650) % 4500) as f64;
-            let azm = if i % 2 == 0 { 38.0 } else { 18.0 };
-
-            for (metric, source, val, unit) in [
-                ("hrv_rmssd_ms", "garmin", rmssd, "ms"),
-                ("hrv_sdnn_ms", "apple_health", sdnn, "ms"),
-                ("resting_heart_rate_bpm", "garmin", rhr, "bpm"),
-                ("sleep_minutes", "garmin", sleep_min, "min"),
-                ("sleep_deep_minutes", "garmin", deep_min, "min"),
-                ("steps", "apple_health", steps, "步"),
-                ("active_zone_minutes", "garmin", azm, "min"),
-            ] {
-                self.upsert_daily_metric(&DailyMetricRow {
-                    date: d.clone(),
-                    metric: metric.to_owned(),
-                    source: source.to_owned(),
-                    value: val,
-                    unit: unit.to_owned(),
-                })?;
-            }
-
-            if i % 3 == 0 {
-                self.conn
-                    .execute(
-                        "INSERT OR IGNORE INTO workouts (workout_id, date, activity_type, duration_minutes, calories_kcal, source)
-                         VALUES (?1, ?2, ?3, ?4, ?5, 'garmin')",
-                        params![format!("w-{i}"), d, "Zone 2 慢跑", 42.0, 340.0],
-                    )
-                    .map_err(|e| e.to_string())?;
-            }
-
-            if i == 11 || i == 22 || i == 30 {
-                self.insert_intake(&d, "caffeine", "15:30 冰美式", Some(15.0), "下午工作提神", &["晚间咖啡"])?;
-            }
-            if i == 17 || i == 26 {
-                self.insert_intake(&d, "alcohol", "晚间精酿小酌", Some(260.0), "朋友聚餐", &["晚间饮酒"])?;
-            }
-        }
-
-        // 预置多期体检档案，立即可见纵向改善对比箭头
-        let _ = self.save_parsed_lab(
-            "2026-06-15",
-            &ParsedLabMarkerDraft {
-                marker_name: "25-羟维生素D".into(),
-                canonical_key: "vitamin_d".into(),
-                value: 16.2,
-                unit: "ng/mL".into(),
-                ref_low: Some(30.0),
-                ref_high: Some(100.0),
-                flag: "low".into(),
-                plain_note: "维生素 D 偏低：建议每日上午适度户外日照 15 分钟。".into(),
-            },
-        );
-        let _ = self.save_parsed_lab(
-            "2026-10-20",
-            &ParsedLabMarkerDraft {
-                marker_name: "25-羟维生素D".into(),
-                canonical_key: "vitamin_d".into(),
-                value: 24.8,
-                unit: "ng/mL".into(),
-                ref_low: Some(30.0),
-                ref_high: Some(100.0),
-                flag: "low".into(),
-                plain_note: "维生素 D 较上期回升，继续每日日照 15 分钟并随餐补充。".into(),
-            },
-        );
-        let _ = self.save_parsed_lab(
-            "2026-10-20",
-            &ParsedLabMarkerDraft {
-                marker_name: "空腹血糖 (GLU)".into(),
-                canonical_key: "fasting_glucose".into(),
-                value: 4.92,
-                unit: "mmol/L".into(),
-                ref_low: Some(3.9),
-                ref_high: Some(6.1),
-                flag: "normal".into(),
-                plain_note: "位于常规参考区间内，继续保持良好作息与饮食平衡即可。".into(),
-            },
-        );
-
-        // 预置 1 个 N-of-1 微习惯实验室对照条目
-        let exp_id = self.create_experiment_if_missing(
-            "15:00 后零咖啡因",
-            "减少下午半衰期咖啡因残留，观察当晚深睡时长与次日夜间 HRV",
-            7,
-            "2026-11-05",
-        )?;
-        for offset in 0..5_i64 {
-            let d = (NaiveDate::from_ymd_opt(2026, 11, 5).unwrap() + Duration::days(offset))
-                .format("%Y-%m-%d")
-                .to_string();
-            let _ = self.conn.execute(
-                "INSERT OR IGNORE INTO experiment_checkins (experiment_id, date) VALUES (?1, ?2)",
-                params![exp_id, d],
-            );
-        }
-
+    pub fn insert_workout(
+        &self,
+        workout_id: &str,
+        date: &str,
+        activity_type: &str,
+        duration_minutes: f64,
+        calories_kcal: Option<f64>,
+        source: &str,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO workouts (workout_id, date, activity_type, duration_minutes, calories_kcal, source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![workout_id, date, activity_type, duration_minutes, calories_kcal, source],
+            )
+            .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub fn insert_experiment_checkin(&self, experiment_id: i64, date: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO experiment_checkins (experiment_id, date) VALUES (?1, ?2)",
+                params![experiment_id, date],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// 清空全部业务数据表，但保留 `app_settings`（云会话、12词恢复码与同步配置等）。
+    pub fn clear_business_data(&self) -> Result<(), String> {
+        self.conn
+            .execute_batch(
+                "DELETE FROM daily_metrics_by_source;
+                 DELETE FROM workouts;
+                 DELETE FROM intake_logs;
+                 DELETE FROM lab_biomarkers;
+                 DELETE FROM experiment_checkins;
+                 DELETE FROM experiments;",
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn seed_demo_35d(&self) -> Result<(), String> {
+        crate::personas::seed_persona_data(self, "urban_overwork").map(|_| ())
     }
 
     pub fn create_experiment_if_missing(
@@ -896,16 +818,7 @@ impl VaultDatabase {
 
     /// 合规物理销毁本机健康库（App Review 5.1.1(v)）
     pub fn wipe_all_data(&self) -> Result<(), String> {
-        self.conn
-            .execute_batch(
-                "DELETE FROM daily_metrics_by_source;
-                 DELETE FROM workouts;
-                 DELETE FROM intake_logs;
-                 DELETE FROM lab_biomarkers;
-                 DELETE FROM experiment_checkins;
-                 DELETE FROM experiments;",
-            )
-            .map_err(|e| e.to_string())?;
+        self.clear_business_data()?;
         let mut s = self.load_settings()?;
         s.onboarding_done = false;
         s.checked_action_today = false;
