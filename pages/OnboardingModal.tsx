@@ -1,7 +1,8 @@
 import { Scroll, signal, Text, token, View } from "nsh";
-import { completeOnboarding, getState } from "../store";
+import { completeOnboarding, getState, getVisualTheme, setVisualTheme } from "../store";
 import { ActionButton, Card, ChoiceCard, ModalSurface, SunkenBox, VitalBadge } from "../ui/components";
 import { QiIcon, type QiIconName } from "../ui/icons";
+import { ThemeSwitcherStrip } from "../ui/sanctuary";
 
 const GOALS: { id: string; title: string; subtitle: string; icon: QiIconName }[] = [
   {
@@ -129,6 +130,17 @@ export function OnboardingModal() {
             你的生理节律、饮食笔记与体检档案均加密保存在手机本机或你指定的个人云空间，官方服务器零留存。
           </Text>
         </SunkenBox>
+
+        <Card>
+          <Text role="header" class="text-sm font-semibold text-foreground">
+            3. 选择陪伴你的灵境画风（可随时切换）
+          </Text>
+          <ThemeSwitcherStrip
+            activeId={getVisualTheme()}
+            detailed={true}
+            onSelect={(id) => setVisualTheme(id, true)}
+          />
+        </Card>
 
         <ActionButton
           title="开启今日知气"

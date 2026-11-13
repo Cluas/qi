@@ -14,7 +14,6 @@ import { LabRangeBulletCanvas } from "../ui/charts";
 import {
   ActionButton,
   Card,
-  ChoiceCard,
   FieldInput,
   Hairline,
   SectionHeader,
@@ -24,6 +23,7 @@ import {
   VitalBadge,
 } from "../ui/components";
 import { QiIcon, type QiIconName } from "../ui/icons";
+import { StickerMealTile } from "../ui/sanctuary";
 
 type LogSubTab = "diet" | "labs" | "wearable";
 
@@ -213,20 +213,22 @@ export function LogLabsPage() {
               <Text class="text-xs text-muted-foreground">{speechHint()!}</Text>
             </If>
 
-            {/* 4 枚高频场景快捷卡 */}
+            {/* 4 枚模切食光贴纸高频场景 */}
             <View class="gap-2 pt-1">
-              <Text class="text-xs font-semibold text-foreground">高频场景一键轻点</Text>
+              <View class="flex-row items-center justify-between gap-2">
+                <Text class="text-xs font-semibold text-foreground">食光贴纸 · 轻点即贴入今日记录</Text>
+                <Text class="text-[11px] font-medium text-dew-accent">每次记录自动集 +1 💧</Text>
+              </View>
               <View class="flex-row flex-wrap gap-2">
                 <Each of={QUICK_INTAKES} key={(q) => q.item}>
                   {(q) => (
-                    <ChoiceCard
+                    <StickerMealTile
                       title={q().item}
-                      subtitle={q().caption}
+                      caption={q().caption}
                       icon={q().icon}
                       onPress={() =>
                         logQuickIntake(q().category, q().item, q().tag, q().notes, q().kcal)
                       }
-                      class="min-w-40 flex-1"
                     />
                   )}
                 </Each>

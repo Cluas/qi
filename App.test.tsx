@@ -1,34 +1,67 @@
 import { expect, open, test } from "nsh/test";
 
-test("知气 Qi v2.0 消费级全界面与 QA 工坊全链路测试", async () => {
+test("知气 Qi v3.0 三套灵境画风、场景陪伴、晨露日签与 QA 工坊全链路测试", async () => {
   const app = await open("./App.tsx");
 
-  // 1. 冷启动诗意引导：零工程术语
+  // 1. 冷启动诗意引导：零工程术语 + 灵境画风预览选择
   expect(app.shows("欢迎来到「知气 · Qi」")).toBe(true);
   expect(app.shows("数据仅存本机与个人云")).toBe(true);
   expect(app.shows("Tier A 全穿戴")).toBe(false);
 
-  await app.scroll("欢迎来到「知气 · Qi」", 240);
+  await app.scroll("欢迎来到「知气 · Qi」", 420);
   await app.press("开启今日知气");
   await app.waitFor("已启用端侧健康计算，个人数据仅存本机");
   expect(app.shows("欢迎来到「知气 · Qi」")).toBe(false);
   await app.press("关闭");
 
-  // 2. 今日页：主界面去工程化 + 微行动打卡 + 30 天常态折叠展开
-  expect(app.shows("今日元气指数")).toBe(true);
+  // 2. 今日页：插画剧场 + 轻抚陪伴 + 三套画风实时热切换 + 今日日签海报
+  expect(app.shows("三花猫「小满」")).toBe(true);
   expect(app.shows("RMSSD 与 SDNN 严格隔离")).toBe(false);
   expect(app.shows("Tier A 全穿戴")).toBe(false);
 
-  await app.scroll("今日元气指数", 260);
+  await app.press("轻抚小满");
+  await app.waitFor("小满眯起眼睛发出咕噜咕噜的声音，用毛茸茸的小爪踩了踩软垫：今天也一直在陪着你呢。");
+
+  await app.press("掌上山水");
+  await app.waitFor("灵境画风已切换为：掌上山水 · 养气灵境");
+  expect(app.shows("养气松石灵境")).toBe(true);
+  await app.press("关闭");
+
+  await app.press("元气手账");
+  await app.waitFor("灵境画风已切换为：元气手账机 · 煤球");
+  expect(app.shows("软胶猫「煤球」")).toBe(true);
+  await app.press("关闭");
+
+  await app.press("窗畔有猫");
+  await app.waitFor("灵境画风已切换为：窗畔有猫 · 小满");
+  expect(app.shows("三花猫「小满」")).toBe(true);
+  await app.press("关闭");
+
+  // 今日日签海报打开与关闭
+  await app.press("今日日签");
+  await app.waitFor("今日知气日签");
+  expect(app.shows("立冬微晴 · 窗畔知气日签")).toBe(true);
+  await app.press("收好日签");
+  await app.waitFor("晨安 · 今日节律");
+
+  // 微行动盖章打卡与身体手账折页渐进披露
+  await app.scroll("晨安 · 今日节律", 360);
   await app.press("完成今日微行动");
   await app.waitFor("今日微行动已达成 ✓");
+  expect(app.shows("已盖爪印")).toBe(true);
+  if (app.shows("关闭")) {
+    await app.press("关闭");
+  }
 
-  await app.scroll("08:30 早安简报", 420);
+  await app.scroll("今日微行动盖章", 380);
+  await app.press("08:30 早安简报");
+  await app.waitFor("AI 实时润色");
+
   await app.press("查看 30 天个人常态对照");
   await app.waitFor("夜间恢复节律");
   expect(app.shows("Z =")).toBe(false);
 
-  // 3. 记录页：SegmentedTabs 三子视图（饮食随记 / 体检档案 / 穿戴导入）
+  // 3. 记录页：食光贴纸餐垫 / 体检档案 / 穿戴导入
   await app.press("记录");
   await app.waitFor("一句话随手记饮食");
 
@@ -41,7 +74,6 @@ test("知气 Qi v2.0 消费级全界面与 QA 工坊全链路测试", async () =
   await app.waitFor("已记入「15:00后冰美式」并更新节律关联");
   await app.press("关闭");
 
-  // 切换至「体检档案」子视图
   await app.press("体检档案");
   await app.waitFor("相册选图离线识图");
   await app.press("试用示例报告体验脱敏");
@@ -54,50 +86,51 @@ test("知气 Qi v2.0 消费级全界面与 QA 工坊全链路测试", async () =
     await app.press("关闭");
   }
 
-  // 切换至「穿戴导入」子视图
   await app.press("穿戴导入");
   await app.waitFor("外部穿戴历史数据导入");
   expect(app.shows("导入历史穿戴记录")).toBe(true);
 
-  // 4. 洞察页：双周节律对照 + 实验打卡 + 推荐模板开启
+  // 4. 洞察页：晨露藏品阁 + 双周便当对照 + 实验打卡
   await app.press("洞察");
+  await app.waitFor("窗畔有猫 · 晨露藏品阁");
+  expect(app.shows("天青茶盏")).toBe(true);
   await app.waitFor("近 7 天 vs 前 7 天节律对照");
-  await app.scroll("近 7 天 vs 前 7 天节律对照", 240);
+  await app.scroll("近 7 天 vs 前 7 天节律对照", 340);
   await app.press("今日实验打卡");
   await app.waitFor("今日实验已打卡 ✓");
   if (app.shows("关闭")) {
     await app.press("关闭");
   }
 
-  await app.scroll("个人微习惯实验", 280);
+  await app.scroll("个人微习惯实验", 300);
   await app.press("+ 开启：睡前 60 分钟放下屏幕");
   await app.waitFor("睡前 60 分钟放下屏幕");
   if (app.shows("关闭")) {
     await app.press("关闭");
   }
 
-  // 5. 我的页：加密同步 + AI 模式切换 + 知气验真与数据工坊
+  // 5. 我的页：画风设置 + 加密同步 + AI 模式 + QA 数据工坊
   await app.press("我的");
+  await app.waitFor("灵境画风与陪伴小筑");
+  await app.scroll("灵境画风与陪伴小筑", 340);
   await app.waitFor("个人云端到端加密同步中心");
   expect(app.shows("演示解锁 Pro")).toBe(false);
   expect(app.shows("模拟 4GB 机型")).toBe(false);
 
   await app.press("立即加密同步");
-  if (app.shows("关闭")) {
-    await app.press("关闭");
-  }
+  await app.waitFor("关闭");
+  await app.press("关闭");
 
   await app.scroll("个人云端到端加密同步中心", 360);
   await app.waitFor("纯本机离线模型");
   await app.press("纯本机离线模型");
   await app.waitFor("当前已选纯本机离线模型：所有简报润色都在本机完成，零数据离开设备。");
 
-  await app.scroll("AI 引擎与隐私边界", 680);
+  await app.scroll("AI 引擎与隐私边界", 700);
   await app.waitFor("打开 QA 测试数据与诊断工坊…");
   await app.press("打开 QA 测试数据与诊断工坊…");
   await app.waitFor("6 大纵向测试画像一键切换");
 
-  // 切换 4 种代表性测试画像并验证 6 项不变量全通过
   for (const personaId of ["metabolic_care", "band_commuter", "phone_minimalist", "sparse_chaotic"]) {
     await app.scroll("端侧数据完整性自检", 520);
     await app.press(`切换画像：${personaId}`);
@@ -107,7 +140,7 @@ test("知气 Qi v2.0 消费级全界面与 QA 工坊全链路测试", async () =
     await app.waitFor("所有 6 项不变量校验通过");
   }
 
-  // 验证 phone_minimalist (tier_c) 切回今日页时自然展现「今日晨起精神感受」，无硬件切换按钮
+  // 验证 phone_minimalist (tier_c) 切回今日页自然展示晨起感受，无工程术语
   await app.scroll("端侧数据完整性自检", 460);
   await app.press("切换画像：phone_minimalist");
   await app.waitFor("重新载入：phone_minimalist");
@@ -123,11 +156,11 @@ test("知气 Qi v2.0 消费级全界面与 QA 工坊全链路测试", async () =
 
   // 6. 物理清空本机健康数据回归冷启动引导
   await app.press("我的");
-  await app.waitFor("个人云端到端加密同步中心");
-  await app.scroll("个人云端到端加密同步中心", 900);
+  await app.waitFor("灵境画风与陪伴小筑");
+  await app.scroll("灵境画风与陪伴小筑", 1100);
   await app.waitFor("物理清空本机健康数据…");
   await app.press("物理清空本机健康数据…");
   await app.waitFor("确认物理清空本机健康数据");
   await app.press("确认清空");
   await app.waitFor("欢迎来到「知气 · Qi」");
-});
+}, 90000);

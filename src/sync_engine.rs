@@ -40,6 +40,9 @@ pub fn resolve_icloud_vault_dir() -> PathBuf {
             return PathBuf::from(trimmed);
         }
     }
+    if std::env::var("QI_DB_PATH").ok().as_deref() == Some(":memory:") {
+        return std::env::temp_dir().join(format!("qi_memory_icloud_{}", std::process::id()));
+    }
     if let Some(home) = std::env::var_os("HOME") {
         let home_pb = PathBuf::from(&home);
         let cloud_docs = home_pb
@@ -52,6 +55,20 @@ pub fn resolve_icloud_vault_dir() -> PathBuf {
         return home_pb.join(".qi").join("icloud_vault");
     }
     PathBuf::from(".qi_icloud_vault")
+}
+
+#[cfg(target_os = "macos")]
+fn is_macos_dataless_cloud_stub(path: &Path) -> bool {
+    use std::os::macos::fs::MetadataExt;
+    const SF_DATALESS: u32 = 0x4000_0000;
+    fs::symlink_metadata(path)
+        .map(|m| (m.st_flags() & SF_DATALESS) != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_macos_dataless_cloud_stub(_path: &Path) -> bool {
+    false
 }
 
 /// 将单设备密文分片写入本地/iCloud Drive 个人目录（不覆写其他设备目录）
@@ -99,6 +116,9 @@ pub fn pull_envelopes_from_dir(
             .collect();
         files.sort();
         for fp in files {
+            if is_macos_dataless_cloud_stub(&fp) {
+                continue;
+            }
             if let Ok(content) = fs::read_to_string(&fp)
                 && let Ok(env) = serde_json::from_str::<EncryptedBatchEnvelope>(&content)
             {

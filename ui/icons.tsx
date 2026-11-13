@@ -20,7 +20,15 @@ export type QiIconName =
   | "sliders"
   | "chevron_down"
   | "chevron_right"
-  | "refresh";
+  | "refresh"
+  | "paw"
+  | "stamp_seal"
+  | "droplet"
+  | "tea_cup"
+  | "flower_branch"
+  | "lantern"
+  | "palette"
+  | "postcard";
 
 /** Retina 2D 矢量线性图标（零外部字体依赖，动态读取主题 Token） */
 export function QiIcon(props: {
@@ -366,6 +374,159 @@ export function QiIcon(props: {
             cx.moveTo(15.2, 7.9);
             cx.lineTo(18.5, 7.9);
             cx.lineTo(18.5, 4.6);
+            cx.stroke();
+            break;
+          }
+
+          case "paw": {
+            // 猫爪主肉垫 + 四枚小趾垫
+            cx.beginPath();
+            cx.moveTo(8, 16.5);
+            cx.bezierCurveTo(7.4, 14.2, 9.3, 12.2, 12, 12.2);
+            cx.bezierCurveTo(14.7, 12.2, 16.6, 14.2, 16, 16.5);
+            cx.bezierCurveTo(15.5, 18.6, 13.7, 19.3, 12, 19);
+            cx.bezierCurveTo(10.3, 19.3, 8.5, 18.6, 8, 16.5);
+            cx.closePath();
+            cx.stroke();
+
+            const toes: [number, number][] = [
+              [6.4, 10.6],
+              [9.9, 8],
+              [14.1, 8],
+              [17.6, 10.6],
+            ];
+            for (const [tx, ty] of toes) {
+              cx.beginPath();
+              cx.arc(tx, ty, 1.55, 0, Math.PI * 2);
+              cx.stroke();
+            }
+            break;
+          }
+
+          case "stamp_seal": {
+            // 朱砂方印（外框 + 篆意十字曲纹）
+            cx.beginPath();
+            cx.roundRect(4.5, 4.5, 15, 15, 2.2);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(9, 8.5);
+            cx.lineTo(15, 8.5);
+            cx.moveTo(12, 8.5);
+            cx.lineTo(12, 15.5);
+            cx.moveTo(8.8, 12);
+            cx.lineTo(15.2, 12);
+            cx.moveTo(8.8, 15.5);
+            cx.lineTo(15.2, 15.5);
+            cx.stroke();
+            break;
+          }
+
+          case "droplet": {
+            // 晨露水滴
+            cx.beginPath();
+            cx.moveTo(12, 3.6);
+            cx.bezierCurveTo(15.5, 8.5, 18.2, 11.4, 18.2, 14.6);
+            cx.arc(12, 14.6, 6.2, 0, Math.PI, false);
+            cx.bezierCurveTo(5.8, 11.4, 8.5, 8.5, 12, 3.6);
+            cx.closePath();
+            cx.stroke();
+            break;
+          }
+
+          case "tea_cup": {
+            // 青瓷温茶盏
+            cx.beginPath();
+            cx.moveTo(5.2, 10);
+            cx.lineTo(18.8, 10);
+            cx.bezierCurveTo(18.6, 15.6, 15.6, 18.8, 12, 18.8);
+            cx.bezierCurveTo(8.4, 18.8, 5.4, 15.6, 5.2, 10);
+            cx.closePath();
+            cx.stroke();
+
+            cx.beginPath();
+            cx.moveTo(8.5, 20);
+            cx.lineTo(15.5, 20);
+            cx.moveTo(9.4, 6.8);
+            cx.quadraticCurveTo(10.3, 5.2, 9.4, 3.8);
+            cx.moveTo(14.2, 6.8);
+            cx.quadraticCurveTo(15.1, 5.2, 14.2, 3.8);
+            cx.stroke();
+            break;
+          }
+
+          case "flower_branch": {
+            // 金桂/松枝清供
+            cx.beginPath();
+            cx.moveTo(6.5, 19.5);
+            cx.quadraticCurveTo(11, 13.5, 16.5, 5.5);
+            cx.stroke();
+
+            const blossoms: [number, number][] = [
+              [10, 12],
+              [13.6, 9.5],
+              [16.2, 12.2],
+              [11.2, 7.8],
+            ];
+            for (const [bx, by] of blossoms) {
+              cx.beginPath();
+              cx.arc(bx, by, 1.7, 0, Math.PI * 2);
+              cx.stroke();
+            }
+            break;
+          }
+
+          case "lantern": {
+            // 暖纸小夜灯
+            cx.beginPath();
+            cx.moveTo(12, 3);
+            cx.lineTo(12, 5.5);
+            cx.stroke();
+            cx.beginPath();
+            cx.roundRect(6.5, 5.5, 11, 12, 4);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(8.5, 17.5);
+            cx.lineTo(15.5, 17.5);
+            cx.moveTo(10, 20.2);
+            cx.lineTo(14, 20.2);
+            cx.moveTo(12, 9.5);
+            cx.lineTo(12, 13.5);
+            cx.stroke();
+            break;
+          }
+
+          case "palette": {
+            // 灵境画风调色盘
+            cx.beginPath();
+            cx.arc(12, 12, 8.6, 0, Math.PI * 1.62, false);
+            cx.bezierCurveTo(15.8, 12, 14.5, 15.2, 16.8, 16.2);
+            cx.stroke();
+            for (const [px, py] of [
+              [8.5, 10],
+              [11.5, 7.6],
+              [15.4, 9.2],
+              [9, 14.2],
+            ] as [number, number][]) {
+              cx.beginPath();
+              cx.arc(px, py, 1.15, 0, Math.PI * 2);
+              cx.fill();
+            }
+            break;
+          }
+
+          case "postcard": {
+            // 今日日签明信片
+            cx.beginPath();
+            cx.roundRect(3.5, 5, 17, 14, 2.2);
+            cx.stroke();
+            cx.beginPath();
+            cx.roundRect(14, 7.8, 3.8, 4.2, 0.8);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(6.5, 14.5);
+            cx.lineTo(11.5, 14.5);
+            cx.moveTo(6.5, 11.2);
+            cx.lineTo(10.5, 11.2);
             cx.stroke();
             break;
           }

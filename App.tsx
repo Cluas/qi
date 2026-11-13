@@ -9,14 +9,21 @@ import {
   cancelZdrConsent,
   clearToast,
   confirmZdrConsent,
+  copyToClipboard,
   cycleAppearance,
+  cycleVisualTheme,
   getAppearancePref,
+  getDewSummary,
+  getShowDailyPoster,
   getShowQuickCaptureModal,
   getShowZdrConsentModal,
   getState,
   getTab,
   getToast,
+  getVisualTheme,
+  getVisualThemeMeta,
   logNaturalIntake,
+  setShowDailyPoster,
   setShowQuickCaptureModal,
   setTab,
 } from "./store";
@@ -33,6 +40,7 @@ import {
   VitalBadge,
 } from "./ui/components";
 import { QiIcon, type QiIconName } from "./ui/icons";
+import { DailyPosterModal } from "./ui/sanctuary";
 
 const TABS: { id: ActiveTab; label: string; icon: QiIconName }[] = [
   { id: "today", label: "今日", icon: "sun" },
@@ -82,6 +90,10 @@ function App() {
     setShowQuickCaptureModal(false);
   };
 
+  const snap = () => getState().snapshot;
+  const settings = () => getState().settings;
+  const themeMeta = () => getVisualThemeMeta(getVisualTheme());
+
   return (
     <View
       class="flex-1 bg-background"
@@ -91,9 +103,9 @@ function App() {
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
-      {/* 顶部宋韵品牌栏 */}
-      <View class="flex-row items-center justify-between gap-2 border-b border-border bg-card px-4 py-2.5">
-        <View class="flex-1 gap-0.5">
+      {/* 顶部宋韵手作陪伴品牌栏 */}
+      <View class="flex-col gap-2 border-b border-border bg-card px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <View class="gap-0.5 sm:flex-1">
           <View class="flex-row items-center gap-2">
             <Text role="header" class="text-lg font-bold text-foreground">
               知气 · Qi
@@ -106,9 +118,18 @@ function App() {
           <Text class="text-xs text-muted-foreground">{syncSummary()}</Text>
         </View>
 
-        <View class="flex-row items-center gap-2">
+        <View class="flex-row flex-wrap items-center justify-between gap-1.5 sm:justify-end">
           <ActionButton
-            title="速记…"
+            title={`画风：${themeMeta().shortLabel}`}
+            icon="palette"
+            variant="outline"
+            size="sm"
+            shape="pill"
+            accessibilityLabel={`切换灵境画风，当前${themeMeta().shortLabel}`}
+            onPress={() => cycleVisualTheme()}
+          />
+          <ActionButton
+            title="速记"
             icon="plus"
             size="sm"
             shape="pill"
@@ -191,6 +212,23 @@ function App() {
 
       {/* 冷启动诗意引导 */}
       <OnboardingModal />
+
+      {/* 小红书风今日知气日签海报 */}
+      <DailyPosterModal
+        open={getShowDailyPoster()}
+        themeId={getVisualTheme()}
+        targetDate={snap().target_date}
+        score={snap().qi_score}
+        state={snap().state}
+        stateBadge={snap().state_badge}
+        sleepHours={snap().sleep_last_night_hours}
+        headline={snap().headline}
+        microAction={snap().micro_action}
+        dewPoints={getDewSummary().points}
+        checkedAction={settings().checked_action_today}
+        onCopyCaption={(caption) => void copyToClipboard(caption, "今日知气日签")}
+        onClose={() => setShowDailyPoster(false)}
+      />
 
       {/* 全局 + 速记抽屉 */}
       <SheetDialog

@@ -1,5 +1,15 @@
-import { Clipboard, Notifications, Picker, setColorScheme, signal } from "nsh";
+import { Clipboard, Notifications, Picker, setColorScheme, signal, Storage } from "nsh";
 import { QiEngine, QiMeta } from "qi/native";
+import {
+  applyVisualTheme,
+  getVisualThemeMeta,
+  type KeepsakeSpec,
+  VISUAL_THEMES,
+  type VisualThemeId,
+} from "./ui/themes";
+
+export type { VisualThemeId };
+export { VISUAL_THEMES, getVisualThemeMeta };
 
 export interface MetricSummary {
   key: string;
@@ -258,7 +268,23 @@ const showZdrConsentModal = signal<boolean>(false);
 const showQuickCaptureModal = signal<boolean>(false);
 const showQaStudio = signal<boolean>(false);
 const lastAuditReport = signal<DataAuditReport | null>(null);
+const visualTheme = signal<VisualThemeId>("cat_window");
+const petCount = signal<number>(0);
+const showDailyPoster = signal<boolean>(false);
 let pendingZdrCallback: (() => void) | null = null;
+
+void Storage.getItem("qi.visual_theme")
+  .then((saved) => {
+    if (saved === "cat_window" || saved === "zen_garden" || saved === "playful_bento") {
+      visualTheme.set(saved);
+      applyVisualTheme(saved);
+    } else {
+      applyVisualTheme("cat_window");
+    }
+  })
+  .catch(() => {
+    applyVisualTheme("cat_window");
+  });
 
 function applyJson(raw: string) {
   uiState.set(JSON.parse(raw) as UiStatePayload);
@@ -280,8 +306,62 @@ export const setShowQuickCaptureModal = (open: boolean) => showQuickCaptureModal
 export const getShowQaStudio = () => showQaStudio();
 export const setShowQaStudio = (open: boolean) => showQaStudio.set(open);
 export const getLastAuditReport = () => lastAuditReport();
+export const getVisualTheme = () => visualTheme();
+export const getPetCount = () => petCount();
+export const getShowDailyPoster = () => showDailyPoster();
+export const setShowDailyPoster = (open: boolean) => showDailyPoster.set(open);
 export const getNoticeText = () => QiMeta.noticeText();
 export const getDisclaimerText = () => QiMeta.disclaimer();
+
+export interface DewItemStatus extends KeepsakeSpec {
+  unlocked: boolean;
+}
+
+export interface DewSummary {
+  points: number;
+  unlockedCount: number;
+  keepsakes: DewItemStatus[];
+  nextTarget: DewItemStatus | null;
+}
+
+export function setVisualTheme(id: VisualThemeId, silent = false) {
+  visualTheme.set(id);
+  applyVisualTheme(id);
+  void Storage.setItem("qi.visual_theme", id).catch(() => undefined);
+  if (!silent) {
+    const meta = getVisualThemeMeta(id);
+    notify(`灵境画风已切换为：${meta.title}`);
+  }
+}
+
+export function cycleVisualTheme() {
+  const order: VisualThemeId[] = ["cat_window", "zen_garden", "playful_bento"];
+  const idx = order.indexOf(visualTheme());
+  const next = order[(idx + 1) % order.length];
+  setVisualTheme(next);
+}
+
+export function petCompanion() {
+  petCount.update((n) => n + 1);
+}
+
+export function getDewSummary(): DewSummary {
+  const s = uiState();
+  const actionDew = s.settings.checked_action_today ? 2 : 0;
+  const intakeDew = Math.min(4, s.intakes.length);
+  const expDays = s.experiments.reduce((acc, e) => acc + Math.max(0, e.completed_days), 0);
+  const expDew = Math.min(4, expDays);
+  const petDew = petCount() > 0 ? 1 : 0;
+  const points = 1 + actionDew + intakeDew + expDew + petDew;
+  const meta = getVisualThemeMeta(visualTheme());
+  const keepsakes: DewItemStatus[] = meta.keepsakes.map((k) => ({
+    ...k,
+    unlocked: points >= k.threshold,
+  }));
+  const unlockedCount = keepsakes.filter((k) => k.unlocked).length;
+  const nextTarget = keepsakes.find((k) => !k.unlocked) ?? null;
+  return { points, unlockedCount, keepsakes, nextTarget };
+}
 
 function notify(msg: string) {
   toastMessage.set(msg);
@@ -351,7 +431,11 @@ export function setHardwareTier(tier: string, feeling?: number) {
 }
 
 export function toggleTodayAction() {
+  const wasChecked = uiState().settings.checked_action_today;
   applyJson(engine.toggleTodayAction());
+  if (!wasChecked && uiState().settings.checked_action_today) {
+    notify("已盖下今日印章 · 收集 +2 💧 晨露");
+  }
 }
 
 export function logQuickIntake(
@@ -680,6 +764,8 @@ export function wipeVaultAndReset() {
   cloudEntitlements.set(null);
   lastAuditReport.set(null);
   showQaStudio.set(false);
+  showDailyPoster.set(false);
+  petCount.set(0);
   notify("已物理清空本机健康数据库");
 }
 

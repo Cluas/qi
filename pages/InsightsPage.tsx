@@ -1,5 +1,11 @@
-import { signal, Text, View } from "nsh";
-import { getState, startExperiment, toggleExperimentToday } from "../store";
+import { signal, Text, token, View } from "nsh";
+import {
+  getDewSummary,
+  getState,
+  getVisualTheme,
+  startExperiment,
+  toggleExperimentToday,
+} from "../store";
 import {
   ActionButton,
   Card,
@@ -11,6 +17,7 @@ import {
   SunkenBox,
   VitalBadge,
 } from "../ui/components";
+import { BentoMetricCard, KeepsakeShelfCard } from "../ui/sanctuary";
 
 function formatDelta(val: number | null, unit: string, lowerIsBetter = false): string {
   if (val === null || !Number.isFinite(val)) return "积累对比中";
@@ -50,7 +57,10 @@ export function InsightsPage() {
 
   return (
     <View class="gap-4">
-      {/* 1. 近 7 天 vs 前 7 天双周节律对照 */}
+      {/* 0. 温柔零压力晨露藏品阁 */}
+      <KeepsakeShelfCard themeId={getVisualTheme()} dewSummary={getDewSummary()} />
+
+      {/* 1. 近 7 天 vs 前 7 天双周节律对照（便当贴视觉） */}
       <Card>
         <SectionHeader
           title="近 7 天 vs 前 7 天节律对照"
@@ -58,54 +68,42 @@ export function InsightsPage() {
           right={<VitalBadge tone="neutral" label="双周对比" />}
         />
 
-        <View class="flex-row gap-2">
-          <SunkenBox class="flex-1">
-            <Text class="text-xs text-muted-foreground">夜间恢复节律</Text>
-            <Text
-              class="text-base font-bold text-foreground"
-              style={{ fontVariant: ["tabular-nums"] }}
-            >
-              {period().hrv_current === null ? "—" : `${period().hrv_current!.toFixed(1)} ms`}
-            </Text>
-            <Text
-              class="text-[11px] text-muted-foreground"
-              style={{ fontVariant: ["tabular-nums"] }}
-            >
-              {period().hrv_prev === null ? "前 7 天暂无记录" : `前 7 天 ${period().hrv_prev!.toFixed(1)} ms`}
-            </Text>
-          </SunkenBox>
+        <View class="flex-row flex-wrap gap-2.5">
+          <BentoMetricCard
+            icon="heart_pulse"
+            label="夜间恢复节律"
+            value={period().hrv_current === null ? "—" : `${period().hrv_current!.toFixed(1)} ms`}
+            sublabel={
+              period().hrv_prev === null ? "前 7 天暂无记录" : `前 7 天 ${period().hrv_prev!.toFixed(1)} ms`
+            }
+            toneSurface="sage"
+            accentColor={token("vital-prime")}
+            class="min-w-28 flex-1"
+          />
 
-          <SunkenBox class="flex-1">
-            <Text class="text-xs text-muted-foreground">夜间静息心率</Text>
-            <Text
-              class="text-base font-bold text-foreground"
-              style={{ fontVariant: ["tabular-nums"] }}
-            >
-              {period().rhr_current === null ? "—" : `${period().rhr_current!.toFixed(1)} bpm`}
-            </Text>
-            <Text
-              class="text-[11px] text-muted-foreground"
-              style={{ fontVariant: ["tabular-nums"] }}
-            >
-              {period().rhr_prev === null ? "前 7 天暂无记录" : `前 7 天 ${period().rhr_prev!.toFixed(1)} bpm`}
-            </Text>
-          </SunkenBox>
+          <BentoMetricCard
+            icon="flame"
+            label="夜间静息心率"
+            value={period().rhr_current === null ? "—" : `${period().rhr_current!.toFixed(1)} bpm`}
+            sublabel={
+              period().rhr_prev === null ? "前 7 天暂无记录" : `前 7 天 ${period().rhr_prev!.toFixed(1)} bpm`
+            }
+            toneSurface="peach"
+            accentColor={token("stamp-ink")}
+            class="min-w-28 flex-1"
+          />
 
-          <SunkenBox class="flex-1">
-            <Text class="text-xs text-muted-foreground">平均夜间好眠</Text>
-            <Text
-              class="text-base font-bold text-foreground"
-              style={{ fontVariant: ["tabular-nums"] }}
-            >
-              {period().sleep_current_h === null ? "—" : `${period().sleep_current_h!.toFixed(1)} h`}
-            </Text>
-            <Text
-              class="text-[11px] text-muted-foreground"
-              style={{ fontVariant: ["tabular-nums"] }}
-            >
-              {period().sleep_prev_h === null ? "前 7 天暂无记录" : `前 7 天 ${period().sleep_prev_h!.toFixed(1)} h`}
-            </Text>
-          </SunkenBox>
+          <BentoMetricCard
+            icon="moon"
+            label="平均夜间好眠"
+            value={period().sleep_current_h === null ? "—" : `${period().sleep_current_h!.toFixed(1)} h`}
+            sublabel={
+              period().sleep_prev_h === null ? "前 7 天暂无记录" : `前 7 天 ${period().sleep_prev_h!.toFixed(1)} h`
+            }
+            toneSurface="lavender"
+            accentColor={token("sleep-rem")}
+            class="min-w-28 flex-1"
+          />
         </View>
 
         <SunkenBox>
@@ -192,7 +190,7 @@ export function InsightsPage() {
 
                   <ActionButton
                     title={exp().checked_today ? "今日实验已打卡 ✓" : "今日实验打卡"}
-                    icon="check"
+                    icon="paw"
                     variant={exp().checked_today ? "secondary" : "primary"}
                     onPress={() => toggleExperimentToday(exp().id)}
                   />

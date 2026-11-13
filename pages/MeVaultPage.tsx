@@ -5,15 +5,18 @@ import {
   generateEncryptedArchive,
   generateJsonlExport,
   getCloudEntitlements,
+  getDewSummary,
   getDisclaimerText,
   getEncryptedArchivePreview,
   getJsonlExportPreview,
   getNoticeText,
   getState,
+  getVisualTheme,
   restoreFromRecoveryPhrase,
   runE2eeSyncNow,
   sendMorningTestNotification,
   setShowQaStudio,
+  setVisualTheme,
   toggleMorningPush,
   updateAiConfig,
   updateCloudUrlAndHandle,
@@ -33,6 +36,7 @@ import {
   VitalBadge,
 } from "../ui/components";
 import { QiIcon } from "../ui/icons";
+import { ThemeSwitcherStrip } from "../ui/sanctuary";
 import { QaStudioSheet } from "./QaStudioSheet";
 
 const SYNC_MODES = [
@@ -64,6 +68,20 @@ export function MeVaultPage() {
 
   return (
     <View class="gap-4">
+      {/* 0. 灵境画风与晨露小筑设置 */}
+      <Card>
+        <SectionHeader
+          title="灵境画风与陪伴小筑"
+          subtitle="三套手绘与潮玩世界随时切换，已集晨露与摆件进度共同保存"
+          right={<VitalBadge tone="prime_ready" label={`已集 ${getDewSummary().points} 💧`} />}
+        />
+        <ThemeSwitcherStrip
+          activeId={getVisualTheme()}
+          detailed={true}
+          onSelect={(id) => setVisualTheme(id)}
+        />
+      </Card>
+
       {/* 1. 个人云端到端加密同步中心 */}
       <Card>
         <SectionHeader
