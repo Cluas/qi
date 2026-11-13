@@ -60,11 +60,13 @@ import {
   ActionButton,
   BottomTabBar,
   Card,
+  DrawerSheet,
+  ensureDefaultIosPortraitWindow,
   FieldInput,
   IconButton,
   ModalSurface,
   NavRail,
-  SheetDialog,
+  SelectChip,
   SunkenBox,
   ToastBanner,
   VitalBadge,
@@ -75,16 +77,18 @@ import { MOTION_TOKENS, SceneCrossfade } from "./ui/motion";
 import { DailyPosterModal, type SealInkId } from "./ui/sanctuary";
 
 function App() {
+  ensureDefaultIosPortraitWindow();
+
   const quickText = signal("");
   const includeHearthGift = signal(getState().entitlements.guardian_sponsor);
   const myMoodLocal = signal<"sunny_full" | "breeze_steady" | "rest_recharge" | null>(null);
   const isDesktop = () => windowSize().width >= 920;
 
-  const navTabs = (): { id: ActiveTab; label: string; icon: QiIconName }[] => [
-    { id: "today", label: tr("nav.today"), icon: "sun" },
-    { id: "log", label: tr("nav.log"), icon: "record" },
-    { id: "insights", label: tr("nav.insights"), icon: "compass" },
-    { id: "me", label: tr("nav.me"), icon: "user_shield" },
+  const navTabs = (): { id: ActiveTab; label: string; icon: QiIconName; sfSymbol: string }[] => [
+    { id: "today", label: tr("nav.today"), icon: "sun", sfSymbol: "sun.max.fill" },
+    { id: "log", label: tr("nav.log"), icon: "record", sfSymbol: "square.and.pencil" },
+    { id: "insights", label: tr("nav.insights"), icon: "compass", sfSymbol: "safari" },
+    { id: "me", label: tr("nav.me"), icon: "user_shield", sfSymbol: "person.crop.circle" },
   ];
 
   const syncSummary = () => {
@@ -127,7 +131,10 @@ function App() {
       }}
     >
       {/* Decluttered sanctuary header: brand, quiet privacy status, compact locale toggle & utilities */}
-      <View class="flex-row items-center justify-between gap-2 border-b border-border bg-card px-4 py-2.5">
+      <View
+        ios={{ backdropMaterial: "ultraThin" }}
+        class="flex-row items-center justify-between gap-2 border-b border-border/80 bg-card/90 px-4 py-2"
+      >
         <View class="flex-1 flex-row items-center gap-2.5">
           <Text role="header" class="text-lg font-bold text-foreground">
             {tr("app.name")}
@@ -162,13 +169,15 @@ function App() {
             accessibilityLabel={tr("common.appearance")}
             onPress={() => cycleAppearance()}
           />
-          <IconButton
-            icon="plus"
-            size="sm"
-            variant="secondary"
-            accessibilityLabel={tr("nav.quick_capture")}
-            onPress={() => setShowQuickCaptureModal(true)}
-          />
+          <If when={isDesktop()}>
+            <IconButton
+              icon="plus"
+              size="sm"
+              variant="secondary"
+              accessibilityLabel={tr("nav.quick_capture")}
+              onPress={() => setShowQuickCaptureModal(true)}
+            />
+          </If>
           <IconButton
             icon="sliders"
             size="sm"
@@ -229,7 +238,13 @@ function App() {
       </View>
 
       <If when={!isDesktop()}>
-        <BottomTabBar items={navTabs()} activeId={getTab()} onSelect={(id) => setTab(id)} />
+        <BottomTabBar
+          items={navTabs()}
+          activeId={getTab()}
+          onSelect={(id) => setTab(id)}
+          onQuickCapture={() => setShowQuickCaptureModal(true)}
+          quickCaptureLabel={tr("nav.quick_capture")}
+        />
       </If>
 
       <OnboardingModal />
@@ -441,12 +456,39 @@ function App() {
         onClose={() => setShowFamilyPeaceLetterModal(false)}
       />
 
-      <SheetDialog
+      <DrawerSheet
         open={getShowQuickCaptureModal()}
         title={tr("log.quick_sheet_title")}
+        side="bottom"
+        closeOnSwipe={true}
         onClose={() => setShowQuickCaptureModal(false)}
       >
         <Card>
+          <Text class="text-xs font-semibold text-muted-foreground">
+            {tr("log.quick_chips_label")}
+          </Text>
+          <View class="flex-row flex-wrap gap-2">
+            <Each
+              of={[
+                "log.quick_chip_coffee",
+                "log.quick_chip_tea",
+                "log.quick_chip_meal",
+                "log.quick_chip_sleep",
+              ]}
+              key={(k) => k}
+            >
+              {(key) => (
+                <SelectChip
+                  label={tr(key())}
+                  selected={false}
+                  onPress={() => {
+                    logNaturalIntake(tr(key()));
+                    setShowQuickCaptureModal(false);
+                  }}
+                />
+              )}
+            </Each>
+          </View>
           <Text class="text-xs leading-relaxed text-muted-foreground">
             {tr("log.quick_sheet_hint")}
           </Text>
@@ -461,7 +503,7 @@ function App() {
             onPress={submitGlobalQuickCapture}
           />
         </Card>
-      </SheetDialog>
+      </DrawerSheet>
 
       <ModalSurface
         open={getShowZdrConsentModal()}

@@ -97,3 +97,27 @@
 4. **全站 `ui/` 边界与 14 项完工自检门禁**：
    - `App.tsx` 与 `pages/*.tsx` 全部组件（含 `Button` / `Tabs` / `Sheet` / `Dialog` / `Collapsible` / `Switch`）必须从 `ui/components.tsx` 导入，零直接依赖 `nsh/base`；
    - 所有交互按钮具备最小 `44pt` 热区、`focus-visible:` 键盘焦点环、`accessibilityLabel` / `accessibilityRole` 与多语言双语排版空间冗余。
+
+---
+
+## 五、 iOS-First 竖屏空间与单手拇指体验规范（v5.5）
+
+> 面向 iPhone 竖屏（`393×852pt` / `402×874pt`，Dynamic Island 安全区 `top: 59pt, bottom: 34pt`）与苹果生态原生触感确立 iOS 优先体验准则：
+
+1. **安全区、状态栏与超薄毛玻璃顶栏（Safe Area & Dynamic Island）**
+   - `nsh.json` 开启 `"statusBar": { "foreground": "auto" }`，自动贴合灵境晨暮浅暗色切换；
+   - 顶栏与场景悬浮药丸（天气露珠徽章、日签晒图按钮）支持 `ios={{ backdropMaterial: "ultraThin" }}` 原生材质通透感，竖屏下将次级快捷键（如 `+ 速记`）移出拥挤顶栏、下沉至拇指区；
+   - 桌面宿主（`nsh/desktop`）默认以 `402×874` iPhone 竖屏黄金视口居中启动，并在 QA 验真工坊提供一键「📱 iPhone 竖屏 / 🖥 桌面宽屏」双视角切换预览。
+
+2. **拇指弧线 5 槽底栏与中央 `+ 速记` 主钮（Thumb-Zone Dock）**
+   - 底栏收敛于单手拇指自然覆盖弧区：在原生 iOS 与紧凑移动端视口下统一采用带 `ultraThin` 毛玻璃与 `nsh/base` `<Tabs>` 弹簧滑块的 **5 槽底部导航栏**（`[今日] [记录] [+ 速记] [洞察] [我的]`，左二主视图 ＋ **正中 `48pt` 圆角实心 `+ 速记` 主按钮** ＋ 右二主视图）；
+   - 点击 `+ 速记` 自底缘滑出带有 **抓手指示条（Grabber Pill）** 的 `<DrawerSheet side="bottom" closeOnSwipe={true}>`，首屏内嵌 **4 枚单手一步记芯片**（半杯冰美式、温热花茶、清淡家常餐、23:00 前入睡）与快速文本归档；
+   - 全部可点按钮、小号印章、主题胶囊、切换开关严格落位 **`>= 44×44pt`**（`min-h-11` / `min-w-11` + `hitSlop`）Apple HIG 触控红线，横滑胶囊（`ThemeSwitcherStrip`）采用 `<Scroll horizontal>` 避免多行换行挤压首屏。
+
+3. **CoreHaptics 分级触感词典与焦点感知键盘收起**
+   - 通过 `ui/haptics.ts` 安全封装 `nsh/mobile` `Haptics`：Tabs / 主题 / SegmentedTabs 切换触发 `selection()`；轻抚伙伴与日签倾角反馈触发 `impact("soft")`；火漆落印微行动触发 `impact("medium")` 并在完成态联动 `notification("success")`；桌面端自动静默降级无异常；
+   - `FieldInput` 为单行输入启用 `returnKeyType="done"` 与 `submitBehavior="blurAndSubmit"`，为多行笔记在聚焦态按需呈现「收起键盘（`Keyboard.dismiss()`）」胶囊，无聚焦时不遮挡界面。
+
+4. **iOS 锁屏与桌面小组件体系（WidgetKit Ready Architecture）**
+   - 在端内手账与「知气雅集」中内置 iOS 小组件矩阵预览（`accessoryCircular` 锁屏圆环灵气值、`accessoryRectangular` 锁屏节律晨语、`systemSmall` 桌面 2×2 灵境便当盒），并同步提供 `hosts/ios/Sources/QiWidgets.swift`（App Group `group.eu.org.cluas.qi`，支持「守护遮罩模式」敏感脱敏）。
+

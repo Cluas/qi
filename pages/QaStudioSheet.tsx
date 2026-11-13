@@ -27,6 +27,7 @@ import {
   Hairline,
   SectionHeader,
   SelectChip,
+  setDesktopViewportPreset,
   SheetDialog,
   SunkenBox,
   SwitchRow,
@@ -87,6 +88,27 @@ export function QaStudioSheet() {
             size="sm"
             variant="secondary"
             onPress={() => reseedDemoData()}
+          />
+        </View>
+      </Card>
+
+      {/* iPhone Portrait vs Desktop Wide preview switcher */}
+      <Card>
+        <SectionHeader title={tr("qa.viewport_title")} subtitle={tr("qa.viewport_subtitle")} />
+        <View class="flex-row flex-wrap gap-2">
+          <ActionButton
+            title={tr("qa.viewport_ios_btn")}
+            size="sm"
+            variant="primary"
+            shape="pill"
+            onPress={() => setDesktopViewportPreset("ios_portrait")}
+          />
+          <ActionButton
+            title={tr("qa.viewport_desktop_btn")}
+            size="sm"
+            variant="outline"
+            shape="pill"
+            onPress={() => setDesktopViewportPreset("desktop_wide")}
           />
         </View>
       </Card>

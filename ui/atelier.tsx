@@ -1,6 +1,7 @@
 import { Canvas, createMotion, Image, Scroll, signal, Text, token, View } from "nsh";
 import { Button } from "nsh/base";
 import fourSeasonsHandscrollImg from "../assets/scenes/four_seasons_handscroll.jpg";
+import { hapticSelection } from "./haptics";
 import {
   ActionButton,
   Card,
@@ -1502,9 +1503,15 @@ export function WristWidgetPreviewCard(props: {
   const localMode = signal<"poetic" | "numeric">(props.mode ?? "poetic");
   const activeMode = () => props.mode ?? localMode();
   const setMode = (m: "poetic" | "numeric") => {
+    hapticSelection();
     localMode.set(m);
     props.onChangeMode?.(m);
   };
+
+  const lockHeadlineShort = () =>
+    activeMode() === "poetic"
+      ? props.poeticLine
+      : tr("atelier.widget.score_out_of_100", { score: Math.round(props.score) });
 
   return (
     <Card>
@@ -1554,6 +1561,70 @@ export function WristWidgetPreviewCard(props: {
             <Text class="text-[11px] text-muted-foreground">{tr("atelier.widget.poetic_caption")}</Text>
           </View>
         </If>
+      </View>
+
+      {/* iOS WidgetKit Lock Screen & Home Screen Preview Matrix */}
+      <View class="gap-2 pt-1">
+        <Text class="text-xs font-semibold text-muted-foreground">
+          {tr("atelier.widget.ios_gallery_title")}
+        </Text>
+
+        {/* Lock Screen Accessory Circular + Rectangular */}
+        <View class="flex-row items-stretch gap-2.5">
+          <View class="w-24 items-center justify-center gap-1 rounded-2xl border border-border/80 bg-surface-sunken p-2.5">
+            <View class="size-12 items-center justify-center rounded-full border-2 border-primary/70 bg-card">
+              <If
+                when={activeMode() === "poetic"}
+                else={
+                  <Text
+                    class="text-sm font-bold text-foreground"
+                    style={{ fontVariant: ["tabular-nums"] }}
+                  >
+                    {Math.round(props.score)}
+                  </Text>
+                }
+              >
+                <WidgetIcon size={16} color={token("primary")} />
+              </If>
+            </View>
+            <Text class="text-[10px] font-medium text-muted-foreground">
+              {tr("atelier.widget.lock_circular_label")}
+            </Text>
+          </View>
+
+          <View class="flex-1 justify-between gap-1 rounded-2xl border border-border/80 bg-surface-sunken p-3">
+            <View class="flex-row items-center justify-between gap-1">
+              <Text class="text-[10px] font-semibold text-atelier-accent">
+                {props.solarTerm ? `${tr("app.name")} · ${props.solarTerm}` : tr("app.name")}
+              </Text>
+              <Text class="text-[10px] font-medium text-muted-foreground">
+                {tr("atelier.widget.lock_rect_label")}
+              </Text>
+            </View>
+            <Text class="text-xs font-semibold leading-snug text-foreground">
+              {lockHeadlineShort()}
+            </Text>
+            <Text class="text-[10px] text-muted-foreground">
+              {props.numericLine ?? tr("atelier.widget.rhythm_status", { status: props.stateBadge })}
+            </Text>
+          </View>
+        </View>
+
+        {/* Home Screen 2x2 systemSmall Tile */}
+        <View class="w-48 gap-1.5 rounded-3xl border border-border/85 bg-surface-sunken p-3.5">
+          <View class="flex-row items-center justify-between gap-1">
+            <Text class="text-[10px] font-semibold text-primary">{tr("app.name")}</Text>
+            <VitalBadge tone={props.state} label={props.stateBadge} />
+          </View>
+          <Text class="text-xs font-bold leading-snug text-foreground">
+            {activeMode() === "poetic"
+              ? props.poeticLine
+              : tr("atelier.widget.score_out_of_100", { score: Math.round(props.score) })}
+          </Text>
+          <Text class="text-[10px] text-muted-foreground">
+            {tr("atelier.widget.home_small_label")}
+          </Text>
+        </View>
       </View>
     </Card>
   );

@@ -1,8 +1,49 @@
-import { effect, type JSX, Scroll, Text, token, View } from "nsh";
+import { effect, type JSX, Keyboard, platform, Scroll, signal, Text, token, View, windowSize } from "nsh";
 import { Button, Collapsible, Dialog, Input, Progress, Sheet, Switch, Tab, Tabs } from "nsh/base";
+import { isAvailable as isDesktopHost, Window } from "nsh/desktop";
+import { hapticSelection, hapticStampImpact, hapticSuccess } from "./haptics";
 import { tr } from "./i18n";
 import { QiIcon, type QiIconName } from "./icons";
 import { createSealStampMotion } from "./motion";
+
+export type DesktopViewportPreset = "ios_portrait" | "desktop_wide";
+
+let iosInitialViewportApplied = false;
+
+/** 判断当前宿主是否为原生 iOS 运行时 */
+export function isIosPlatform(): boolean {
+  return platform.os === "ios";
+}
+
+/** 桌面宿主在调试台一键切换 iPhone 竖屏 / 桌面宽屏预览视口 */
+export function setDesktopViewportPreset(preset: DesktopViewportPreset): void {
+  try {
+    if (!isDesktopHost) return;
+    const win = Window.get("main");
+    if (!win) return;
+    if (preset === "ios_portrait") {
+      win.setBounds({ size: { width: 402, height: 874 }, animated: true });
+    } else {
+      win.setBounds({ size: { width: 1200, height: 820 }, animated: true });
+    }
+    win.center();
+  } catch {
+    // 非桌面运行时或无窗口权限时静默跳过
+  }
+}
+
+/** 桌面端默认以 iPhone 16 Pro 竖屏尺寸居中冷启动（不影响 headless test 与自定义尺寸） */
+export function ensureDefaultIosPortraitWindow(): void {
+  if (iosInitialViewportApplied) return;
+  iosInitialViewportApplied = true;
+  try {
+    if (isDesktopHost && windowSize().width >= 1150) {
+      setDesktopViewportPreset("ios_portrait");
+    }
+  } catch {
+    // 忽略无窗口场景
+  }
+}
 
 export type VitalTone =
   | "prime_ready"
@@ -151,7 +192,7 @@ export function ActionButton(props: {
     const isPill = props.shape === "pill";
     switch (props.size ?? "md") {
       case "sm":
-        return `min-h-10 ${isPill ? "rounded-full" : "rounded-lg"} px-3 py-1.5`;
+        return `min-h-11 ${isPill ? "rounded-full" : "rounded-lg"} px-3 py-2`;
       case "lg":
         return `min-h-12 ${isPill ? "rounded-full" : "rounded-xl"} px-5 py-3`;
       default:
@@ -231,7 +272,10 @@ export function ActionButton(props: {
       disabled={props.disabled}
       hitSlop={4}
       accessibilityLabel={props.accessibilityLabel ?? props.title}
-      onPress={props.onPress}
+      onPress={() => {
+        hapticSelection();
+        props.onPress();
+      }}
       class={`items-center justify-center transition duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-45 ${sizeClass()} ${variantClass()} ${props.class ?? ""}`}
     >
       <View class="flex-row items-center justify-center gap-1.5">
@@ -263,7 +307,7 @@ export function IconButton(props: {
   const sizeClass = () => {
     const isPill = (props.shape ?? "pill") === "pill";
     if (props.size === "sm") {
-      return `min-h-10 min-w-10 ${isPill ? "rounded-full" : "rounded-lg"} p-2`;
+      return `min-h-11 min-w-11 ${isPill ? "rounded-full" : "rounded-lg"} p-2`;
     }
     return `min-h-11 min-w-11 ${isPill ? "rounded-full" : "rounded-xl"} p-2.5`;
   };
@@ -298,7 +342,10 @@ export function IconButton(props: {
       disabled={props.disabled}
       hitSlop={4}
       accessibilityLabel={props.accessibilityLabel}
-      onPress={props.onPress}
+      onPress={() => {
+        hapticSelection();
+        props.onPress();
+      }}
       class={`items-center justify-center transition duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.95] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-45 ${sizeClass()} ${variantClass()} ${props.class ?? ""}`}
     >
       <QiIcon name={props.icon} size={props.size === "sm" ? 16 : 18} color={defaultColor()} />
@@ -413,15 +460,21 @@ export function SealStamp(props: {
         hitSlop={4}
         accessibilityLabel={props.accessibilityLabel ?? props.label}
         onPressDown={() => {
+          hapticStampImpact();
           void seal.pressDown();
         }}
         onPressUp={() => {
           void seal.releaseStamp(props.stamped);
         }}
         onPress={() => {
+          if (!props.stamped) {
+            hapticSuccess();
+          } else {
+            hapticSelection();
+          }
           props.onPress?.();
         }}
-        class="rounded-2xl focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
+        class="min-h-11 min-w-11 rounded-2xl focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
       >
         {renderMedal()}
       </Button>
@@ -485,8 +538,11 @@ export function SelectChip(props: {
     <Button
       disabled={props.disabled}
       hitSlop={4}
-      onPress={props.onPress}
-      class={`min-h-10 items-center justify-center rounded-full border px-3.5 py-2 transition duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-40 ${
+      onPress={() => {
+        hapticSelection();
+        props.onPress();
+      }}
+      class={`min-h-11 items-center justify-center rounded-full border px-3.5 py-2 transition duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-40 ${
         props.selected
           ? "border-primary bg-primary hover:opacity-92"
           : "border-border/80 bg-surface-sunken hover:border-primary/45 hover:bg-secondary/70 active:bg-secondary"
@@ -516,7 +572,10 @@ export function SwitchRow(props: {
       </View>
       <Switch
         checked={props.checked}
-        onChange={({ checked }) => props.onChange(checked)}
+        onChange={({ checked }) => {
+          hapticSelection();
+          props.onChange(checked);
+        }}
         class="flex-row items-center rounded-full focus-visible:ring-2 focus-visible:ring-ring"
         trackClass="w-11 rounded-full bg-muted p-0.5 transition-colors checked:bg-primary motion-reduce:transition-none"
         thumbClass="size-5 rounded-full bg-card shadow-sm transition-transform checked:translate-x-5 motion-reduce:transition-none"
@@ -525,23 +584,49 @@ export function SwitchRow(props: {
   );
 }
 
-/** 统一输入框（含 focus-visible 清晰焦点环） */
+/** 统一输入框（含 focus-visible 清晰焦点环，单行 Done 提交收起 + 多行聚焦收起胶囊） */
 export function FieldInput(props: {
   value: string;
   placeholder?: string;
   multiline?: boolean;
   onChange: (value: string) => void;
 }) {
+  const focused = signal(false);
+
   return (
-    <Input
-      value={props.value}
-      placeholder={props.placeholder}
-      multiline={props.multiline}
-      onChange={({ value }) => props.onChange(value)}
-      class={`rounded-xl border border-input bg-card px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring ${
-        props.multiline ? "min-h-24" : "min-h-11"
-      }`}
-    />
+    <View class="gap-1.5">
+      <Input
+        value={props.value}
+        placeholder={props.placeholder}
+        multiline={props.multiline}
+        returnKeyType={props.multiline ? undefined : "done"}
+        submitBehavior={props.multiline ? "newline" : "blurAndSubmit"}
+        onFocus={() => focused.set(true)}
+        onBlur={() => focused.set(false)}
+        onChange={({ value }) => props.onChange(value)}
+        class={`rounded-xl border border-input bg-card px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring ${
+          props.multiline ? "min-h-24" : "min-h-11"
+        }`}
+      />
+      <If when={Boolean(props.multiline) && focused()}>
+        <View class="flex-row justify-end">
+          <Button
+            hitSlop={4}
+            accessibilityLabel={tr("common.hide_keyboard")}
+            onPress={() => {
+              hapticSelection();
+              Keyboard.dismiss();
+              focused.set(false);
+            }}
+            class="min-h-11 items-center justify-center rounded-full bg-secondary px-3.5 py-1.5 transition-opacity duration-150 active:opacity-85"
+          >
+            <Text class="text-xs font-semibold text-foreground">
+              {tr("common.hide_keyboard")}
+            </Text>
+          </Button>
+        </View>
+      </If>
+    </View>
   );
 }
 
@@ -626,41 +711,97 @@ export function NavRail<T extends string>(props: {
   );
 }
 
-/** 移动端底部 4-Tab 原生滑动导航栏（单选背景随 Tabs 原生弹簧滑移） */
+/** 移动端拇指弧区 5 槽底部导航栏（居中 + 速记主按钮 + ultraThin 毛玻璃 + 原生弹簧滑移） */
 export function BottomTabBar<T extends string>(props: {
-  items: { id: T; label: string; icon: QiIconName }[];
+  items: { id: T; label: string; icon: QiIconName; sfSymbol?: string }[];
   activeId: T;
   onSelect: (id: T) => void;
+  onQuickCapture?: () => void;
+  quickCaptureLabel?: string;
 }) {
+  const leftItems = () => props.items.slice(0, 2);
+  const rightItems = () => props.items.slice(2);
+
   return (
-    <Tabs
-      class="flex-row items-center gap-1 border-t border-border bg-card px-3 pt-2"
-      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
-      indicatorClass="inset-y-0 rounded-xl bg-accent"
+    <View
+      ios={{ backdropMaterial: "ultraThin" }}
+      class="border-t border-border/80 bg-card/90"
+      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 6px)" }}
     >
-      <Each of={props.items} key={(t) => `bottom-${t.id}`}>
-        {(tab) => (
-          <Tab
-            selected={props.activeId === tab().id}
-            onPress={() => props.onSelect(tab().id)}
-            class="min-h-11 flex-1 items-center justify-center gap-1 rounded-xl px-1 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-          >
-            <QiIcon
-              name={tab().icon}
-              size={18}
-              color={props.activeId === tab().id ? token("primary") : token("muted-foreground")}
-            />
-            <Text
-              class={`text-[11px] font-semibold ${
-                props.activeId === tab().id ? "text-primary" : "text-muted-foreground"
-              }`}
+      <Tabs
+        class="flex-row items-center gap-1 px-2.5 pt-2"
+        indicatorClass="inset-y-0 rounded-2xl bg-accent"
+      >
+        <Each of={leftItems()} key={(t) => `bottom-${t.id}`}>
+          {(tab) => (
+            <Tab
+              selected={props.activeId === tab().id}
+              onPress={() => {
+                hapticSelection();
+                props.onSelect(tab().id);
+              }}
+              class="min-h-12 flex-1 items-center justify-center gap-0.5 rounded-2xl px-0.5 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             >
-              {tab().label}
+              <QiIcon
+                name={tab().icon}
+                size={18}
+                color={props.activeId === tab().id ? token("primary") : token("muted-foreground")}
+              />
+              <Text
+                class={`text-[11px] font-semibold ${
+                  props.activeId === tab().id ? "text-primary" : "text-muted-foreground"
+                }`}
+              >
+                {tab().label}
+              </Text>
+            </Tab>
+          )}
+        </Each>
+
+        <If when={Boolean(props.onQuickCapture)}>
+          <Button
+            hitSlop={6}
+            accessibilityLabel={props.quickCaptureLabel ?? tr("nav.quick_capture")}
+            onPress={() => {
+              hapticSelection();
+              props.onQuickCapture?.();
+            }}
+            class="mx-1 min-h-12 min-w-14 items-center justify-center gap-0.5 rounded-2xl bg-primary px-3 py-1.5 shadow-sm transition duration-150 active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          >
+            <QiIcon name="plus" size={18} color={token("primary-foreground")} />
+            <Text class="text-[10px] font-bold text-primary-foreground">
+              {tr("nav.quick_short")}
             </Text>
-          </Tab>
-        )}
-      </Each>
-    </Tabs>
+          </Button>
+        </If>
+
+        <Each of={rightItems()} key={(t) => `bottom-${t.id}`}>
+          {(tab) => (
+            <Tab
+              selected={props.activeId === tab().id}
+              onPress={() => {
+                hapticSelection();
+                props.onSelect(tab().id);
+              }}
+              class="min-h-12 flex-1 items-center justify-center gap-0.5 rounded-2xl px-0.5 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            >
+              <QiIcon
+                name={tab().icon}
+                size={18}
+                color={props.activeId === tab().id ? token("primary") : token("muted-foreground")}
+              />
+              <Text
+                class={`text-[11px] font-semibold ${
+                  props.activeId === tab().id ? "text-primary" : "text-muted-foreground"
+                }`}
+              >
+                {tab().label}
+              </Text>
+            </Tab>
+          )}
+        </Each>
+      </Tabs>
+    </View>
   );
 }
 
@@ -687,10 +828,13 @@ export function ModalSurface(props: {
       <View
         class="flex-1"
         style={{
-          paddingTop: "calc(env(safe-area-inset-top) + 12px)",
+          paddingTop: "calc(env(safe-area-inset-top) + 10px)",
           paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
         }}
       >
+        <View class="mb-2 items-center">
+          <View class="h-1 w-10 rounded-full bg-border/90" />
+        </View>
         {props.children}
       </View>
     </Dialog>
@@ -719,10 +863,13 @@ export function SheetDialog(props: {
       <View
         class="flex-1"
         style={{
-          paddingTop: "calc(env(safe-area-inset-top) + 12px)",
+          paddingTop: "calc(env(safe-area-inset-top) + 10px)",
           paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
         }}
       >
+        <View class="mb-2 items-center">
+          <View class="h-1 w-10 rounded-full bg-border/90" />
+        </View>
         <View class="flex-row items-center justify-between gap-3 border-b border-border px-4 pb-3">
           <View class="flex-1 gap-0.5">
             <Text role="header" class="text-lg font-semibold text-foreground">
@@ -767,9 +914,9 @@ export function DrawerSheet(props: {
       case "left":
         return "h-full w-full max-w-md rounded-r-3xl border-r border-border bg-background";
       case "top":
-        return "max-h-[82%] w-full rounded-b-3xl border-b border-border bg-background";
+        return "h-[64%] max-h-[82%] w-full rounded-b-3xl border-b border-border bg-background";
       default:
-        return "max-h-[86%] w-full self-center sm:max-w-2xl rounded-t-3xl border-t border-border bg-background";
+        return "h-[74%] max-h-[86%] w-full self-center sm:max-w-2xl rounded-t-3xl border-t border-border bg-background";
     }
   };
 
@@ -841,8 +988,11 @@ export function SegmentedTabs<T extends string = string>(props: {
         {(item) => (
           <Tab
             selected={props.activeId === item().id}
-            onPress={() => props.onSelect(item().id)}
-            class={`group ${props.size === "sm" ? "min-h-10 py-1.5" : "min-h-11 py-2"} flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-2.5 focus-visible:ring-2 focus-visible:ring-ring`}
+            onPress={() => {
+              hapticSelection();
+              props.onSelect(item().id);
+            }}
+            class="group min-h-11 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-2.5 py-2 focus-visible:ring-2 focus-visible:ring-ring"
           >
             <If when={Boolean(item().icon)}>
               <QiIcon

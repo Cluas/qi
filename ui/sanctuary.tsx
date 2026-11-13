@@ -1,5 +1,6 @@
-import { Image, type JSX, signal, Text, token, View } from "nsh";
+import { Image, type JSX, Scroll, signal, Text, token, View } from "nsh";
 import { Button } from "nsh/base";
+import { hapticSelection, hapticSoftImpact, hapticSuccess } from "./haptics";
 import catDayImg from "../assets/scenes/cat_day.jpg";
 import catNightImg from "../assets/scenes/cat_night.jpg";
 import playfulDayImg from "../assets/scenes/playful_day.jpg";
@@ -247,94 +248,108 @@ export function ThemeSwitcherStrip(props: {
   onSelect: (id: VisualThemeId) => void;
   detailed?: boolean;
 }) {
-  return (
-    <View class={props.detailed ? "gap-2" : "flex-row flex-wrap items-center gap-1.5"}>
-      <Each of={VISUAL_THEMES} key={(item) => item.id}>
-        {(item) => {
-          const isSelected = () => props.activeId === item().id;
-          if (props.detailed) {
-            return (
-              <Button
-                hitSlop={4}
-                accessibilityLabel={tr("sanctuary.switch_theme_a11y", { name: item().shortLabel })}
-                onPress={() => props.onSelect(item().id)}
-                class={`min-h-12 flex-row items-center gap-3 rounded-2xl border px-3.5 py-2.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
-                  isSelected()
-                    ? "border-primary bg-accent"
-                    : "border-border/70 bg-surface-sunken hover:border-primary/45"
-                }`}
-              >
-                <View
-                  class={`size-9 items-center justify-center rounded-xl border ${
-                    isSelected() ? "border-primary bg-primary" : "border-border/70 bg-card"
-                  }`}
-                >
-                  <QiIcon
-                    name={
-                      item().id === "zen_garden"
-                        ? "flower_branch"
-                        : item().id === "playful_bento"
-                          ? "sparkles"
-                          : "paw"
-                    }
-                    size={16}
-                    color={isSelected() ? token("primary-foreground") : token("foreground")}
-                  />
-                </View>
-                <View class="flex-1 gap-0.5">
-                  <View class="flex-row items-center gap-1.5">
-                    <Text class="text-sm font-semibold text-foreground">{item().title}</Text>
-                    <If when={Boolean(item().recommended)}>
-                      <View class="rounded-full bg-stamp-soft px-2 py-0.5">
-                        <Text class="text-[10px] font-semibold text-stamp-ink">
-                          {tr("common.recommended")}
-                        </Text>
-                      </View>
-                    </If>
-                  </View>
-                  <Text class="text-xs text-muted-foreground">{item().subtitle}</Text>
-                </View>
-                <If when={isSelected()}>
-                  <VitalBadge tone="optimal" label={tr("common.active")} />
-                </If>
-              </Button>
-            );
-          }
-
+  const renderItems = () => (
+    <Each of={VISUAL_THEMES} key={(item) => item.id}>
+      {(item) => {
+        const isSelected = () => props.activeId === item().id;
+        if (props.detailed) {
           return (
             <Button
               hitSlop={4}
               accessibilityLabel={tr("sanctuary.switch_theme_a11y", { name: item().shortLabel })}
-              onPress={() => props.onSelect(item().id)}
-              class={`min-h-10 flex-row items-center gap-1.5 rounded-full border px-3 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+              onPress={() => {
+                hapticSelection();
+                props.onSelect(item().id);
+              }}
+              class={`min-h-12 flex-row items-center gap-3 rounded-2xl border px-3.5 py-2.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
                 isSelected()
-                  ? "border-primary bg-primary"
-                  : "border-border/80 bg-card hover:border-primary/45"
+                  ? "border-primary bg-accent"
+                  : "border-border/70 bg-surface-sunken hover:border-primary/45"
               }`}
             >
-              <QiIcon
-                name={
-                  item().id === "zen_garden"
-                    ? "flower_branch"
-                    : item().id === "playful_bento"
-                      ? "sparkles"
-                      : "paw"
-                }
-                size={13}
-                color={isSelected() ? token("primary-foreground") : token("muted-foreground")}
-              />
-              <Text
-                class={`text-xs font-semibold ${
-                  isSelected() ? "text-primary-foreground" : "text-foreground"
+              <View
+                class={`size-9 items-center justify-center rounded-xl border ${
+                  isSelected() ? "border-primary bg-primary" : "border-border/70 bg-card"
                 }`}
               >
-                {item().shortLabel}
-              </Text>
+                <QiIcon
+                  name={
+                    item().id === "zen_garden"
+                      ? "flower_branch"
+                      : item().id === "playful_bento"
+                        ? "sparkles"
+                        : "paw"
+                  }
+                  size={16}
+                  color={isSelected() ? token("primary-foreground") : token("foreground")}
+                />
+              </View>
+              <View class="flex-1 gap-0.5">
+                <View class="flex-row items-center gap-1.5">
+                  <Text class="text-sm font-semibold text-foreground">{item().title}</Text>
+                  <If when={Boolean(item().recommended)}>
+                    <View class="rounded-full bg-stamp-soft px-2 py-0.5">
+                      <Text class="text-[10px] font-semibold text-stamp-ink">
+                        {tr("common.recommended")}
+                      </Text>
+                    </View>
+                  </If>
+                </View>
+                <Text class="text-xs text-muted-foreground">{item().subtitle}</Text>
+              </View>
+              <If when={isSelected()}>
+                <VitalBadge tone="optimal" label={tr("common.active")} />
+              </If>
             </Button>
           );
-        }}
-      </Each>
-    </View>
+        }
+
+        return (
+          <Button
+            hitSlop={4}
+            accessibilityLabel={tr("sanctuary.switch_theme_a11y", { name: item().shortLabel })}
+            onPress={() => {
+              hapticSelection();
+              props.onSelect(item().id);
+            }}
+            class={`min-h-11 flex-row items-center gap-1.5 rounded-full border px-3.5 py-2 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+              isSelected()
+                ? "border-primary bg-primary"
+                : "border-border/80 bg-card hover:border-primary/45"
+            }`}
+          >
+            <QiIcon
+              name={
+                item().id === "zen_garden"
+                  ? "flower_branch"
+                  : item().id === "playful_bento"
+                    ? "sparkles"
+                    : "paw"
+              }
+              size={13}
+              color={isSelected() ? token("primary-foreground") : token("muted-foreground")}
+            />
+            <Text
+              class={`text-xs font-semibold ${
+                isSelected() ? "text-primary-foreground" : "text-foreground"
+              }`}
+            >
+              {item().shortLabel}
+            </Text>
+          </Button>
+        );
+      }}
+    </Each>
+  );
+
+  if (props.detailed) {
+    return <View class="gap-2">{renderItems()}</View>;
+  }
+
+  return (
+    <Scroll horizontal contentStyle={{ paddingRight: 8 }}>
+      <View class="flex-row items-center gap-2">{renderItems()}</View>
+    </Scroll>
   );
 }
 
@@ -369,6 +384,7 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
       : "rounded-full";
 
   const handlePet = () => {
+    hapticSoftImpact();
     void petBounce.triggerPet();
     props.onPet();
   };
@@ -419,7 +435,7 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
   return (
     <View class="gap-3">
       {/* 1. 无框感沉浸式插画主舞台（画面之上至多 2 枚静默角标） */}
-      <View class="relative h-64 overflow-hidden rounded-3xl border border-border/60 bg-surface-sunken sm:h-72">
+      <View class="relative h-56 overflow-hidden rounded-3xl border border-border/60 bg-surface-sunken sm:h-72">
         <SceneCrossfade
           value={transitionKey()}
           warmth={shaderConfig().warmth}
@@ -444,6 +460,7 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
 
         {/* 角标一（左上）：元气读数与此刻状态（非抢眼纯景角标） */}
         <View
+          ios={{ backdropMaterial: "ultraThin" }}
           style={{ pointerEvents: "none" }}
           class="absolute left-3 top-3 flex-row items-center gap-2 rounded-full border border-stage-ink/15 bg-stage-scrim/80 px-3 py-1.5"
         >
@@ -462,25 +479,33 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
         </View>
 
         {/* 角标二（右上）：晨露点数 + 节气/日签轻触发 */}
-        <Button
-          hitSlop={6}
-          accessibilityLabel={tr("poster.open_a11y")}
-          onPress={props.onOpenPoster}
-          class="absolute right-3 top-3 min-h-10 flex-row items-center gap-1.5 rounded-full border border-stage-ink/15 bg-stage-scrim/80 px-3 py-1.5 transition-opacity duration-150 hover:opacity-90 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        <View
+          ios={{ backdropMaterial: "ultraThin" }}
+          class="absolute right-3 top-3 overflow-hidden rounded-full border border-stage-ink/15 bg-stage-scrim/80"
         >
-          <QiIcon name="droplet" size={12} color={token("stage-ink")} />
-          <Text
-            class="text-xs font-semibold text-stage-ink"
-            style={{ fontVariant: ["tabular-nums"] }}
+          <Button
+            hitSlop={6}
+            accessibilityLabel={tr("poster.open_a11y")}
+            onPress={() => {
+              hapticSelection();
+              props.onOpenPoster();
+            }}
+            class="min-h-11 flex-row items-center gap-1.5 rounded-full px-3 py-1.5 transition-opacity duration-150 hover:opacity-90 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
           >
-            {formatNumber(props.dewSummary.points)}
-          </Text>
-          <Text class="text-[11px] text-stage-ink/60">·</Text>
-          <QiIcon name="postcard" size={12} color={token("stage-ink")} />
-          <Text class="text-[11px] font-medium text-stage-ink">
-            {props.solarTerm ?? tr("today.open_poster")}
-          </Text>
-        </Button>
+            <QiIcon name="droplet" size={12} color={token("stage-ink")} />
+            <Text
+              class="text-xs font-semibold text-stage-ink"
+              style={{ fontVariant: ["tabular-nums"] }}
+            >
+              {formatNumber(props.dewSummary.points)}
+            </Text>
+            <Text class="text-[11px] text-stage-ink/60">·</Text>
+            <QiIcon name="postcard" size={12} color={token("stage-ink")} />
+            <Text class="text-[11px] font-medium text-stage-ink">
+              {props.solarTerm ?? tr("today.open_poster")}
+            </Text>
+          </Button>
+        </View>
 
         {/* 窗台轻抚热区 / 自定爱宠模切框（直接依偎于窗台右侧焦位） */}
         <If
@@ -720,6 +745,15 @@ export function StampCheckinCard(props: {
         ? "sparkles"
         : "paw";
 
+  const handleStampToggle = () => {
+    if (props.checked) {
+      hapticSelection();
+    } else {
+      hapticSuccess();
+    }
+    props.onToggle();
+  };
+
   return (
     <View
       class={`gap-3 rounded-2xl border p-4 ${
@@ -752,7 +786,7 @@ export function StampCheckinCard(props: {
           icon={stampIcon()}
           tone="stamp"
           size="sm"
-          onPress={props.onToggle}
+          onPress={handleStampToggle}
           accessibilityLabel={
             props.checked ? tr("sanctuary.stamped_done_btn") : tr("sanctuary.stamp_action_btn")
           }
@@ -772,7 +806,7 @@ export function StampCheckinCard(props: {
           size="sm"
           shape="pill"
           icon={props.checked ? "check" : stampIcon()}
-          onPress={props.onToggle}
+          onPress={handleStampToggle}
         />
         <ActionButton
           title={tr("sanctuary.quick_meal_btn")}
@@ -967,6 +1001,7 @@ export function DailyPosterModal(props: {
   ];
 
   const triggerInkSwitch = (inkId: SealInkId) => {
+    hapticSoftImpact();
     localInk.set(inkId);
     props.onChangeSealInk?.(inkId);
     void polaroid.tilt(inkId === "lapis" ? 1 : -1, -1).then(() => {
@@ -1039,7 +1074,7 @@ export function DailyPosterModal(props: {
                     hitSlop={4}
                     accessibilityLabel={tr(choice().labelKey)}
                     onPress={() => triggerInkSwitch(choice().id)}
-                    class={`min-h-8 flex-row items-center gap-1 rounded-full border px-2.5 py-1 focus-visible:ring-2 focus-visible:ring-ring ${
+                    class={`min-h-11 flex-row items-center gap-1 rounded-full border px-2.5 py-1.5 focus-visible:ring-2 focus-visible:ring-ring ${
                       activeInk() === choice().id
                         ? "border-primary bg-card"
                         : "border-transparent bg-transparent"
@@ -1063,6 +1098,7 @@ export function DailyPosterModal(props: {
                 hideNums() ? tr("poster.hide_numbers_active") : tr("poster.hide_numbers_toggle")
               }
               onPress={() => {
+                hapticSoftImpact();
                 const next = !hideNums();
                 localHideNums.set(next);
                 props.onToggleHideNumbers?.(next);
@@ -1070,7 +1106,7 @@ export function DailyPosterModal(props: {
                   void polaroid.reset();
                 });
               }}
-              class={`min-h-8 flex-row items-center gap-1 rounded-full border px-2.5 py-1 focus-visible:ring-2 focus-visible:ring-ring ${
+              class={`min-h-11 flex-row items-center gap-1 rounded-full border px-3 py-1.5 focus-visible:ring-2 focus-visible:ring-ring ${
                 hideNums() ? "border-primary bg-accent" : "border-border bg-card"
               }`}
             >

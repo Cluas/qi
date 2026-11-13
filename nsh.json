@@ -6,6 +6,9 @@
   "icon": "assets/icon-1024.png",
   "rust": ".",
   "theme": "theme.json",
+  "statusBar": {
+    "foreground": "auto"
+  },
   "android": {
     "usesCleartextTraffic": true
   },

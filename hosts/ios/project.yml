@@ -41,6 +41,8 @@ targets:
       - sdk: HealthKit.framework
       - sdk: VisionKit.framework
       - sdk: StoreKit.framework
+      - sdk: WidgetKit.framework
+        weak: true
       - sdk: FoundationModels.framework
         weak: true
       # 由 nsh build / NativeShell Release 产出的核心库

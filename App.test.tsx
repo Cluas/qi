@@ -310,3 +310,57 @@ test("知气 v5.0 自定陪伴工坊、只读金库零删档、Apple IAP 合规�
   await app.press("确认彻底清空本机数据");
   await app.waitFor("欢迎来到知气");
 }, 90000);
+
+test("知气 v5.5 iOS 竖屏 (393x852 Dynamic Island) 拇指底栏速记抽屉与 WidgetKit 矩阵测试", async () => {
+  const app = await open("./App.tsx", {
+    width: 393,
+    height: 852,
+    safeArea: { top: 59, bottom: 34, left: 0, right: 0 },
+  });
+  await app.waitFor("欢迎来到知气");
+  await app.press("推开窗扉");
+  await app.waitFor("今日手账");
+  if (app.shows("关闭")) await app.press("关闭");
+
+  // 1. 拇指弧区 5 槽底栏居中 + 速记打开底部抽屉并一步记录饮食芯片
+  await app.waitFor("速记");
+  await app.press("速记");
+  await app.waitFor("随手速记一刻");
+  await app.waitFor("单手一步记");
+  await app.press("半杯冰美式");
+  await app.waitFor("今日手账");
+  if (app.shows("关闭")) await app.press("关闭");
+
+  // 2. 验证 QA 视口切换器按钮可呈现
+  await app.press("打开体验调试台");
+  await app.waitFor("视口形态与拇指热区预览");
+  await app.waitFor("📱 iPhone 竖屏 (402×874)");
+  await app.press("完成");
+  if (app.shows("关闭")) await app.press("关闭");
+
+  // 3. 验证 我的 -> 雅集与权益 内置 WidgetKit 三态小组件矩阵及中英双语切换
+  await app.press("我的");
+  await app.press("雅集与权益");
+  await scrollIntoView(app, "iOS 锁屏与桌面小组件预览（WidgetKit）", 320);
+  await app.waitFor("锁屏圆环 · 元气");
+  await app.waitFor("锁屏微件 · 今日节律");
+  await app.waitFor("桌面 2×2 · 灵境便当");
+  await app.press("精准数值");
+  assertCleanCopy(app.texts());
+
+  // 4. 切至英文验证双语一致性与底部居中 Note 热区
+  await app.press("text:中 / EN");
+  await app.waitFor("Note");
+  await app.waitFor("iOS Lock Screen & Home Widgets (WidgetKit)");
+  await app.waitFor("Lock Ring · Qi");
+  assertCleanCopy(app.texts());
+
+  // 5. 清理回归初始态
+  await app.press("text:ZH / EN");
+  await app.press("隐私与金库");
+  await scrollIntoView(app, "本地安全金库", 900);
+  await app.press("清空本机手账数据…");
+  await app.waitFor("真的要清空本机手账金库吗？");
+  await app.press("确认彻底清空本机数据");
+  await app.waitFor("欢迎来到知气");
+}, 90000);

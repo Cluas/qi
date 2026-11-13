@@ -34,6 +34,7 @@ import {
   setShowCompanionLetterModal,
   setShowQaStudio,
   setVisualTheme,
+  setWidgetPrivacyMode,
   toggleMorningPush,
   updateAiConfig,
   updateCloudUrlAndHandle,
@@ -59,6 +60,7 @@ import {
 } from "../ui/components";
 import { QiIcon } from "../ui/icons";
 import { tr } from "../ui/i18n";
+import { WristWidgetPreviewCard } from "../ui/atelier";
 import { ThemeSwitcherStrip } from "../ui/sanctuary";
 
 export function MeVaultPage() {
@@ -743,6 +745,17 @@ export function MeVaultPage() {
               {tr("atelier.compliance.auto_renewal_disclosure")}
             </Text>
           </Card>
+
+          <WristWidgetPreviewCard
+            score={getState().snapshot.qi_score}
+            state={getState().snapshot.state}
+            stateBadge={getState().solar_atelier.widget_preview.badge_text}
+            poeticLine={getState().solar_atelier.widget_preview.headline}
+            numericLine={getState().solar_atelier.widget_preview.metrics_line ?? undefined}
+            solarTerm={getState().solar_atelier.widget_preview.solar_term}
+            mode={getState().solar_atelier.widget_preview.privacy_mode === "metrics" ? "numeric" : "poetic"}
+            onChangeMode={(m) => setWidgetPrivacyMode(m === "numeric" ? "metrics" : "metaphor")}
+          />
         </View>
       </If>
 
