@@ -18,6 +18,7 @@ import {
 import {
   ActionButton,
   Card,
+  Hairline,
   SectionHeader,
   SelectChip,
   SheetDialog,
@@ -86,18 +87,23 @@ export function QaStudioSheet() {
               {`指标 ${auditReport()!.metric_rows} 条 · 覆盖 ${auditReport()!.distinct_days} 天 · 饮食 ${auditReport()!.intake_rows} 条 · 化验 ${auditReport()!.lab_rows} 条 · 实验 ${auditReport()!.experiment_rows} 项`}
             </Text>
 
-            <View class="gap-1.5 pt-1">
+            <View class="gap-0 pt-1">
               <Each of={auditReport()!.checks} key={(chk) => chk.name}>
-                {(chk) => (
-                  <View class="flex-row items-start justify-between gap-2 rounded-lg border border-border/60 bg-card px-2.5 py-2">
-                    <View class="flex-1 gap-0.5">
-                      <Text class="text-xs font-semibold text-foreground">{chk().name}</Text>
-                      <Text class="text-[11px] leading-relaxed text-muted-foreground">{chk().detail}</Text>
+                {(chk, idx) => (
+                  <View class="gap-0">
+                    <If when={idx() > 0}>
+                      <Hairline />
+                    </If>
+                    <View class="flex-row items-start justify-between gap-2.5 py-2">
+                      <View class="flex-1 gap-0.5">
+                        <Text class="text-xs font-semibold text-foreground">{chk().name}</Text>
+                        <Text class="text-[11px] leading-relaxed text-muted-foreground">{chk().detail}</Text>
+                      </View>
+                      <VitalBadge
+                        tone={chk().passed ? "prime_ready" : "alert_high"}
+                        label={chk().passed ? "PASS" : "FAIL"}
+                      />
                     </View>
-                    <VitalBadge
-                      tone={chk().passed ? "prime_ready" : "alert_high"}
-                      label={chk().passed ? "PASS" : "FAIL"}
-                    />
                   </View>
                 )}
               </Each>

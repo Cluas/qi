@@ -1,11 +1,11 @@
 import { signal, Text, View } from "nsh";
-import { Progress } from "nsh/base";
 import { getState, startExperiment, toggleExperimentToday } from "../store";
 import {
   ActionButton,
   Card,
   CollapsibleCard,
   FieldInput,
+  MeterBar,
   SectionHeader,
   SelectChip,
   SunkenBox,
@@ -55,7 +55,7 @@ export function InsightsPage() {
         <SectionHeader
           title="近 7 天 vs 前 7 天节律对照"
           subtitle={`${period().current_window} 对比 ${period().previous_window}`}
-          right={<VitalBadge tone="prime_ready" label="双周对比" />}
+          right={<VitalBadge tone="neutral" label="双周对比" />}
         />
 
         <View class="flex-row gap-2">
@@ -118,7 +118,7 @@ export function InsightsPage() {
         <SectionHeader
           title="个人微习惯实验"
           subtitle="把好习惯变成一次轻盈小实验，看看你自己的身体如何回应"
-          right={<VitalBadge tone="moderate_steady" label="个人实证" />}
+          right={<VitalBadge tone="neutral" label="个人实证" />}
         />
 
         <If
@@ -151,18 +151,15 @@ export function InsightsPage() {
                     />
                   </View>
 
-                  <Progress
+                  <MeterBar
                     value={progressPercent(exp().completed_days, exp().target_days)}
                     accessibilityLabel={`${exp().title} 完成进度`}
-                    class="w-full"
-                    trackClass="h-2 w-full overflow-hidden rounded-full bg-border/70"
-                    indicatorClass="h-full rounded-full bg-primary transition-all duration-300"
                   />
 
                   <Text class="text-xs leading-relaxed text-muted-foreground">{exp().hypothesis}</Text>
 
-                  <View class="flex-row flex-wrap gap-2">
-                    <View class="rounded-lg border border-border bg-card px-2.5 py-1.5">
+                  <View class="flex-row gap-3 border-y border-border/55 py-2">
+                    <View class="flex-1 gap-0.5">
                       <Text class="text-[11px] text-muted-foreground">夜间恢复</Text>
                       <Text
                         class="text-xs font-semibold text-foreground"
@@ -171,7 +168,7 @@ export function InsightsPage() {
                         {formatDelta(exp().hrv_delta_ms, "ms")}
                       </Text>
                     </View>
-                    <View class="rounded-lg border border-border bg-card px-2.5 py-1.5">
+                    <View class="flex-1 gap-0.5 border-l border-border/55 pl-3">
                       <Text class="text-[11px] text-muted-foreground">静息心率</Text>
                       <Text
                         class="text-xs font-semibold text-foreground"
@@ -180,7 +177,7 @@ export function InsightsPage() {
                         {formatDelta(exp().rhr_delta_bpm, "bpm", true)}
                       </Text>
                     </View>
-                    <View class="rounded-lg border border-border bg-card px-2.5 py-1.5">
+                    <View class="flex-1 gap-0.5 border-l border-border/55 pl-3">
                       <Text class="text-[11px] text-muted-foreground">深睡时长</Text>
                       <Text
                         class="text-xs font-semibold text-foreground"

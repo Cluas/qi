@@ -2,8 +2,8 @@
   "cssVars": {
     "theme": {
       "radius": "0.875rem",
-      "font-sans": "PingFang SC, SF Pro Text, system-ui, sans-serif",
-      "font-mono": "SF Mono, ui-monospace, monospace"
+      "font-sans": "PingFang SC, Helvetica Neue, system-ui, sans-serif",
+      "font-mono": "Menlo, ui-monospace, monospace"
     },
     "light": {
       "background": "#F7F5F0",

@@ -164,7 +164,7 @@ export function MeVaultPage() {
             class="flex-1"
           />
           <ActionButton
-            title="跨设备恢复"
+            title="跨设备恢复…"
             icon="refresh"
             variant="outline"
             onPress={() => {
@@ -401,7 +401,7 @@ export function MeVaultPage() {
         </If>
 
         <ActionButton
-          title="物理清空本机健康数据"
+          title="物理清空本机健康数据…"
           variant="danger"
           onPress={() => showWipeConfirm.set(true)}
         />
@@ -414,14 +414,16 @@ export function MeVaultPage() {
             <QiIcon name="sliders" size={20} color={token("primary")} />
           </View>
           <View class="flex-1 gap-0.5">
-            <Text class="text-base font-semibold text-foreground">知气验真与数据工坊</Text>
+            <Text role="header" class="text-base font-semibold text-foreground">
+              知气验真与数据工坊
+            </Text>
             <Text class="text-xs leading-relaxed text-muted-foreground">
               面向验收与开发者：快速切换纵向测试画像、执行数据完整性自检与端侧能力诊断
             </Text>
           </View>
         </View>
         <ActionButton
-          title="打开 QA 测试数据与诊断工坊"
+          title="打开 QA 测试数据与诊断工坊…"
           icon="sliders"
           variant="outline"
           onPress={() => setShowQaStudio(true)}
@@ -521,6 +523,7 @@ export function MeVaultPage() {
       {/* 物理清空二次确认抽屉 */}
       <SheetDialog
         open={showWipeConfirm()}
+        role="alertdialog"
         title="确认物理清空本机健康数据"
         onClose={() => showWipeConfirm.set(false)}
       >

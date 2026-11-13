@@ -17,6 +17,7 @@ import {
   Card,
   CollapsibleCard,
   ConsumerStatusPill,
+  Hairline,
   SectionHeader,
   SelectChip,
   StatMetricTile,
@@ -165,7 +166,9 @@ export function TodayPage() {
       {/* 顶部时段问候 + 日期 + 聚焦目标 */}
       <View class="flex-row items-end justify-between gap-3 px-0.5">
         <View class="flex-1 gap-0.5">
-          <Text class="text-xl font-bold text-foreground">晨安 · 今日节律</Text>
+          <Text role="header" class="text-xl font-bold text-foreground">
+            晨安 · 今日节律
+          </Text>
           <Text class="text-xs text-muted-foreground">{`聚焦方向：${goalLabel()}`}</Text>
         </View>
         <View class="rounded-full border border-border/70 bg-card px-3 py-1">
@@ -188,13 +191,12 @@ export function TodayPage() {
               <Text class="text-xs font-medium text-muted-foreground">今日元气指数</Text>
               <VitalBadge tone={snap().state} label={snap().state_badge} />
             </View>
-            <View class="flex-row items-baseline gap-1.5">
-              <Text class="text-3xl font-bold text-foreground" style={{ fontVariant: ["tabular-nums"] }}>
-                {`${snap().qi_score}`}
-              </Text>
-              <Text class="text-sm font-medium text-muted-foreground">/ 100</Text>
-            </View>
-            <Text class="text-xs leading-relaxed text-foreground">{snap().headline}</Text>
+            <Text class="text-sm font-medium leading-relaxed text-foreground">{snap().headline}</Text>
+            <Text class="text-xs text-muted-foreground">
+              {snap().acwr !== null
+                ? `近期活动负荷 · ${friendlyLoadStatus(snap().acwr)}`
+                : "顺应今日恢复节律与饮食记录"}
+            </Text>
           </View>
         </View>
 
@@ -327,10 +329,9 @@ export function TodayPage() {
           </If>
         </View>
 
-        <View class="flex-row gap-3 rounded-xl border border-border/60 bg-surface-sunken p-3.5">
-          <View class="w-1 rounded-full bg-primary/60" />
-          <Text class="flex-1 text-sm leading-relaxed text-foreground">{briefing().text}</Text>
-        </View>
+        <SunkenBox>
+          <Text class="text-sm leading-relaxed text-foreground">{briefing().text}</Text>
+        </SunkenBox>
 
         <View class="flex-row flex-wrap gap-2">
           <ActionButton
@@ -378,10 +379,13 @@ export function TodayPage() {
             </SunkenBox>
           }
         >
-          <View class="gap-2.5">
+          <View class="gap-0">
             <Each of={baselineMetrics()} key={(item) => item.key}>
-              {(item) => (
-                <SunkenBox>
+              {(item, idx) => (
+                <View class="gap-1.5 py-2.5">
+                  <If when={idx() > 0}>
+                    <Hairline class="mb-2" />
+                  </If>
                   <View class="flex-row items-center justify-between gap-2">
                     <Text class="text-sm font-semibold text-foreground">
                       {CONSUMER_METRIC_TITLES[item().key] ?? item().label}
@@ -401,7 +405,7 @@ export function TodayPage() {
                         : `30 天常态 ${formatMetricReading(item().baseline_30d_mean, item().unit)} · 近 7 天 ${formatMetricReading(item().avg_7d, item().unit)}`}
                     </Text>
                   </View>
-                </SunkenBox>
+                </View>
               )}
             </Each>
           </View>

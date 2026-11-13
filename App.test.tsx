@@ -87,12 +87,14 @@ test("知气 Qi v2.0 消费级全界面与 QA 工坊全链路测试", async () =
     await app.press("关闭");
   }
 
-  await app.scroll("个人云端到端加密同步中心", 240);
+  await app.scroll("个人云端到端加密同步中心", 360);
+  await app.waitFor("纯本机离线模型");
   await app.press("纯本机离线模型");
   await app.waitFor("当前已选纯本机离线模型：所有简报润色都在本机完成，零数据离开设备。");
 
-  await app.scroll("AI 引擎与隐私边界", 520);
-  await app.press("打开 QA 测试数据与诊断工坊");
+  await app.scroll("AI 引擎与隐私边界", 680);
+  await app.waitFor("打开 QA 测试数据与诊断工坊…");
+  await app.press("打开 QA 测试数据与诊断工坊…");
   await app.waitFor("6 大纵向测试画像一键切换");
 
   // 切换 4 种代表性测试画像并验证 6 项不变量全通过
@@ -121,8 +123,10 @@ test("知气 Qi v2.0 消费级全界面与 QA 工坊全链路测试", async () =
 
   // 6. 物理清空本机健康数据回归冷启动引导
   await app.press("我的");
-  await app.waitFor("物理清空本机健康数据");
-  await app.press("物理清空本机健康数据");
+  await app.waitFor("个人云端到端加密同步中心");
+  await app.scroll("个人云端到端加密同步中心", 900);
+  await app.waitFor("物理清空本机健康数据…");
+  await app.press("物理清空本机健康数据…");
   await app.waitFor("确认物理清空本机健康数据");
   await app.press("确认清空");
   await app.waitFor("欢迎来到「知气 · Qi」");

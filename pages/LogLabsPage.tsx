@@ -1,5 +1,4 @@
 import { Speech, signal, Text, token, View } from "nsh";
-import { Button } from "nsh/base";
 import {
   getDisclaimerText,
   getState,
@@ -15,7 +14,9 @@ import { LabRangeBulletCanvas } from "../ui/charts";
 import {
   ActionButton,
   Card,
+  ChoiceCard,
   FieldInput,
+  Hairline,
   SectionHeader,
   SegmentedTabs,
   SelectChip,
@@ -48,7 +49,7 @@ const QUICK_INTAKES: {
     notes: "下午提神咖啡因",
     kcal: 15,
     icon: "coffee",
-    caption: "午后提神 · 约 15 kcal",
+    caption: "午后提神 · 15 kcal",
   },
   {
     category: "alcohol",
@@ -57,7 +58,7 @@ const QUICK_INTAKES: {
     notes: "聚餐小酌一杯",
     kcal: 190,
     icon: "sparkles",
-    caption: "夜间放松 · 约 190 kcal",
+    caption: "夜间放松 · 190 kcal",
   },
   {
     category: "late_meal",
@@ -66,7 +67,7 @@ const QUICK_INTAKES: {
     notes: "睡前高油盐加餐",
     kcal: 620,
     icon: "moon",
-    caption: "深夜加餐 · 约 620 kcal",
+    caption: "深夜加餐 · 620 kcal",
   },
   {
     category: "meal",
@@ -75,7 +76,7 @@ const QUICK_INTAKES: {
     notes: "鸡胸糙米时蔬",
     kcal: 430,
     icon: "utensils",
-    caption: "轻盈正餐 · 约 430 kcal",
+    caption: "轻盈正餐 · 430 kcal",
   },
 ];
 
@@ -218,20 +219,15 @@ export function LogLabsPage() {
               <View class="flex-row flex-wrap gap-2">
                 <Each of={QUICK_INTAKES} key={(q) => q.item}>
                   {(q) => (
-                    <Button
+                    <ChoiceCard
+                      title={q().item}
+                      subtitle={q().caption}
+                      icon={q().icon}
                       onPress={() =>
                         logQuickIntake(q().category, q().item, q().tag, q().notes, q().kcal)
                       }
-                      class="min-h-11 min-w-36 flex-1 flex-row items-center gap-2.5 rounded-xl border border-border/70 bg-surface-sunken px-3 py-2.5 transition active:scale-[0.98] motion-reduce:active:scale-100"
-                    >
-                      <View class="size-8 items-center justify-center rounded-lg bg-card">
-                        <QiIcon name={q().icon} size={16} color={token("primary")} />
-                      </View>
-                      <View class="flex-1 gap-0.5">
-                        <Text class="text-xs font-semibold text-foreground">{q().item}</Text>
-                        <Text class="text-[11px] text-muted-foreground">{q().caption}</Text>
-                      </View>
-                    </Button>
+                      class="min-w-40 flex-1"
+                    />
                   )}
                 </Each>
               </View>
@@ -300,11 +296,11 @@ export function LogLabsPage() {
                 </SunkenBox>
               }
             >
-              <View class="gap-2">
+              <View class="gap-0">
                 <Each of={intakes().slice(0, 8)} key={(it) => it.id}>
                   {(it) => (
-                    <SunkenBox>
-                      <View class="flex-row items-center justify-between gap-2">
+                    <View class="gap-0">
+                      <View class="flex-row items-center justify-between gap-2 py-2.5">
                         <Text class="flex-1 text-sm font-medium text-foreground">{`${it().date} · ${it().item_name}`}</Text>
                         <Text
                           class="text-xs text-muted-foreground"
@@ -315,7 +311,8 @@ export function LogLabsPage() {
                             : `${it().tags[0] ?? it().category}`}
                         </Text>
                       </View>
-                    </SunkenBox>
+                      <Hairline />
+                    </View>
                   )}
                 </Each>
               </View>
@@ -352,12 +349,13 @@ export function LogLabsPage() {
 
             <View class="flex-row items-center justify-between gap-2">
               <Text class="flex-1 text-xs text-muted-foreground">暂无手头化验单？可体验一次脱敏建档流程</Text>
-              <Button
+              <ActionButton
+                title="试用示例报告体验脱敏"
+                size="sm"
+                variant="secondary"
+                shape="pill"
                 onPress={() => requestAiAction(() => importLabReport("2026-11-13", SAMPLE_LAB_OCR))}
-                class="min-h-10 items-center justify-center rounded-full border border-border bg-surface-sunken px-3.5 py-1.5 active:opacity-80"
-              >
-                <Text class="text-xs font-medium text-foreground">试用示例报告体验脱敏</Text>
-              </Button>
+              />
             </View>
 
             <If when={showCustomLab()}>
@@ -480,7 +478,7 @@ export function LogLabsPage() {
           <SectionHeader
             title="外部穿戴历史数据导入"
             subtitle="支持 Apple Health 导出 XML、CSV 日报与 OpenHealthSync JSONL"
-            right={<VitalBadge tone="prime_ready" label="自动口径区分" />}
+            right={<VitalBadge tone="neutral" label="自动口径区分" />}
           />
 
           <View class="flex-row flex-wrap gap-2">

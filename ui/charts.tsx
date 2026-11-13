@@ -122,18 +122,18 @@ export function VitalityDialCanvas(props: { score: number; state: string; badge:
         cx.stroke();
         cx.restore();
 
-        // 5) 中心大号等宽数字与状态文案
+        // 5) 中心大号等宽数字与满分刻度（状态印章由卡片右侧独占承载，避免重复）
         cx.save();
         cx.textAlign = "center";
         cx.textBaseline = "middle";
         cx.fillStyle = fgColor;
-        cx.font = "700 32px PingFang SC";
+        cx.font = '700 34px "PingFang SC", -apple-system, sans-serif';
         cx.fontVariantNumeric = "tabular-nums";
         cx.fillText(`${Math.round(score)}`, cxMid, cyMid - 5);
 
-        cx.fillStyle = activeColor;
-        cx.font = "600 11px PingFang SC";
-        cx.fillText(props.badge, cxMid, cyMid + 24);
+        cx.fillStyle = subtleInk;
+        cx.font = '500 11px "Menlo", monospace';
+        cx.fillText("/ 100", cxMid, cyMid + 22);
         cx.restore();
       }}
     />
@@ -330,22 +330,22 @@ export function SleepArchitectureBar(props: {
           }}
         />
 
-        <View class="flex-row flex-wrap items-center justify-between gap-2">
+        <View class="flex-row flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
           <Each of={legendItems()} key={(item) => item.key}>
             {(item) => (
-              <View class="flex-row items-center gap-1.5">
+              <View class="flex-row items-center gap-1">
                 <Canvas
-                  style={{ width: 8, height: 8 }}
+                  style={{ width: 7, height: 7 }}
                   draw={(cx, s) => {
                     cx.clearRect(0, 0, s.width, s.height);
                     cx.fillStyle = readToken(item().tokenName);
                     cx.beginPath();
-                    cx.arc(s.width / 2, s.height / 2, 3.5, 0, Math.PI * 2);
+                    cx.arc(s.width / 2, s.height / 2, 3, 0, Math.PI * 2);
                     cx.fill();
                   }}
                 />
-                <Text class="text-xs text-muted-foreground">{item().label}</Text>
-                <Text class="text-xs font-semibold text-foreground" style={{ fontVariant: ["tabular-nums"] }}>
+                <Text class="text-[11px] text-muted-foreground">{item().label}</Text>
+                <Text class="text-[11px] font-semibold text-foreground" style={{ fontVariant: ["tabular-nums"] }}>
                   {`${item().min}m`}
                 </Text>
               </View>
@@ -431,7 +431,7 @@ export function LabRangeBulletCanvas(props: {
 
           // 参考边界刻度数字
           cx.save();
-          cx.font = "500 9px SF Mono";
+          cx.font = '500 9px "Menlo", monospace';
           cx.fontVariantNumeric = "tabular-nums";
           cx.fillStyle = readToken("ink-subtle");
           cx.textBaseline = "top";
@@ -541,7 +541,7 @@ export function AcwrSweetSpotCanvas(props: { acwr: number | null }) {
 
         // 大众化区间文案
         cx.save();
-        cx.font = "500 10px PingFang SC";
+        cx.font = '500 10px "PingFang SC", -apple-system, sans-serif';
         cx.textBaseline = "top";
         cx.textAlign = "center";
 
@@ -549,11 +549,11 @@ export function AcwrSweetSpotCanvas(props: { acwr: number | null }) {
         cx.fillText("恢复期", padX + warmW / 2, barY + barH + 6);
 
         cx.fillStyle = token("vital-prime");
-        cx.font = "600 10px PingFang SC";
+        cx.font = '600 10px "PingFang SC", -apple-system, sans-serif';
         cx.fillText("黄金适度区", padX + warmW + sweetW / 2, barY + barH + 6);
 
         cx.fillStyle = token("muted-foreground");
-        cx.font = "500 10px PingFang SC";
+        cx.font = '500 10px "PingFang SC", -apple-system, sans-serif';
         cx.fillText("偏累预警", padX + warmW + sweetW + overW / 2, barY + barH + 6);
         cx.restore();
 
