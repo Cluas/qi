@@ -1,0 +1,13 @@
+{
+  "name": "知气 · Qi",
+  "id": "eu.org.cluas.qi",
+  "version": "0.1.0",
+  "build": 1,
+  "rust": ".",
+  "theme": "theme.json",
+  "tailwind": {
+    "radius": {
+      "card": 18
+    }
+  }
+}

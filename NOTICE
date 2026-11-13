@@ -1,0 +1,13 @@
+知气 · Qi
+Copyright 2026 Qi Contributors
+
+This product includes software and design foundations from the following open-source projects:
+
+1. PulsHealth (Apache License, Version 2.0)
+   Copyright 2026 Sean Wade
+   This product includes software developed by the PulsHealth contributors
+   (https://github.com/PulsHealth/pulshealth).
+
+2. Native Shell / NSH (Apache License, Version 2.0)
+   Copyright Longbridge
+   (https://github.com/longbridge/nsh).
