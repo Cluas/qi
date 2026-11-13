@@ -93,6 +93,7 @@ export interface FoodSearchHit {
 
 export interface LabBiomarkerRow {
   id: number;
+  profile_id: string;
   test_date: string;
   marker_name: string;
   canonical_key: string;
@@ -100,6 +101,7 @@ export interface LabBiomarkerRow {
   unit: string;
   ref_low: number | null;
   ref_high: number | null;
+  reference_high: number | null;
   flag: string;
   plain_note: string;
   prev_value: number | null;
@@ -121,6 +123,9 @@ export interface ExperimentEvaluation {
   rhr_delta_bpm: number | null;
   deep_sleep_delta_min: number | null;
   verdict_summary: string;
+  washout_days: number;
+  washout_skipped_days: number;
+  outcome_verdict: string;
 }
 
 export interface ExperimentTemplate {
@@ -182,6 +187,7 @@ export interface DataAuditReport {
   tier_hrv_contract_held: boolean;
   lab_trends_consistent: boolean;
   pii_guard_verified: boolean;
+  vault_non_lockout_verified: boolean;
   passed: boolean;
   checks: AuditCheckItem[];
 }
@@ -214,6 +220,20 @@ export interface AppSettings {
   pull_cursor_id: number;
   last_sync_summary: string;
   checked_action_today: boolean;
+  entitlement_token: string;
+  max_seen_epoch: number;
+  guardian_sponsor: boolean;
+  companion_loyalty_days: number;
+  sandbox_tier: string;
+  sandbox_state: string;
+  weather_mood: string;
+  widget_privacy_mode: string;
+  equipped_keepsakes_json: string;
+  pair_code: string;
+  partner_name: string;
+  partner_mood: number;
+  bonsai_dew: number;
+  active_seal_ink: string;
 }
 
 export interface BriefingResult {
@@ -231,11 +251,300 @@ export interface LastLabImportFeedback {
 
 export interface CloudEntitlementsView {
   plan_tier: string;
-  month: string;
+  month?: string;
+  year_month?: string;
   lab_parses_used: number;
   lab_parses_remaining: number;
   local_ollama_unlocked: boolean;
-  webdav_unlocked: boolean;
+  webdav_unlocked?: boolean;
+  cross_platform_webdav_unlocked?: boolean;
+  entitlement_token?: string;
+  entitlement_expires_epoch?: number;
+  guardian_sponsor?: boolean;
+  companion_loyalty_days?: number;
+  seats?: number;
+  tier_display?: string;
+  pair_code?: string;
+}
+
+export interface EntitlementVerificationResult {
+  valid_signature: boolean;
+  tier: string;
+  tier_display: string;
+  state: "free_local" | "active_atelier" | "offline_grace" | "expired_read_only_vault";
+  is_atelier_unlocked: boolean;
+  seats: number;
+  guardian_sponsor: boolean;
+  companion_loyalty_eligible: boolean;
+  exp_epoch: number;
+  grace_until: number;
+  grace_days_remaining: number;
+  clock_rollback_detected: boolean;
+  effective_now_epoch: number;
+  new_max_seen_epoch: number;
+  features: string[];
+  can_read_history_vault: boolean;
+  can_export_vault: boolean;
+  status_banner: string;
+  reason: string;
+}
+
+export interface PricingPlanDescriptor {
+  tier: string;
+  title: string;
+  subtitle: string;
+  price_cny: number;
+  original_price_cny: number | null;
+  billing_cycle: string;
+  seats: number;
+  highlights: string[];
+  badge: string;
+  loyalty_applied: boolean;
+}
+
+export interface TrialTimelineStep {
+  day_label: string;
+  title: string;
+  detail: string;
+}
+
+export interface EntitlementCatalog {
+  plans: PricingPlanDescriptor[];
+  guardian_addon_title: string;
+  guardian_addon_price_cny: number;
+  guardian_addon_desc: string;
+  transparent_timeline: TrialTimelineStep[];
+  ethical_promises: string[];
+}
+
+export interface SolarTermState {
+  date: string;
+  term_name: string;
+  term_index: number;
+  season: string;
+  season_cn: string;
+  lunar_phase: string;
+  lunar_day_approx: number;
+  weather_mood: string;
+  active_world: string;
+  whisper: string;
+}
+
+export interface SeasonalPassNodePayload {
+  id: string;
+  title: string;
+  track: string;
+  reward_kind: string;
+  reward_id: string;
+  cost_dew: number;
+  claimed: boolean;
+  unlocked_by_tier: boolean;
+  evergreen_term: string;
+}
+
+export interface OutfitSpec {
+  id: string;
+  name: string;
+  desc: string;
+  track: string;
+  unlocked: boolean;
+}
+
+export interface SealInkSpec {
+  id: string;
+  name: string;
+  hex_hint: string;
+  unlocked: boolean;
+}
+
+export interface KeepsakeCatalogItem {
+  id: string;
+  name: string;
+  hint: string;
+  track: string;
+  unlocked: boolean;
+  equipped: boolean;
+}
+
+export interface KeepsakeCatalog {
+  max_equipped_slots: number;
+  allowed_slots_for_tier: number;
+  equipped_ids: string[];
+  items: KeepsakeCatalogItem[];
+  outfits: OutfitSpec[];
+  seal_inks: SealInkSpec[];
+  active_seal_ink: string;
+}
+
+export interface DewLedgerEntry {
+  id: number;
+  created_at: string;
+  delta: number;
+  source: string;
+  note: string;
+  reward_id: string;
+}
+
+export interface SanctuaryPreset {
+  id: number;
+  name: string;
+  world_id: string;
+  weather_mood: string;
+  seal_ink: string;
+  keepsakes_json: string;
+  created_at: string;
+}
+
+export interface FoodSticker {
+  id: number;
+  date: string;
+  title: string;
+  filter: string;
+  note: string;
+  nutrition_hint: string;
+  image_ref: string;
+  is_favorite: boolean;
+}
+
+export interface StickerMonthlyQuota {
+  year_month: string;
+  used_count: number;
+  limit: number | null;
+  remaining: number | null;
+  unlimited: boolean;
+  can_create: boolean;
+}
+
+export interface CompanionWeeklyLetter {
+  week_number: number;
+  title: string;
+  companion_id: string;
+  companion_name: string;
+  solar_term: string;
+  ex_libris_title: string;
+  ex_libris_seal: string;
+  body: string;
+  unlocked: boolean;
+  lock_reason: string | null;
+}
+
+export interface CoSanctuaryActionSpec {
+  id: string;
+  label: string;
+  dew_reward: number;
+}
+
+export interface CoSanctuaryState {
+  pair_code: string;
+  partner_name: string;
+  self_mood_byte: number;
+  self_mood_label: string;
+  partner_mood_byte: number;
+  partner_mood_label: string;
+  bonsai_name: string;
+  bonsai_dew: number;
+  bonsai_stage: string;
+  next_stage_dew: number | null;
+  available_actions: CoSanctuaryActionSpec[];
+  privacy_note: string;
+}
+
+export interface WidgetStudioPayload {
+  privacy_mode: string;
+  solar_term: string;
+  lunar_phase: string;
+  headline: string;
+  subline: string;
+  badge_text: string;
+  companion_line: string;
+  qi_score_visible: boolean;
+  qi_score: number | null;
+  metrics_line: string | null;
+}
+
+export interface FourSeasonsScrollNode {
+  season: string;
+  season_cn: string;
+  solar_term: string;
+  title: string;
+  summary: string;
+  highlight_value: string;
+  sealed: boolean;
+}
+
+export interface CeramicBadge {
+  id: string;
+  title: string;
+  glaze_style: string;
+  earned: boolean;
+  reason: string;
+}
+
+export interface SolarAtelierPayload {
+  solar_term: SolarTermState;
+  dew_balance: number;
+  dew_ledger: DewLedgerEntry[];
+  seasonal_pass: SeasonalPassNodePayload[];
+  keepsake_catalog: KeepsakeCatalog;
+  presets: SanctuaryPreset[];
+  preset_limit: number | null;
+  stickers: FoodSticker[];
+  sticker_quota: StickerMonthlyQuota;
+  weekly_letters: CompanionWeeklyLetter[];
+  co_sanctuary: CoSanctuaryState;
+  widget_preview: WidgetStudioPayload;
+  four_seasons_scroll: FourSeasonsScrollNode[];
+  ceramic_badges: CeramicBadge[];
+}
+
+export interface MultiLagImpactItem {
+  tag: string;
+  lag_days: number;
+  lag_label: string;
+  outcome_key: string;
+  outcome_label: string;
+  sample_n: number;
+  control_n: number;
+  delta_pct: number;
+  cohen_d: number;
+  confounder_note: string;
+  summary: string;
+}
+
+export interface MultiProfileUlnPoint {
+  profile_id: string;
+  profile_label: string;
+  canonical_key: string;
+  marker_name: string;
+  test_date: string;
+  value: number;
+  unit: string;
+  reference_high: number;
+  uln_pct: number;
+  flag: string;
+}
+
+export interface MultiProfileRecheckReminder {
+  profile_id: string;
+  profile_label: string;
+  canonical_key: string;
+  marker_name: string;
+  last_test_date: string;
+  days_since_last: number;
+  flag: string;
+  reminder_text: string;
+}
+
+export interface ParentsPeaceLetter {
+  recipient_label: string;
+  title: string;
+  greeting: string;
+  body: string;
+  highlights: string[];
+  recheck_notes: string[];
+  closing: string;
+  large_print_markdown: string;
+  e2ee_note: string;
 }
 
 export interface UiStatePayload {
@@ -249,6 +558,13 @@ export interface UiStatePayload {
   period_comparison: PeriodComparison;
   last_lab_import: LastLabImportFeedback | null;
   capability_probe: LocalAiCapabilityProbe | null;
+  entitlements: EntitlementVerificationResult;
+  entitlement_catalog: EntitlementCatalog;
+  solar_atelier: SolarAtelierPayload;
+  multi_lag_radar: MultiLagImpactItem[];
+  multi_profile_uln_trends: MultiProfileUlnPoint[];
+  recheck_reminders: MultiProfileRecheckReminder[];
+  parents_peace_letter_preview: ParentsPeaceLetter;
 }
 
 export type ActiveTab = "today" | "log" | "insights" | "me";
@@ -271,6 +587,13 @@ const lastAuditReport = signal<DataAuditReport | null>(null);
 const visualTheme = signal<VisualThemeId>("cat_window");
 const petCount = signal<number>(0);
 const showDailyPoster = signal<boolean>(false);
+const showAtelierModal = signal<boolean>(false);
+const showCompanionLetterModal = signal<boolean>(false);
+const showCoSanctuarySheet = signal<boolean>(false);
+const showFourSeasonsScrollModal = signal<boolean>(false);
+const showFamilyPeaceLetterModal = signal<boolean>(false);
+const parentsPeaceLetterResult = signal<ParentsPeaceLetter | null>(null);
+const hidePosterNumbers = signal<boolean>(false);
 let pendingZdrCallback: (() => void) | null = null;
 
 void Storage.getItem("qi.visual_theme")
@@ -310,6 +633,19 @@ export const getVisualTheme = () => visualTheme();
 export const getPetCount = () => petCount();
 export const getShowDailyPoster = () => showDailyPoster();
 export const setShowDailyPoster = (open: boolean) => showDailyPoster.set(open);
+export const getShowAtelierModal = () => showAtelierModal();
+export const setShowAtelierModal = (open: boolean) => showAtelierModal.set(open);
+export const getShowCompanionLetterModal = () => showCompanionLetterModal();
+export const setShowCompanionLetterModal = (open: boolean) => showCompanionLetterModal.set(open);
+export const getShowCoSanctuarySheet = () => showCoSanctuarySheet();
+export const setShowCoSanctuarySheet = (open: boolean) => showCoSanctuarySheet.set(open);
+export const getShowFourSeasonsScrollModal = () => showFourSeasonsScrollModal();
+export const setShowFourSeasonsScrollModal = (open: boolean) => showFourSeasonsScrollModal.set(open);
+export const getShowFamilyPeaceLetterModal = () => showFamilyPeaceLetterModal();
+export const setShowFamilyPeaceLetterModal = (open: boolean) => showFamilyPeaceLetterModal.set(open);
+export const getParentsPeaceLetterResult = () => parentsPeaceLetterResult();
+export const getHidePosterNumbers = () => hidePosterNumbers();
+export const setHidePosterNumbers = (hide: boolean) => hidePosterNumbers.set(hide);
 export const getNoticeText = () => QiMeta.noticeText();
 export const getDisclaimerText = () => QiMeta.disclaimer();
 
@@ -629,6 +965,9 @@ export async function connectCloudSession(cloudUrl: string, handle: string) {
       entitlements: CloudEntitlementsView;
     };
     applyJson(engine.updateCloudSession(cleanUrl, data.handle, data.token));
+    if (data.entitlements?.entitlement_token) {
+      applyJson(engine.applyEntitlementToken(data.entitlements.entitlement_token));
+    }
     cloudEntitlements.set(data.entitlements);
     notify(`已连接知气服务（${data.entitlements.plan_tier.toUpperCase()}）`);
   } catch (err) {
@@ -636,31 +975,39 @@ export async function connectCloudSession(cloudUrl: string, handle: string) {
   }
 }
 
-export async function activateCloudPro() {
+export async function activateCloudPro(tier = "pro_annual", guardianSponsor = false) {
   const s = uiState().settings;
   const cleanUrl = s.cloud_url.trim().replace(/\/+$/, "");
   if (!s.cloud_token) {
-    notify("请先连接账号会话获取凭证");
+    // 离线或未登录云账号时，直接以本机 Ed25519 沙盒签发体验通行证
+    setEntitlementSandbox(tier, "active", guardianSponsor, s.companion_loyalty_days);
     return;
   }
   try {
-    const resp = await fetch(`${cleanUrl}/v1/billing/activate-pro`, {
+    const resp = await fetch(`${cleanUrl}/v1/billing/mock-upgrade`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${s.cloud_token}`,
       },
-      body: JSON.stringify({ tier: "pro" }),
+      body: JSON.stringify({
+        tier,
+        guardian_sponsor: guardianSponsor,
+        companion_loyalty_days: s.companion_loyalty_days,
+      }),
     });
     if (!resp.ok) {
-      notify(`激活 Pro 返回 HTTP ${resp.status}`);
+      notify(`升级雅集返回 HTTP ${resp.status}`);
       return;
     }
     const ent = (await resp.json()) as CloudEntitlementsView;
     cloudEntitlements.set(ent);
-    notify("Pro 权益已生效");
+    if (ent.entitlement_token) {
+      applyJson(engine.applyEntitlementToken(ent.entitlement_token));
+    }
+    notify(`雅集权益已生效（${ent.tier_display ?? ent.plan_tier}）`);
   } catch (err) {
-    notify(`云端服务离线，暂无法激活 Pro (${errorMessage(err)})`);
+    notify(`云端服务离线，暂无法切换雅集权益 (${errorMessage(err)})`);
   }
 }
 
@@ -773,4 +1120,193 @@ export function reseedDemoData() {
   applyJson(engine.reseedDemo());
   lastAuditReport.set(null);
   notify("已重新载入 35 天节律演示数据");
+}
+
+// ---------- 知气雅集 v4.0 动作方法 ----------
+
+export function hasFeature(feature: string): boolean {
+  const ent = uiState().entitlements;
+  return ent.features.includes(feature);
+}
+
+export function verifyEntitlements() {
+  try {
+    applyJson(engine.verifyEntitlements());
+    notify("已完成 Ed25519 离线通行证与单调时钟校验");
+  } catch (err) {
+    notify(`验签提示：${errorMessage(err)}`);
+  }
+}
+
+export function setEntitlementSandbox(
+  tier: string,
+  simulatedState = "active",
+  guardianSponsor = false,
+  loyaltyDays = 32,
+) {
+  try {
+    applyJson(engine.setEntitlementSandbox(tier, simulatedState, guardianSponsor, loyaltyDays));
+    notify(`已签发 ${uiState().entitlements.tier_display} 凭证（${uiState().entitlements.state}）`);
+  } catch (err) {
+    notify(`切换权益沙盒失败：${errorMessage(err)}`);
+  }
+}
+
+export function applyEntitlementToken(token: string) {
+  try {
+    applyJson(engine.applyEntitlementToken(token));
+    notify("Ed25519 雅集通行证已生效");
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function clearEntitlementToken() {
+  applyJson(engine.clearEntitlementToken());
+  notify("已回归「素心清欢」永久免费版（历史档案仍永久可读可导出）");
+}
+
+export function claimSeasonalReward(rewardId: string) {
+  try {
+    applyJson(engine.claimSeasonalReward(rewardId));
+    notify("已收下该岁时风物");
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function claimRecoveryDew() {
+  try {
+    applyJson(engine.claimRecoveryDew());
+    notify("已领取「安心静养 · 睡饱双倍露 +3 💧」");
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function setWeatherMood(mood: string) {
+  applyJson(engine.setWeatherMood(mood));
+  notify("已切换窗外天色心境");
+}
+
+export function toggleEquippedKeepsake(keepsakeId: string) {
+  try {
+    applyJson(engine.toggleEquippedKeepsake(keepsakeId));
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function setSealInk(ink: string) {
+  try {
+    applyJson(engine.setSealInk(ink));
+    notify("已更换日签印泥");
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function saveSanctuaryPreset(name: string) {
+  try {
+    applyJson(engine.saveSanctuaryPreset(name));
+    notify(`已保存书房预设「${name.trim()}」`);
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function applySanctuaryPreset(presetId: number) {
+  try {
+    applyJson(engine.applySanctuaryPreset(presetId));
+    notify("已套用书房预设");
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function addFoodSticker(
+  date: string,
+  title: string,
+  filter: string,
+  note = "",
+  imageRef = "",
+) {
+  try {
+    applyJson(engine.addFoodSticker(date, title, filter, note, imageRef));
+    notify(`已定格食光贴纸「${title.trim()}」(+1 💧)`);
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function toggleStickerFavorite(stickerId: number) {
+  applyJson(engine.toggleStickerFavorite(stickerId));
+}
+
+export function deleteFoodSticker(stickerId: number) {
+  applyJson(engine.deleteFoodSticker(stickerId));
+  notify("已移除该贴纸");
+}
+
+export function coSanctuaryAction(action: string, partnerName?: string, pairCode?: string) {
+  applyJson(engine.cosanctuaryAction(action, partnerName ?? null, pairCode ?? null));
+  if (action === "warm_tea" || action === "tuck_blanket" || action === "paw_stamp") {
+    notify("已向同窗好友送去问候并浇灌窗台金桂 (+1 💧)");
+  }
+}
+
+export function setWidgetPrivacyMode(mode: "metaphor" | "metrics") {
+  applyJson(engine.setWidgetPrivacyMode(mode));
+}
+
+export function startCustomExperiment(
+  title: string,
+  hypothesis: string,
+  targetDays: number,
+  washoutDays: number,
+) {
+  try {
+    applyJson(engine.startCustomExperiment(title, hypothesis, targetDays, washoutDays));
+    notify(`已开启自定义实验（洗脱期 ${washoutDays} 天）`);
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function generateParentsPeaceLetter(recipientLabel = "爸妈") {
+  try {
+    const raw = engine.generateParentsPeaceLetter(recipientLabel);
+    parentsPeaceLetterResult.set(JSON.parse(raw) as ParentsPeaceLetter);
+    showFamilyPeaceLetterModal.set(true);
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function addProfileLabMarker(
+  profileId: "self" | "partner" | "parents",
+  testDate: string,
+  markerName: string,
+  value: number,
+  unit: string,
+  refLow: number | null,
+  refHigh: number | null,
+) {
+  try {
+    applyJson(
+      engine.addProfileLabMarker(profileId, testDate, markerName, value, unit, refLow, refHigh),
+    );
+    notify(`已记录${profileId === "partner" ? "伴侣" : profileId === "parents" ? "父母长辈" : "本人"}指标：${markerName}`);
+  } catch (err) {
+    notify(errorMessage(err));
+  }
+}
+
+export function pullWebdavSync() {
+  try {
+    applyJson(engine.pullWebdavSync());
+    notify(uiState().settings.last_sync_summary);
+  } catch (err) {
+    notify(`WebDAV 拉取提示：${errorMessage(err)}`);
+  }
 }

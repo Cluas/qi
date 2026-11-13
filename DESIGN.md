@@ -64,3 +64,44 @@
 | 身体手账折页（`TodayPage`） | 展开早安简报 / 14 天曲线 / 30 天对照 | `<Collapsible reveal={true}>` 原生高度裁剪揭幕 + `<Plot interactive={true}>` 十字准星 |
 | 食光贴纸与洞察（`LogLabsPage` / `InsightsPage`） | 轻贴饮食贴纸 / 实验打卡 | `StickerMealTile` 轻压回弹 + `<MeterBar>` 进度推进 + `KeepsakeShelfCard` 摆件点亮 |
 | 我的与引导（`MeVaultPage` / `OnboardingModal`） | 切换三套画风预览 / 开关配置 | `ThemeSwitcherStrip` 选中高亮 + `SwitchRow` 滑块平移动效 |
+
+---
+
+## 四、 v4.0 «知气雅集 · Qi Atelier» 视觉与反胁迫商业伦理规范
+
+### 1. v4.0 新增 8 组语义色彩 Token（Light / Dark 全三境适配）
+
+在 `theme.json` 与 `ui/themes.ts`（`WorldTheme` / `WORLD_THEMES` / `semanticColor`）中新增 8 个雅集语义令牌，严禁在 `ui/*.tsx` 中硬编码 `#hex`：
+
+| Token 键名 | 语义职责 | 典型应用场景 |
+| :--- | :--- | :--- |
+| `atelier-accent` / `atelier-soft` | 暖铜雅集主点缀与宣纸底 | `QiAtelierModal` 礼遇标签、雅集轨卡片、90 天归因效应强调 |
+| `wax-seal` / `wax-seal-soft` | 慢递火漆红与浅封蜡底 | `CompanionLetterModal` 火漆信封、家书落款、`窗台添柴计划` |
+| `duo-accent` / `duo-soft` | 双人同窗暖珊瑚点缀与柔底 | `CoSanctuarySheet` 串门徽章、金桂盆栽成长条、`UlnTrajectoryCanvas` 伴侣曲线 |
+| `ink-lapis` | 宋韵石青墨色 | `DailyPosterModal` 石青印泥、藏书票边框、`UlnTrajectoryCanvas` 父母曲线、四时手卷标题 |
+| `ink-gold` | 泥金画墨色 | `SanctuaryStage` 节气天象微标、`DailyPosterModal` 泥金印泥、宋瓷成就勋章 |
+
+### 2. 新增矢量图标与可视化组件（`ui/icons.tsx` / `ui/charts.tsx` / `ui/sanctuary.tsx` / `ui/atelier.tsx`）
+
+- **8 枚 24×24 Retina Canvas 矢量图标**：`SolarTermIcon`、`WaxSealIcon`、`EnvelopeIcon`、`CoSanctuaryIcon`、`WidgetIcon`、`HandscrollIcon`、`BadgeCeramicIcon`、`FamilyHeartIcon`。
+- **深度洞察图表（`ui/charts.tsx`）**：
+  - `UlnTrajectoryCanvas`：多亲友（`本人` / `伴侣` / `父母`）`%ULN` 归一化曲线，含红色虚线 `100% ULN 参考上限`、档案筛选胶囊与检视时点精确读数。
+  - `MultiLagRadarBars`：90 天窗口 `D+0 / D+1 / D+2` 双向归因效应条 + Cohen's `d` 徽章 + 已控混杂芯片 + 样本量 `n`。
+- **灵境剧场与日签升级（`ui/sanctuary.tsx`）**：
+  - `SanctuaryStage` 新增可选 `solarTerm`、`lunarPhase`、`weatherMood`（`misty_rain` 映射 `solar_spring_rain.jpg`，`first_snow` 映射 `solar_winter_hearth.jpg`）、`equippedKeepsakes`（至多 3 件窗台摆件）、`partnerMoodBadge` 与 `atelierUnlocked`。
+  - `DailyPosterModal` 新增可选 `sealInk`（`cinnabar` / `gold` / `lapis`）三色印泥与 `hideNumbers`（隐藏数字只留诗意分享）。
+- **知气雅集组件套件（`ui/atelier.tsx`）**：
+  - `QiAtelierModal`（7 档透明方案 + 30 天陪伴礼遇价 + 窗台添柴公益 + 3 步 Blinkist 透明 7 日线 + 红线承诺）
+  - `SeasonalPassPanel`（清欢/雅集双轨季票 + 往期节气博物架 + 服饰/印泥/天象/3 格摆件）
+  - `StickerCameraMatPanel`（水彩/拍立得/青瓷 Canvas 模切贴纸造物机 + 5 张/月免费额 + 食光月历垫）
+  - `CompanionLetterModal`（《周日夜话慢递》火漆信封 + 暖米信纸 + 节气藏书票）
+  - `CoSanctuarySheet`（《同窗共养》1 字节心情 + 递热茶/盖薄被/按爪印 + 金桂盆栽 + 零日记泄漏盾牌）
+  - `FourSeasonsScrollModal`（《我的四时身体风物长卷》横向卷轴 + 宋瓷勋章）
+  - `WristWidgetPreviewCard`（《抬腕嘴替》诗意隐喻 vs 精准数值预览）
+  - `FamilyPeaceLetterModal`（父母大字版端到端加密《气韵平安家书》）
+
+### 3. 反胁迫与伦理付费墙原则（Ethical Paywall Principles）
+
+1. **核心健康权永久不锁**：原始生理指标、单人化验单 OCR、本地 Ollama 晨报、JSONL / `.qivault` 明文导出及「安心静养（`recovery_priority`）」模式永不设限。
+2. **零焦虑推广时机**：当用户处于低电量静养状态时，绝不弹出会员引导弹窗；订阅入口仅作为轻量温润选项呈现。
+3. **无暗黑模式（Anti-Dark Patterns）**：禁止倒计时紧迫感逼单、禁止羞辱式拒绝文案（次选 CTA 始终是平静的「继续素心清欢」或「先逛逛」），支持随时退出且历史资产永久落入可读可导出的「只读保险箱」。

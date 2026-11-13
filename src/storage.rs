@@ -11,9 +11,10 @@ use crate::analytics::{DailyMetricRow, IntakeLogRow, LabBiomarkerRow, WorkoutRow
 use crate::crypto_sync::{generate_device_id, generate_recovery_phrase};
 use crate::experiments::ExperimentRow;
 use crate::safety_ai::{
-    ParsedLabMarkerDraft, enrich_lab_longitudinal_trends, parse_lab_text_and_verify,
-    scrub_lab_text_pii,
+    ParsedLabMarkerDraft, biomarker_plain_note, enrich_lab_longitudinal_trends,
+    parse_lab_text_and_verify, scrub_lab_text_pii,
 };
+use crate::solar_atelier::{DewLedgerEntry, FoodSticker, SanctuaryPreset};
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS daily_metrics_by_source (
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS intake_logs (
 
 CREATE TABLE IF NOT EXISTS lab_biomarkers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL DEFAULT 'self',
     test_date TEXT NOT NULL,
     marker_name TEXT NOT NULL,
     canonical_key TEXT NOT NULL,
@@ -54,9 +56,10 @@ CREATE TABLE IF NOT EXISTS lab_biomarkers (
     unit TEXT NOT NULL DEFAULT '',
     ref_low REAL,
     ref_high REAL,
+    reference_high REAL,
     flag TEXT NOT NULL DEFAULT 'normal',
     plain_note TEXT NOT NULL DEFAULT '',
-    UNIQUE(test_date, canonical_key)
+    UNIQUE(profile_id, test_date, canonical_key)
 );
 
 CREATE TABLE IF NOT EXISTS experiments (
@@ -66,6 +69,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     target_days INTEGER NOT NULL DEFAULT 7,
     start_date TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
+    washout_days INTEGER NOT NULL DEFAULT 2,
     UNIQUE(title, start_date)
 );
 
@@ -78,6 +82,36 @@ CREATE TABLE IF NOT EXISTS experiment_checkins (
 CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dew_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    delta INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    reward_id TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS sticker_journal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    title TEXT NOT NULL,
+    filter TEXT NOT NULL DEFAULT 'polaroid',
+    note TEXT NOT NULL DEFAULT '',
+    nutrition_hint TEXT NOT NULL DEFAULT '',
+    image_ref TEXT NOT NULL DEFAULT '',
+    is_favorite INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS sanctuary_presets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    world_id TEXT NOT NULL,
+    weather_mood TEXT NOT NULL,
+    seal_ink TEXT NOT NULL DEFAULT 'cinnabar',
+    keepsakes_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
 );
 "#;
 
@@ -111,6 +145,34 @@ pub struct AppSettings {
     pub pull_cursor_id: i64,
     pub last_sync_summary: String,
     pub checked_action_today: bool,
+    #[serde(default)]
+    pub entitlement_token: String,
+    #[serde(default)]
+    pub max_seen_epoch: i64,
+    #[serde(default)]
+    pub guardian_sponsor: bool,
+    #[serde(default)]
+    pub companion_loyalty_days: i64,
+    #[serde(default = "default_sandbox_tier")]
+    pub sandbox_tier: String,
+    #[serde(default = "default_sandbox_state")]
+    pub sandbox_state: String,
+    #[serde(default = "default_weather_mood")]
+    pub weather_mood: String,
+    #[serde(default = "default_widget_privacy_mode")]
+    pub widget_privacy_mode: String,
+    #[serde(default = "default_empty_json_array")]
+    pub equipped_keepsakes_json: String,
+    #[serde(default = "default_pair_code")]
+    pub pair_code: String,
+    #[serde(default)]
+    pub partner_name: String,
+    #[serde(default)]
+    pub partner_mood: i64,
+    #[serde(default)]
+    pub bonsai_dew: i64,
+    #[serde(default = "default_seal_ink")]
+    pub active_seal_ink: String,
 }
 
 macro_rules! string_or {
@@ -122,6 +184,27 @@ pub(crate) use string_or;
 
 fn default_persona() -> String {
     "urban_overwork".to_owned()
+}
+fn default_sandbox_tier() -> String {
+    "free".to_owned()
+}
+fn default_sandbox_state() -> String {
+    "active".to_owned()
+}
+fn default_weather_mood() -> String {
+    "sunny_crisp".to_owned()
+}
+fn default_widget_privacy_mode() -> String {
+    "metaphor".to_owned()
+}
+fn default_empty_json_array() -> String {
+    "[]".to_owned()
+}
+fn default_pair_code() -> String {
+    "QI-2026".to_owned()
+}
+fn default_seal_ink() -> String {
+    "cinnabar".to_owned()
 }
 
 impl Default for AppSettings {
@@ -154,6 +237,20 @@ impl Default for AppSettings {
             pull_cursor_id: 0,
             last_sync_summary: "尚未执行跨端加密同步".to_owned(),
             checked_action_today: false,
+            entitlement_token: String::new(),
+            max_seen_epoch: 0,
+            guardian_sponsor: false,
+            companion_loyalty_days: 0,
+            sandbox_tier: default_sandbox_tier(),
+            sandbox_state: default_sandbox_state(),
+            weather_mood: default_weather_mood(),
+            widget_privacy_mode: default_widget_privacy_mode(),
+            equipped_keepsakes_json: default_empty_json_array(),
+            pair_code: default_pair_code(),
+            partner_name: String::new(),
+            partner_mood: 0,
+            bonsai_dew: 0,
+            active_seal_ink: default_seal_ink(),
         }
     }
 }
@@ -186,8 +283,48 @@ impl VaultDatabase {
     fn init_conn(conn: Connection, auto_seed: bool) -> Result<Self, String> {
         conn.execute_batch(SCHEMA_SQL).map_err(|e| e.to_string())?;
         let db = Self { conn };
+        db.run_idempotent_migrations()?;
         db.ensure_defaults(auto_seed)?;
         Ok(db)
+    }
+
+    fn has_column(&self, table: &str, column: &str) -> Result<bool, String> {
+        let sql = format!("PRAGMA table_info({table})");
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let cols = stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok(cols.iter().any(|c| c == column))
+    }
+
+    fn run_idempotent_migrations(&self) -> Result<(), String> {
+        if !self.has_column("lab_biomarkers", "profile_id")? {
+            self.conn
+                .execute(
+                    "ALTER TABLE lab_biomarkers ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'self'",
+                    [],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        if !self.has_column("lab_biomarkers", "reference_high")? {
+            self.conn
+                .execute(
+                    "ALTER TABLE lab_biomarkers ADD COLUMN reference_high REAL",
+                    [],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        if !self.has_column("experiments", "washout_days")? {
+            self.conn
+                .execute(
+                    "ALTER TABLE experiments ADD COLUMN washout_days INTEGER NOT NULL DEFAULT 2",
+                    [],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     fn ensure_defaults(&self, auto_seed: bool) -> Result<(), String> {
@@ -248,6 +385,29 @@ impl VaultDatabase {
                 "checked_action_today",
                 if s.checked_action_today { "1" } else { "0" }.to_owned(),
             ),
+            ("entitlement_token", s.entitlement_token.clone()),
+            ("max_seen_epoch", s.max_seen_epoch.to_string()),
+            (
+                "guardian_sponsor",
+                if s.guardian_sponsor { "1" } else { "0" }.to_owned(),
+            ),
+            (
+                "companion_loyalty_days",
+                s.companion_loyalty_days.to_string(),
+            ),
+            ("sandbox_tier", s.sandbox_tier.clone()),
+            ("sandbox_state", s.sandbox_state.clone()),
+            ("weather_mood", s.weather_mood.clone()),
+            ("widget_privacy_mode", s.widget_privacy_mode.clone()),
+            (
+                "equipped_keepsakes_json",
+                s.equipped_keepsakes_json.clone(),
+            ),
+            ("pair_code", s.pair_code.clone()),
+            ("partner_name", s.partner_name.clone()),
+            ("partner_mood", s.partner_mood.to_string()),
+            ("bonsai_dew", s.bonsai_dew.to_string()),
+            ("active_seal_ink", s.active_seal_ink.clone()),
         ];
         for (k, v) in pairs {
             self.conn
@@ -304,6 +464,20 @@ impl VaultDatabase {
         if let Some(v) = map.get("pull_cursor_id") { s.pull_cursor_id = v.parse().unwrap_or(0); }
         if let Some(v) = map.get("last_sync_summary") { s.last_sync_summary = v.clone(); }
         if let Some(v) = map.get("checked_action_today") { s.checked_action_today = v == "1"; }
+        if let Some(v) = map.get("entitlement_token") { s.entitlement_token = v.clone(); }
+        if let Some(v) = map.get("max_seen_epoch") { s.max_seen_epoch = v.parse().unwrap_or(0); }
+        if let Some(v) = map.get("guardian_sponsor") { s.guardian_sponsor = v == "1"; }
+        if let Some(v) = map.get("companion_loyalty_days") { s.companion_loyalty_days = v.parse().unwrap_or(0); }
+        if let Some(v) = map.get("sandbox_tier") { s.sandbox_tier = v.clone(); }
+        if let Some(v) = map.get("sandbox_state") { s.sandbox_state = v.clone(); }
+        if let Some(v) = map.get("weather_mood") { s.weather_mood = v.clone(); }
+        if let Some(v) = map.get("widget_privacy_mode") { s.widget_privacy_mode = v.clone(); }
+        if let Some(v) = map.get("equipped_keepsakes_json") { s.equipped_keepsakes_json = v.clone(); }
+        if let Some(v) = map.get("pair_code") { s.pair_code = v.clone(); }
+        if let Some(v) = map.get("partner_name") { s.partner_name = v.clone(); }
+        if let Some(v) = map.get("partner_mood") { s.partner_mood = v.parse().unwrap_or(0); }
+        if let Some(v) = map.get("bonsai_dew") { s.bonsai_dew = v.parse().unwrap_or(0); }
+        if let Some(v) = map.get("active_seal_ink") { s.active_seal_ink = v.clone(); }
         Ok(s)
     }
 
@@ -374,11 +548,23 @@ impl VaultDatabase {
         target_days: u32,
         start_date: &str,
     ) -> Result<i64, String> {
+        self.create_experiment_with_washout(title, hypothesis, target_days, start_date, 2)
+    }
+
+    pub fn create_experiment_with_washout(
+        &self,
+        title: &str,
+        hypothesis: &str,
+        target_days: u32,
+        start_date: &str,
+        washout_days: i64,
+    ) -> Result<i64, String> {
+        let washout = washout_days.clamp(0, 14);
         self.conn
             .execute(
-                "INSERT OR IGNORE INTO experiments (title, hypothesis, target_days, start_date, status)
-                 VALUES (?1, ?2, ?3, ?4, 'active')",
-                params![title.trim(), hypothesis.trim(), target_days, start_date],
+                "INSERT OR IGNORE INTO experiments (title, hypothesis, target_days, start_date, status, washout_days)
+                 VALUES (?1, ?2, ?3, ?4, 'active', ?5)",
+                params![title.trim(), hypothesis.trim(), target_days, start_date, washout],
             )
             .map_err(|e| e.to_string())?;
         let id: i64 = self
@@ -423,7 +609,7 @@ impl VaultDatabase {
     pub fn load_experiments(&self) -> Result<Vec<ExperimentRow>, String> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, title, hypothesis, target_days, start_date, status FROM experiments ORDER BY id DESC")
+            .prepare("SELECT id, title, hypothesis, target_days, start_date, status, washout_days FROM experiments ORDER BY id DESC")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| {
@@ -434,6 +620,7 @@ impl VaultDatabase {
                     r.get::<_, u32>(3)?,
                     r.get::<_, String>(4)?,
                     r.get::<_, String>(5)?,
+                    r.get::<_, i64>(6).unwrap_or(2),
                 ))
             })
             .map_err(|e| e.to_string())?
@@ -441,7 +628,7 @@ impl VaultDatabase {
             .map_err(|e| e.to_string())?;
 
         let mut out = Vec::new();
-        for (id, title, hypothesis, target_days, start_date, status) in rows {
+        for (id, title, hypothesis, target_days, start_date, status, washout_days) in rows {
             let mut c_stmt = self
                 .conn
                 .prepare("SELECT date FROM experiment_checkins WHERE experiment_id = ?1 ORDER BY date ASC")
@@ -459,6 +646,7 @@ impl VaultDatabase {
                 start_date,
                 status,
                 checkin_dates: dates,
+                washout_days,
             });
         }
         Ok(out)
@@ -523,32 +711,140 @@ impl VaultDatabase {
     }
 
     pub fn save_parsed_lab(&self, test_date: &str, d: &ParsedLabMarkerDraft) -> Result<(), String> {
-        self.conn
-            .execute(
-                "INSERT INTO lab_biomarkers (test_date, marker_name, canonical_key, value, unit, ref_low, ref_high, flag, plain_note)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                 ON CONFLICT(test_date, canonical_key) DO UPDATE SET
-                    marker_name = excluded.marker_name,
-                    value = excluded.value,
-                    unit = excluded.unit,
-                    ref_low = excluded.ref_low,
-                    ref_high = excluded.ref_high,
-                    flag = excluded.flag,
-                    plain_note = excluded.plain_note",
-                params![
-                    test_date,
-                    d.marker_name,
-                    d.canonical_key,
-                    d.value,
-                    d.unit,
-                    d.ref_low,
-                    d.ref_high,
-                    d.flag,
-                    d.plain_note
-                ],
+        self.save_parsed_lab_for_profile("self", test_date, d)
+    }
+
+    pub fn save_parsed_lab_for_profile(
+        &self,
+        profile_id: &str,
+        test_date: &str,
+        d: &ParsedLabMarkerDraft,
+    ) -> Result<(), String> {
+        let pid = if profile_id.trim().is_empty() {
+            "self"
+        } else {
+            profile_id.trim()
+        };
+        let existing_id: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT id FROM lab_biomarkers WHERE profile_id = ?1 AND test_date = ?2 AND canonical_key = ?3",
+                params![pid, test_date, d.canonical_key],
+                |r| r.get(0),
             )
-            .map_err(|e| e.to_string())?;
+            .ok();
+        if let Some(id) = existing_id {
+            self.conn
+                .execute(
+                    "UPDATE lab_biomarkers
+                     SET marker_name = ?1, value = ?2, unit = ?3, ref_low = ?4, ref_high = ?5,
+                         reference_high = ?6, flag = ?7, plain_note = ?8
+                     WHERE id = ?9",
+                    params![
+                        d.marker_name,
+                        d.value,
+                        d.unit,
+                        d.ref_low,
+                        d.ref_high,
+                        d.ref_high,
+                        d.flag,
+                        d.plain_note,
+                        id
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+        } else {
+            self.conn
+                .execute(
+                    "INSERT INTO lab_biomarkers
+                     (profile_id, test_date, marker_name, canonical_key, value, unit, ref_low, ref_high, reference_high, flag, plain_note)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    params![
+                        pid,
+                        test_date,
+                        d.marker_name,
+                        d.canonical_key,
+                        d.value,
+                        d.unit,
+                        d.ref_low,
+                        d.ref_high,
+                        d.ref_high,
+                        d.flag,
+                        d.plain_note
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+        }
         Ok(())
+    }
+
+    pub fn insert_lab_marker_for_profile(
+        &self,
+        profile_id: &str,
+        test_date: &str,
+        marker_name: &str,
+        canonical_key: &str,
+        value: f64,
+        unit: &str,
+        ref_low: Option<f64>,
+        ref_high: Option<f64>,
+    ) -> Result<LabBiomarkerRow, String> {
+        let flag = match (ref_low, ref_high) {
+            (Some(lo), Some(hi)) => {
+                if value > hi {
+                    "high"
+                } else if value < lo {
+                    "low"
+                } else {
+                    "normal"
+                }
+            }
+            (None, Some(hi)) if value > hi => "high",
+            (Some(lo), None) if value < lo => "low",
+            _ => "normal",
+        };
+        let draft = ParsedLabMarkerDraft {
+            marker_name: marker_name.trim().to_owned(),
+            canonical_key: canonical_key.trim().to_owned(),
+            value,
+            unit: unit.trim().to_owned(),
+            ref_low,
+            ref_high,
+            flag: flag.to_owned(),
+            plain_note: biomarker_plain_note(canonical_key.trim(), flag),
+        };
+        self.save_parsed_lab_for_profile(profile_id, test_date, &draft)?;
+        let pid = if profile_id.trim().is_empty() {
+            "self"
+        } else {
+            profile_id.trim()
+        };
+        let id: i64 = self
+            .conn
+            .query_row(
+                "SELECT id FROM lab_biomarkers WHERE profile_id = ?1 AND test_date = ?2 AND canonical_key = ?3",
+                params![pid, test_date, draft.canonical_key],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        Ok(LabBiomarkerRow {
+            id,
+            profile_id: pid.to_owned(),
+            test_date: test_date.to_owned(),
+            marker_name: draft.marker_name,
+            canonical_key: draft.canonical_key,
+            value: draft.value,
+            unit: draft.unit,
+            ref_low: draft.ref_low,
+            ref_high: draft.ref_high,
+            reference_high: draft.ref_high,
+            flag: draft.flag,
+            plain_note: draft.plain_note,
+            prev_value: None,
+            prev_date: None,
+            delta: None,
+            trend: None,
+        })
     }
 
     pub fn load_metrics(&self) -> Result<Vec<DailyMetricRow>, String> {
@@ -614,21 +910,25 @@ impl VaultDatabase {
     pub fn load_labs(&self) -> Result<Vec<LabBiomarkerRow>, String> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, test_date, marker_name, canonical_key, value, unit, ref_low, ref_high, flag, plain_note FROM lab_biomarkers ORDER BY test_date DESC, id DESC")
+            .prepare("SELECT id, profile_id, test_date, marker_name, canonical_key, value, unit, ref_low, ref_high, reference_high, flag, plain_note FROM lab_biomarkers ORDER BY test_date DESC, id DESC")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| {
+                let ref_high: Option<f64> = r.get(8)?;
+                let reference_high: Option<f64> = r.get::<_, Option<f64>>(9)?.or(ref_high);
                 Ok(LabBiomarkerRow {
                     id: r.get(0)?,
-                    test_date: r.get(1)?,
-                    marker_name: r.get(2)?,
-                    canonical_key: r.get(3)?,
-                    value: r.get(4)?,
-                    unit: r.get(5)?,
-                    ref_low: r.get(6)?,
-                    ref_high: r.get(7)?,
-                    flag: r.get(8)?,
-                    plain_note: r.get(9)?,
+                    profile_id: r.get::<_, String>(1).unwrap_or_else(|_| "self".to_owned()),
+                    test_date: r.get(2)?,
+                    marker_name: r.get(3)?,
+                    canonical_key: r.get(4)?,
+                    value: r.get(5)?,
+                    unit: r.get(6)?,
+                    ref_low: r.get(7)?,
+                    ref_high,
+                    reference_high,
+                    flag: r.get(10)?,
+                    plain_note: r.get(11)?,
                     prev_value: None,
                     prev_date: None,
                     delta: None,
@@ -687,6 +987,7 @@ impl VaultDatabase {
             lines.push(
                 json!({
                     "kind": "lab",
+                    "profile_id": lab.profile_id,
                     "test_date": lab.test_date,
                     "marker_name": lab.marker_name,
                     "canonical_key": lab.canonical_key,
@@ -708,6 +1009,7 @@ impl VaultDatabase {
                     "hypothesis": exp.hypothesis,
                     "target_days": exp.target_days,
                     "start_date": exp.start_date,
+                    "washout_days": exp.washout_days,
                     "checkin_dates": exp.checkin_dates
                 })
                 .to_string(),
@@ -775,7 +1077,9 @@ impl VaultDatabase {
                         val["canonical_key"].as_str(),
                         val["value"].as_f64(),
                     ) {
-                        self.save_parsed_lab(
+                        let pid = val["profile_id"].as_str().unwrap_or("self");
+                        self.save_parsed_lab_for_profile(
+                            pid,
                             test_date,
                             &ParsedLabMarkerDraft {
                                 marker_name: name.to_owned(),
@@ -798,7 +1102,9 @@ impl VaultDatabase {
                         val["start_date"].as_str(),
                     ) {
                         let days = val["target_days"].as_u64().unwrap_or(7) as u32;
-                        let exp_id = self.create_experiment_if_missing(title, hyp, days, sd)?;
+                        let washout = val["washout_days"].as_i64().unwrap_or(2);
+                        let exp_id =
+                            self.create_experiment_with_washout(title, hyp, days, sd, washout)?;
                         if let Some(arr) = val["checkin_dates"].as_array() {
                             for d in arr.iter().filter_map(|x| x.as_str()) {
                                 let _ = self.conn.execute(
@@ -816,14 +1122,302 @@ impl VaultDatabase {
         Ok(merged)
     }
 
+    pub fn add_dew_entry(
+        &self,
+        delta: i64,
+        source: &str,
+        note: &str,
+        reward_id: &str,
+    ) -> Result<i64, String> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn
+            .execute(
+                "INSERT INTO dew_ledger (created_at, delta, source, note, reward_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![now, delta, source, note, reward_id],
+            )
+            .map_err(|e| e.to_string())?;
+        self.get_dew_balance()
+    }
+
+    pub fn ensure_daily_recovery_dew(&self, date: &str) -> Result<bool, String> {
+        let source_key = format!("recovery_priority:{date}");
+        let exists: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM dew_ledger WHERE source = ?1",
+                params![source_key],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if exists > 0 {
+            return Ok(false);
+        }
+        self.add_dew_entry(
+            crate::solar_atelier::RECOVERY_PRIORITY_DEW_BONUS,
+            &source_key,
+            "安心静养 · 睡饱双倍露 +3 💧（永久免费）",
+            "",
+        )?;
+        Ok(true)
+    }
+
+    pub fn get_dew_balance(&self) -> Result<i64, String> {
+        self.conn
+            .query_row("SELECT COALESCE(SUM(delta), 0) FROM dew_ledger", [], |r| r.get(0))
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn list_dew_ledger(&self, limit: usize) -> Result<Vec<DewLedgerEntry>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, created_at, delta, source, note, reward_id
+                 FROM dew_ledger ORDER BY id DESC LIMIT ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![limit as i64], |r| {
+                Ok(DewLedgerEntry {
+                    id: r.get(0)?,
+                    created_at: r.get(1)?,
+                    delta: r.get(2)?,
+                    source: r.get(3)?,
+                    note: r.get(4)?,
+                    reward_id: r.get(5)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn list_claimed_pass_rewards(&self) -> Result<Vec<String>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT reward_id FROM dew_ledger WHERE reward_id != '' ORDER BY id ASC")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn insert_sticker(
+        &self,
+        date: &str,
+        title: &str,
+        filter: &str,
+        note: &str,
+        nutrition_hint: &str,
+        image_ref: &str,
+    ) -> Result<FoodSticker, String> {
+        self.conn
+            .execute(
+                "INSERT INTO sticker_journal (date, title, filter, note, nutrition_hint, image_ref, is_favorite)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+                params![date, title, filter, note, nutrition_hint, image_ref],
+            )
+            .map_err(|e| e.to_string())?;
+        let id = self.conn.last_insert_rowid();
+        Ok(FoodSticker {
+            id,
+            date: date.to_owned(),
+            title: title.to_owned(),
+            filter: filter.to_owned(),
+            note: note.to_owned(),
+            nutrition_hint: nutrition_hint.to_owned(),
+            image_ref: image_ref.to_owned(),
+            is_favorite: false,
+        })
+    }
+
+    pub fn list_stickers(&self) -> Result<Vec<FoodSticker>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, date, title, filter, note, nutrition_hint, image_ref, is_favorite
+                 FROM sticker_journal ORDER BY date DESC, id DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                let fav: i64 = r.get(7)?;
+                Ok(FoodSticker {
+                    id: r.get(0)?,
+                    date: r.get(1)?,
+                    title: r.get(2)?,
+                    filter: r.get(3)?,
+                    note: r.get(4)?,
+                    nutrition_hint: r.get(5)?,
+                    image_ref: r.get(6)?,
+                    is_favorite: fav != 0,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn count_stickers_in_month(&self, year_month: &str) -> Result<usize, String> {
+        let pattern = format!("{year_month}%");
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sticker_journal WHERE date LIKE ?1",
+                params![pattern],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count.max(0) as usize)
+    }
+
+    pub fn toggle_sticker_favorite(&self, id: i64) -> Result<bool, String> {
+        let cur: i64 = self
+            .conn
+            .query_row(
+                "SELECT is_favorite FROM sticker_journal WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .map_err(|_| format!("未找到贴纸 #{id}"))?;
+        let next = if cur == 0 { 1 } else { 0 };
+        self.conn
+            .execute(
+                "UPDATE sticker_journal SET is_favorite = ?1 WHERE id = ?2",
+                params![next, id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(next != 0)
+    }
+
+    pub fn delete_sticker(&self, id: i64) -> Result<(), String> {
+        self.conn
+            .execute("DELETE FROM sticker_journal WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn save_preset(
+        &self,
+        name: &str,
+        world_id: &str,
+        weather_mood: &str,
+        seal_ink: &str,
+        keepsakes_json: &str,
+    ) -> Result<SanctuaryPreset, String> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let trimmed = name.trim();
+        self.conn
+            .execute(
+                "INSERT INTO sanctuary_presets (name, world_id, weather_mood, seal_ink, keepsakes_json, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(name) DO UPDATE SET
+                    world_id = excluded.world_id,
+                    weather_mood = excluded.weather_mood,
+                    seal_ink = excluded.seal_ink,
+                    keepsakes_json = excluded.keepsakes_json,
+                    created_at = excluded.created_at",
+                params![trimmed, world_id, weather_mood, seal_ink, keepsakes_json, now],
+            )
+            .map_err(|e| e.to_string())?;
+        let id: i64 = self
+            .conn
+            .query_row(
+                "SELECT id FROM sanctuary_presets WHERE name = ?1",
+                params![trimmed],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(SanctuaryPreset {
+            id,
+            name: trimmed.to_owned(),
+            world_id: world_id.to_owned(),
+            weather_mood: weather_mood.to_owned(),
+            seal_ink: seal_ink.to_owned(),
+            keepsakes_json: keepsakes_json.to_owned(),
+            created_at: now,
+        })
+    }
+
+    pub fn list_presets(&self) -> Result<Vec<SanctuaryPreset>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, name, world_id, weather_mood, seal_ink, keepsakes_json, created_at
+                 FROM sanctuary_presets ORDER BY id DESC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(SanctuaryPreset {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    world_id: r.get(2)?,
+                    weather_mood: r.get(3)?,
+                    seal_ink: r.get(4)?,
+                    keepsakes_json: r.get(5)?,
+                    created_at: r.get(6)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    pub fn count_presets(&self) -> Result<usize, String> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM sanctuary_presets", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        Ok(count.max(0) as usize)
+    }
+
+    pub fn get_preset(&self, id: i64) -> Result<Option<SanctuaryPreset>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, name, world_id, weather_mood, seal_ink, keepsakes_json, created_at
+                 FROM sanctuary_presets WHERE id = ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map(params![id], |r| {
+                Ok(SanctuaryPreset {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    world_id: r.get(2)?,
+                    weather_mood: r.get(3)?,
+                    seal_ink: r.get(4)?,
+                    keepsakes_json: r.get(5)?,
+                    created_at: r.get(6)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        if let Some(res) = rows.next() {
+            Ok(Some(res.map_err(|e| e.to_string())?))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// 合规物理销毁本机健康库（App Review 5.1.1(v)）
     pub fn wipe_all_data(&self) -> Result<(), String> {
         self.clear_business_data()?;
+        self.conn
+            .execute_batch(
+                "DELETE FROM dew_ledger;
+                 DELETE FROM sticker_journal;
+                 DELETE FROM sanctuary_presets;",
+            )
+            .map_err(|e| e.to_string())?;
         let mut s = self.load_settings()?;
         s.onboarding_done = false;
         s.checked_action_today = false;
         s.cloud_token.clear();
         s.cloud_handle.clear();
+        s.entitlement_token.clear();
+        s.equipped_keepsakes_json = "[]".to_owned();
+        s.bonsai_dew = 0;
+        s.weather_mood = "sunny_crisp".to_owned();
+        s.active_seal_ink = "cinnabar".to_owned();
         s.last_sync_summary = "本机与会话凭证已物理清空".to_owned();
         self.save_settings(&s)?;
         Ok(())

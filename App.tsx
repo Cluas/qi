@@ -6,15 +6,25 @@ import { OnboardingModal } from "./pages/OnboardingModal";
 import { TodayPage } from "./pages/TodayPage";
 import {
   type ActiveTab,
+  activateCloudPro,
   cancelZdrConsent,
+  clearEntitlementToken,
   clearToast,
+  coSanctuaryAction,
   confirmZdrConsent,
   copyToClipboard,
   cycleAppearance,
   cycleVisualTheme,
   getAppearancePref,
   getDewSummary,
+  getHidePosterNumbers,
+  getParentsPeaceLetterResult,
+  getShowAtelierModal,
+  getShowCoSanctuarySheet,
+  getShowCompanionLetterModal,
   getShowDailyPoster,
+  getShowFamilyPeaceLetterModal,
+  getShowFourSeasonsScrollModal,
   getShowQuickCaptureModal,
   getShowZdrConsentModal,
   getState,
@@ -23,10 +33,24 @@ import {
   getVisualTheme,
   getVisualThemeMeta,
   logNaturalIntake,
+  setHidePosterNumbers,
+  setSealInk,
+  setShowAtelierModal,
+  setShowCoSanctuarySheet,
+  setShowCompanionLetterModal,
   setShowDailyPoster,
+  setShowFamilyPeaceLetterModal,
+  setShowFourSeasonsScrollModal,
   setShowQuickCaptureModal,
   setTab,
 } from "./store";
+import {
+  CompanionLetterModal,
+  CoSanctuarySheet,
+  FamilyPeaceLetterModal,
+  FourSeasonsScrollModal,
+  QiAtelierModal,
+} from "./ui/atelier";
 import {
   ActionButton,
   BottomTabBar,
@@ -40,7 +64,7 @@ import {
   VitalBadge,
 } from "./ui/components";
 import { QiIcon, type QiIconName } from "./ui/icons";
-import { DailyPosterModal } from "./ui/sanctuary";
+import { DailyPosterModal, type SealInkId } from "./ui/sanctuary";
 
 const TABS: { id: ActiveTab; label: string; icon: QiIconName }[] = [
   { id: "today", label: "今日", icon: "sun" },
@@ -119,6 +143,19 @@ function App() {
         </View>
 
         <View class="flex-row flex-wrap items-center justify-between gap-1.5 sm:justify-end">
+          <ActionButton
+            title={
+              getState().entitlements.is_atelier_unlocked
+                ? `雅集 · ${getState().solar_atelier.dew_balance}💧`
+                : "知气雅集"
+            }
+            icon="sparkles"
+            variant={getState().entitlements.is_atelier_unlocked ? "secondary" : "outline"}
+            size="sm"
+            shape="pill"
+            accessibilityLabel="打开知气雅集权益与风物馆"
+            onPress={() => setShowAtelierModal(true)}
+          />
           <ActionButton
             title={`画风：${themeMeta().shortLabel}`}
             icon="palette"
@@ -226,8 +263,175 @@ function App() {
         microAction={snap().micro_action}
         dewPoints={getDewSummary().points}
         checkedAction={settings().checked_action_today}
+        sealInk={(settings().active_seal_ink || "cinnabar") as SealInkId}
+        onChangeSealInk={(ink) => setSealInk(ink)}
+        hideNumbers={getHidePosterNumbers()}
+        onToggleHideNumbers={(hide) => setHidePosterNumbers(hide)}
+        atelierUnlocked={getState().entitlements.is_atelier_unlocked}
         onCopyCaption={(caption) => void copyToClipboard(caption, "今日知气日签")}
         onClose={() => setShowDailyPoster(false)}
+      />
+
+      {/* 知气雅集温和会员权益弹窗 */}
+      <QiAtelierModal
+        open={getShowAtelierModal()}
+        companionThemeId={getVisualTheme()}
+        currentTier={getState().entitlements.tier}
+        guardianSponsor={getState().entitlements.guardian_sponsor}
+        onToggleGuardian={(enabled) => {
+          void activateCloudPro(
+            getState().entitlements.tier === "free" ? "pro_annual" : getState().entitlements.tier,
+            enabled,
+          );
+        }}
+        loyaltyDays={
+          getState().entitlements.companion_loyalty_eligible
+            ? 30
+            : settings().companion_loyalty_days
+        }
+        offlineStateBanner={getState().entitlements.status_banner}
+        plans={getState().entitlement_catalog.plans.map((p) => ({
+          tier: p.tier,
+          title: p.title,
+          subtitle: p.subtitle,
+          priceCny: p.price_cny,
+          originalPriceCny: p.original_price_cny,
+          billingCycle: p.billing_cycle,
+          seats: p.seats,
+          highlights: p.highlights,
+          badge: p.badge,
+          loyaltyApplied: p.loyalty_applied,
+        }))}
+        timelineSteps={getState().entitlement_catalog.transparent_timeline.map((t) => ({
+          dayLabel: t.day_label,
+          title: t.title,
+          detail: t.detail,
+        }))}
+        ethicalPromises={getState().entitlement_catalog.ethical_promises}
+        onConfirm={(tier, guardianSponsor) => {
+          if (tier === "free") {
+            clearEntitlementToken();
+          } else {
+            void activateCloudPro(tier, guardianSponsor);
+          }
+          setShowAtelierModal(false);
+        }}
+        onClose={() => setShowAtelierModal(false)}
+      />
+
+      {/* 《周日夜话慢递》火漆信封读信弹窗 */}
+      <CompanionLetterModal
+        open={getShowCompanionLetterModal()}
+        atelierUnlocked={getState().entitlements.is_atelier_unlocked}
+        letters={getState().solar_atelier.weekly_letters.map((w) => ({
+          weekIndex: w.week_number,
+          title: w.title,
+          solarTerm: w.solar_term,
+          dateLabel: `第 ${w.week_number} 周 · ${w.companion_name}`,
+          body: w.body,
+          exLibrisTitle: w.ex_libris_title,
+          exLibrisQuote: w.ex_libris_seal,
+          unlocked: w.unlocked,
+        }))}
+        onOpenAtelier={() => {
+          setShowCompanionLetterModal(false);
+          setShowAtelierModal(true);
+        }}
+        onClose={() => setShowCompanionLetterModal(false)}
+      />
+
+      {/* 隐私优先「同窗共养 · 串门盖爪印」抽屉 */}
+      <CoSanctuarySheet
+        open={getShowCoSanctuarySheet()}
+        myMood={
+          getState().solar_atelier.co_sanctuary.self_mood_byte === 2
+            ? "rest_recharge"
+            : getState().solar_atelier.co_sanctuary.self_mood_byte === 1
+              ? "breeze_steady"
+              : "sunny_full"
+        }
+        onSelectMood={(mood) => {
+          const label =
+            mood === "sunny_full" ? "晴朗满格" : mood === "breeze_steady" ? "微风平稳" : "静养蓄力";
+          coSanctuaryAction(`sync_mood_${label}`);
+        }}
+        partnerName={getState().solar_atelier.co_sanctuary.partner_name}
+        partnerMood={getState().solar_atelier.co_sanctuary.partner_mood_label}
+        osmanthusLevel={Math.max(
+          1,
+          Math.floor(getState().solar_atelier.co_sanctuary.bonsai_dew / 5) + 1,
+        )}
+        osmanthusProgressPct={
+          getState().solar_atelier.co_sanctuary.next_stage_dew
+            ? Math.min(
+                100,
+                Math.round(
+                  (getState().solar_atelier.co_sanctuary.bonsai_dew /
+                    Math.max(1, getState().solar_atelier.co_sanctuary.next_stage_dew!)) *
+                    100,
+                ),
+              )
+            : 100
+        }
+        careHistory={getState()
+          .solar_atelier.dew_ledger.filter((d) => d.source === "co_sanctuary")
+          .slice(0, 6)
+          .map((d) => ({
+            id: String(d.id),
+            label: d.note,
+            timeLabel: d.created_at.slice(0, 16).replace("T", " "),
+          }))}
+        onSendCare={(act) => {
+          const mapped =
+            act === "blanket" ? "tuck_blanket" : act === "paw_print" ? "paw_stamp" : "warm_tea";
+          coSanctuaryAction(mapped);
+        }}
+        onClose={() => setShowCoSanctuarySheet(false)}
+      />
+
+      {/* 《我的四时身体风物长卷》横向长卷 & 宋瓷勋章 */}
+      <FourSeasonsScrollModal
+        open={getShowFourSeasonsScrollModal()}
+        seasons={getState().solar_atelier.four_seasons_scroll.map((s) => ({
+          season: s.season_cn,
+          solarRange: s.solar_term,
+          highlight: `${s.title} · ${s.summary}`,
+          avgQiScore: snap().qi_score,
+          dewCollected: getState().solar_atelier.dew_balance,
+        }))}
+        badges={getState().solar_atelier.ceramic_badges.map((b) => ({
+          id: b.id,
+          title: b.title,
+          subtitle: b.reason,
+          unlocked: b.earned,
+        }))}
+        onClose={() => setShowFourSeasonsScrollModal(false)}
+      />
+
+      {/* 长辈大字《气韵平安家书》生成预览 */}
+      <FamilyPeaceLetterModal
+        open={getShowFamilyPeaceLetterModal()}
+        recipientLabel={
+          (getParentsPeaceLetterResult() ?? getState().parents_peace_letter_preview)
+            .recipient_label
+        }
+        dateLabel={snap().target_date}
+        peaceHeadline={
+          (getParentsPeaceLetterResult() ?? getState().parents_peace_letter_preview).title
+        }
+        bodyParagraphs={[
+          (getParentsPeaceLetterResult() ?? getState().parents_peace_letter_preview).greeting,
+          (getParentsPeaceLetterResult() ?? getState().parents_peace_letter_preview).body,
+          ...(getParentsPeaceLetterResult() ?? getState().parents_peace_letter_preview)
+            .highlights,
+          ...(getParentsPeaceLetterResult() ?? getState().parents_peace_letter_preview)
+            .recheck_notes,
+        ]}
+        signatureLine={`${
+          (getParentsPeaceLetterResult() ?? getState().parents_peace_letter_preview).closing
+        } · ${(getParentsPeaceLetterResult() ?? getState().parents_peace_letter_preview).e2ee_note}`}
+        onCopyLetter={(txt) => void copyToClipboard(txt, "气韵平安家书")}
+        onClose={() => setShowFamilyPeaceLetterModal(false)}
       />
 
       {/* 全局 + 速记抽屉 */}

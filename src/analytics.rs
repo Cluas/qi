@@ -78,9 +78,15 @@ pub struct IntakeLogRow {
     pub tags: Vec<String>,
 }
 
+fn default_profile_id() -> String {
+    "self".to_owned()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LabBiomarkerRow {
     pub id: i64,
+    #[serde(default = "default_profile_id")]
+    pub profile_id: String,
     pub test_date: String,
     pub marker_name: String,
     pub canonical_key: String,
@@ -88,6 +94,8 @@ pub struct LabBiomarkerRow {
     pub unit: String,
     pub ref_low: Option<f64>,
     pub ref_high: Option<f64>,
+    #[serde(default)]
+    pub reference_high: Option<f64>,
     pub flag: String,
     pub plain_note: String,
     #[serde(default)]
@@ -142,6 +150,33 @@ pub struct LaggedImpact {
     pub event_days: usize,
     pub delta_value: f64,
     pub unit: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyRecord {
+    pub date: String,
+    pub hrv_ms: Option<f64>,
+    pub rhr_bpm: Option<f64>,
+    pub sleep_minutes: Option<f64>,
+    pub sleep_deep_minutes: Option<f64>,
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub late_sleep: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiLagImpactItem {
+    pub tag: String,
+    pub lag_days: u32,
+    pub lag_label: String,
+    pub outcome_key: String,
+    pub outcome_label: String,
+    pub sample_n: usize,
+    pub control_n: usize,
+    pub delta_pct: f64,
+    pub cohen_d: f64,
+    pub confounder_note: String,
     pub summary: String,
 }
 
@@ -724,6 +759,274 @@ pub fn compute_snapshot(
         trend_14d,
         lagged_impacts,
     }
+}
+
+/// 将底层多源指标与饮食/作息日志聚合为按日期排列的 90 天 `DailyRecord` 序列。
+pub fn build_daily_records(rows: &[DailyMetricRow], intakes: &[IntakeLogRow]) -> Vec<DailyRecord> {
+    let canonical = resolve_canonical_metrics(rows);
+    let mut tags_by_date: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut late_by_date: BTreeSet<String> = BTreeSet::new();
+
+    for log in intakes {
+        let entry = tags_by_date.entry(log.date.clone()).or_default();
+        for t in &log.tags {
+            let trimmed = t.trim();
+            if !trimmed.is_empty() {
+                entry.insert(trimmed.to_owned());
+                if trimmed.contains("熬夜") || trimmed.contains("晚睡") || trimmed.contains("深夜") {
+                    late_by_date.insert(log.date.clone());
+                }
+            }
+        }
+        if log.notes.contains("熬夜") || log.notes.contains("晚睡") {
+            late_by_date.insert(log.date.clone());
+        }
+    }
+
+    let mut all_dates: BTreeSet<String> = canonical.keys().cloned().collect();
+    for d in tags_by_date.keys() {
+        all_dates.insert(d.clone());
+    }
+
+    let mut records: Vec<DailyRecord> = all_dates
+        .into_iter()
+        .map(|d| {
+            let day_map = canonical.get(&d);
+            let hrv_ms = day_map.and_then(|m| {
+                m.get("hrv_rmssd_ms")
+                    .or_else(|| m.get("hrv_sdnn_ms"))
+                    .map(|r| r.value)
+            });
+            let rhr_bpm = day_map.and_then(|m| m.get("resting_heart_rate_bpm").map(|r| r.value));
+            let sleep_minutes = day_map.and_then(|m| m.get("sleep_minutes").map(|r| r.value));
+            let sleep_deep_minutes = day_map.and_then(|m| m.get("sleep_deep_minutes").map(|r| r.value));
+            let late_sleep = late_by_date.contains(&d)
+                || sleep_minutes.map(|s| s < 360.0).unwrap_or(false);
+            let tags = tags_by_date
+                .get(&d)
+                .map(|s| s.iter().cloned().collect())
+                .unwrap_or_default();
+            DailyRecord {
+                date: d,
+                hrv_ms,
+                rhr_bpm,
+                sleep_minutes,
+                sleep_deep_minutes,
+                tags,
+                late_sleep,
+            }
+        })
+        .collect();
+
+    if records.len() > 90 {
+        records = records.split_off(records.len() - 90);
+    }
+    records
+}
+
+fn variance(vals: &[f64], m: f64) -> f64 {
+    if vals.len() < 2 {
+        return 0.0;
+    }
+    vals.iter().map(|v| (v - m).powi(2)).sum::<f64>() / (vals.len() - 1) as f64
+}
+
+fn cohen_d_effect(exp: &[f64], ctrl: &[f64]) -> f64 {
+    let (Some(me), Some(mc)) = (mean(exp), mean(ctrl)) else {
+        return 0.0;
+    };
+    if exp.len() < 2 || ctrl.len() < 2 {
+        return 0.0;
+    }
+    let ve = variance(exp, me);
+    let vc = variance(ctrl, mc);
+    let denom = (exp.len() + ctrl.len() - 2) as f64;
+    let pooled = (((exp.len() - 1) as f64 * ve + (ctrl.len() - 1) as f64 * vc) / denom).sqrt();
+    if pooled <= 1e-6 {
+        0.0
+    } else {
+        round2((me - mc) / pooled)
+    }
+}
+
+/// 90 天多滞后（D+0 / D+1 / D+2）生活归因雷达：输出变化百分比、样本量 n、Cohen's d 与混杂控制说明。
+pub fn compute_multi_lag_radar(records: &[DailyRecord]) -> Vec<MultiLagImpactItem> {
+    if records.is_empty() {
+        return Vec::new();
+    }
+    let mut sorted = records.to_vec();
+    sorted.sort_by(|a, b| a.date.cmp(&b.date));
+    if sorted.len() > 90 {
+        sorted = sorted.split_off(sorted.len() - 90);
+    }
+
+    let by_date: BTreeMap<String, &DailyRecord> =
+        sorted.iter().map(|r| (r.date.clone(), r)).collect();
+
+    let mut all_tags: BTreeSet<String> = BTreeSet::new();
+    for r in &sorted {
+        for t in &r.tags {
+            if !t.trim().is_empty() {
+                all_tags.insert(t.trim().to_owned());
+            }
+        }
+    }
+
+    let outcomes: [(&str, &str); 3] = [
+        ("hrv_ms", "夜间 HRV"),
+        ("rhr_bpm", "静息心率"),
+        ("sleep_deep_minutes", "深睡时长"),
+    ];
+
+    let extract_outcome = |r: &DailyRecord, key: &str| -> Option<f64> {
+        match key {
+            "hrv_ms" => r.hrv_ms,
+            "rhr_bpm" => r.rhr_bpm,
+            "sleep_deep_minutes" => r.sleep_deep_minutes,
+            _ => None,
+        }
+    };
+
+    let mut items = Vec::new();
+
+    for tag in all_tags {
+        let mut exposed_all_dates = BTreeSet::new();
+        let mut exposed_clean_dates = BTreeSet::new();
+        let mut late_sleep_excluded = 0usize;
+        let mut overlap_days = 0usize;
+
+        for r in &sorted {
+            if r.tags.iter().any(|t| t.trim() == tag) {
+                exposed_all_dates.insert(r.date.clone());
+                let has_overlap = r.tags.iter().filter(|t| t.trim() != tag).count() > 0;
+                if has_overlap {
+                    overlap_days += 1;
+                }
+                if r.late_sleep {
+                    late_sleep_excluded += 1;
+                } else if !has_overlap {
+                    exposed_clean_dates.insert(r.date.clone());
+                }
+            }
+        }
+
+        // 若完全纯净单因子+无晚睡子集不足 2 天，则优先保留无晚睡子集，再回退全体暴露日
+        let (active_exposed, confounder_mode) = if exposed_clean_dates.len() >= 2 {
+            (exposed_clean_dates, "pure_single_no_late")
+        } else {
+            let no_late: BTreeSet<String> = sorted
+                .iter()
+                .filter(|r| r.tags.iter().any(|t| t.trim() == tag) && !r.late_sleep)
+                .map(|r| r.date.clone())
+                .collect();
+            if no_late.len() >= 2 {
+                (no_late, "no_late_overlap_noted")
+            } else {
+                (exposed_all_dates.clone(), "all_exposed_controlled")
+            }
+        };
+
+        if active_exposed.len() < 2 {
+            continue;
+        }
+
+        for lag_days in [0_u32, 1, 2] {
+            let target_exposed: BTreeSet<String> = active_exposed
+                .iter()
+                .filter_map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+                .map(|nd| (nd + Duration::days(lag_days as i64)).format("%Y-%m-%d").to_string())
+                .collect();
+            let all_exposed_shifted: BTreeSet<String> = exposed_all_dates
+                .iter()
+                .filter_map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+                .map(|nd| (nd + Duration::days(lag_days as i64)).format("%Y-%m-%d").to_string())
+                .collect();
+
+            for (outcome_key, outcome_label) in outcomes {
+                let mut exp_vals = Vec::new();
+                let mut ctrl_vals = Vec::new();
+
+                for (d, rec) in &by_date {
+                    let Some(v) = extract_outcome(rec, outcome_key) else {
+                        continue;
+                    };
+                    if !v.is_finite() {
+                        continue;
+                    }
+                    if target_exposed.contains(d) {
+                        exp_vals.push(v);
+                    } else if !all_exposed_shifted.contains(d) {
+                        if confounder_mode != "all_exposed_controlled" && rec.late_sleep {
+                            continue;
+                        }
+                        ctrl_vals.push(v);
+                    }
+                }
+
+                if exp_vals.len() < 2 || ctrl_vals.len() < 3 {
+                    continue;
+                }
+                let (Some(me), Some(mc)) = (mean(&exp_vals), mean(&ctrl_vals)) else {
+                    continue;
+                };
+                if mc.abs() < 1e-6 {
+                    continue;
+                }
+
+                let delta_pct = round2(((me - mc) / mc.abs()) * 100.0);
+                let cohen_d = cohen_d_effect(&exp_vals, &ctrl_vals);
+                if delta_pct.abs() < 1.5 && cohen_d.abs() < 0.2 {
+                    continue;
+                }
+
+                let lag_label = format!("D+{lag_days}");
+                let confounder_note = match confounder_mode {
+                    "pure_single_no_late" => format!(
+                        "混杂控制：已剔除晚睡(<6h) {late_sleep_excluded} 天与多标签重叠 {overlap_days} 天，保留单因子纯化样本 n={} 对照 {}",
+                        exp_vals.len(),
+                        ctrl_vals.len()
+                    ),
+                    "no_late_overlap_noted" => format!(
+                        "混杂控制：已剥离晚睡(<6h) {late_sleep_excluded} 天；含同期标签共现 {overlap_days} 天已标注",
+                    ),
+                    _ => format!(
+                        "混杂控制：记录到晚睡(<6h) {late_sleep_excluded} 天与标签重叠 {overlap_days} 天，建议结合单因子试验进一步剥离",
+                    ),
+                };
+
+                let summary = format!(
+                    "「{tag}」在 {lag_label} 对{outcome_label}影响 {:+.1}%（n={}, Cohen's d={:+.2}）",
+                    delta_pct,
+                    exp_vals.len(),
+                    cohen_d
+                );
+
+                items.push(MultiLagImpactItem {
+                    tag: tag.clone(),
+                    lag_days,
+                    lag_label,
+                    outcome_key: outcome_key.to_owned(),
+                    outcome_label: outcome_label.to_owned(),
+                    sample_n: exp_vals.len(),
+                    control_n: ctrl_vals.len(),
+                    delta_pct,
+                    cohen_d,
+                    confounder_note,
+                    summary,
+                });
+            }
+        }
+    }
+
+    items.sort_by(|a, b| {
+        b.cohen_d
+            .abs()
+            .partial_cmp(&a.cohen_d.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.sample_n.cmp(&a.sample_n))
+    });
+    items.truncate(12);
+    items
 }
 
 #[cfg(test)]

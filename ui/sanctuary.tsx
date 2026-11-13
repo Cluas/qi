@@ -14,11 +14,16 @@ import catDayImg from "../assets/scenes/cat_day.jpg";
 import catNightImg from "../assets/scenes/cat_night.jpg";
 import playfulDayImg from "../assets/scenes/playful_day.jpg";
 import playfulNightImg from "../assets/scenes/playful_night.jpg";
+import solarSpringRainImg from "../assets/scenes/solar_spring_rain.jpg";
+import solarWinterHearthImg from "../assets/scenes/solar_winter_hearth.jpg";
 import zenDayImg from "../assets/scenes/zen_day.jpg";
 import zenNightImg from "../assets/scenes/zen_night.jpg";
 import { ActionButton, ModalSurface, VitalBadge } from "./components";
 import { QiIcon, type QiIconName } from "./icons";
 import { getVisualThemeMeta, VISUAL_THEMES, type VisualThemeId } from "./themes";
+
+export type WeatherMood = "sunny_crisp" | "misty_rain" | "first_snow" | "clear_moon";
+export type SealInkId = "cinnabar" | "gold" | "lapis";
 
 export interface DewItemView {
   id: string;
@@ -38,14 +43,25 @@ export interface DewSummaryView {
 
 export type BentoSurfaceTone = "sage" | "amber" | "lavender" | "peach" | "sunken";
 
-function resolveSceneAsset(themeId: VisualThemeId, isNightOrRecover: boolean) {
+function resolveSceneAsset(
+  themeId: VisualThemeId,
+  isNightOrRecover: boolean,
+  weatherMood?: WeatherMood,
+) {
+  if (weatherMood === "misty_rain") {
+    return solarSpringRainImg;
+  }
+  if (weatherMood === "first_snow") {
+    return solarWinterHearthImg;
+  }
+  const effectiveNight = weatherMood === "clear_moon" ? true : isNightOrRecover;
   switch (themeId) {
     case "zen_garden":
-      return isNightOrRecover ? zenNightImg : zenDayImg;
+      return effectiveNight ? zenNightImg : zenDayImg;
     case "playful_bento":
-      return isNightOrRecover ? playfulNightImg : playfulDayImg;
+      return effectiveNight ? playfulNightImg : playfulDayImg;
     default:
-      return isNightOrRecover ? catNightImg : catDayImg;
+      return effectiveNight ? catNightImg : catDayImg;
   }
 }
 
@@ -234,7 +250,7 @@ export function ThemeSwitcherStrip(props: {
   );
 }
 
-/** 无框感沉浸式插画剧场（三世界昼夜/状态自适配场景 + 晨露收集 + 日签入口 + 轻抚气泡） */
+/** 无框感沉浸式插画剧场（三世界昼夜/状态自适配场景 + 节气天象 + 晨露收集 + 日签入口 + 轻抚气泡） */
 export function SanctuaryStage(props: {
   themeId: VisualThemeId;
   score: number;
@@ -246,10 +262,33 @@ export function SanctuaryStage(props: {
   checkedAction: boolean;
   onPet: () => void;
   onOpenPoster: () => void;
+  solarTerm?: string;
+  lunarPhase?: string;
+  weatherMood?: WeatherMood;
+  equippedKeepsakes?: string[];
+  partnerMoodBadge?: string;
+  atelierUnlocked?: boolean;
 }) {
   const petMotion = createMotion();
   const isNightMode = () => colorScheme() === "dark";
   const meta = () => getVisualThemeMeta(props.themeId);
+
+  const visibleKeepsakes = () => {
+    const unlocked = props.dewSummary.keepsakes.filter((k) => k.unlocked);
+    const equipped = props.equippedKeepsakes ?? [];
+    if (equipped.length === 0) {
+      return unlocked.slice(0, 3);
+    }
+    const matched = equipped
+      .map((key) =>
+        props.dewSummary.keepsakes.find((k) => k.id === key || k.name === key),
+      )
+      .filter((k): k is DewItemView => Boolean(k));
+    if (matched.length > 0) {
+      return matched.slice(0, 3);
+    }
+    return unlocked.slice(0, 3);
+  };
 
   const handlePetPress = () => {
     void petMotion.play("rubberBand");
@@ -261,12 +300,12 @@ export function SanctuaryStage(props: {
       {/* 内层无框感圆角场景画布 */}
       <View class="relative h-56 w-full overflow-hidden rounded-2xl bg-surface-sunken sm:h-64">
         <Image
-          src={resolveSceneAsset(props.themeId, isNightMode())}
+          src={resolveSceneAsset(props.themeId, isNightMode(), props.weatherMood)}
           class="size-full"
           style={{ objectFit: "cover", objectPosition: "center" }}
         />
 
-        {/* 轻量静态氛围微粒画布层（茶烟 / 雨丝 / 星芒，空闲静止零重绘） */}
+        {/* 轻量静态氛围微粒画布层（茶烟 / 雨丝 / 初雪 / 星芒，空闲静止零重绘） */}
         <Canvas
           class="absolute inset-0 size-full"
           style={{ pointerEvents: "none" }}
@@ -277,8 +316,22 @@ export function SanctuaryStage(props: {
             cx.fillStyle = ink;
             cx.strokeStyle = ink;
 
-            if (isNightMode()) {
-              // 夜息/恢复模式：轻柔细雨斜线与微光星点
+            if (props.weatherMood === "first_snow") {
+              cx.globalAlpha = 0.45;
+              for (const [sx, sy, sr] of [
+                [0.12, 0.24, 1.8],
+                [0.28, 0.4, 1.3],
+                [0.46, 0.19, 2.0],
+                [0.64, 0.34, 1.4],
+                [0.78, 0.22, 1.9],
+                [0.89, 0.44, 1.5],
+              ]) {
+                cx.beginPath();
+                cx.arc(size.width * sx, size.height * sy, sr, 0, Math.PI * 2);
+                cx.fill();
+              }
+            } else if (props.weatherMood === "misty_rain" || isNightMode() || props.weatherMood === "clear_moon") {
+              // 夜息/细雨模式：轻柔细雨斜线与微光星点
               cx.globalAlpha = 0.22;
               cx.lineWidth = 1;
               for (let i = 0; i < 8; i++) {
@@ -319,16 +372,27 @@ export function SanctuaryStage(props: {
         />
 
         {/* 顶部悬浮信息胶囊栏 */}
-        <View class="absolute inset-x-2 top-2 flex-row items-center justify-between gap-1.5 sm:inset-x-2.5 sm:top-2.5 sm:gap-2">
-          <View class="flex-row items-center gap-1.5 rounded-full bg-stage-scrim px-2.5 py-1 sm:gap-2 sm:px-3 sm:py-1.5">
-            <Text
-              class="text-[11px] font-bold text-stage-ink sm:text-xs"
-              style={{ fontVariant: ["tabular-nums"] }}
-            >
-              {`今日元气 ${Math.round(props.score)}`}
-            </Text>
-            <View class="h-3 w-px bg-stage-ink/30" />
-            <Text class="text-[11px] font-semibold text-stage-ink/90">{props.stateBadge}</Text>
+        <View class="absolute inset-x-2 top-2 flex-row flex-wrap items-center justify-between gap-1.5 sm:inset-x-2.5 sm:top-2.5 sm:gap-2">
+          <View class="flex-row flex-wrap items-center gap-1.5">
+            <View class="flex-row items-center gap-1.5 rounded-full bg-stage-scrim px-2.5 py-1 sm:gap-2 sm:px-3 sm:py-1.5">
+              <Text
+                class="text-[11px] font-bold text-stage-ink sm:text-xs"
+                style={{ fontVariant: ["tabular-nums"] }}
+              >
+                {`今日元气 ${Math.round(props.score)}`}
+              </Text>
+              <View class="h-3 w-px bg-stage-ink/30" />
+              <Text class="text-[11px] font-semibold text-stage-ink/90">{props.stateBadge}</Text>
+            </View>
+
+            <If when={Boolean(props.solarTerm || props.lunarPhase)}>
+              <View class="flex-row items-center gap-1 rounded-full bg-stage-scrim px-2.5 py-1 sm:py-1.5">
+                <QiIcon name="solar_term" size={12} color={token("ink-gold")} />
+                <Text class="text-[11px] font-medium text-stage-ink">
+                  {[props.solarTerm, props.lunarPhase].filter(Boolean).join(" · ")}
+                </Text>
+              </View>
+            </If>
           </View>
 
           <View class="flex-row items-center gap-1.5">
@@ -354,10 +418,10 @@ export function SanctuaryStage(props: {
           </View>
         </View>
 
-        {/* 底部已解锁窗台摆件胶囊 + 轻抚陪伴交互按钮 */}
+        {/* 底部已解锁/已陈列窗台摆件胶囊 + 友邻串门徽章 + 轻抚陪伴交互按钮 */}
         <View class="absolute inset-x-2.5 bottom-2.5 flex-row items-center justify-between gap-2">
           <View class="flex-1 flex-row flex-wrap items-center gap-1.5">
-            <Each of={props.dewSummary.keepsakes.filter((k) => k.unlocked).slice(0, 3)} key={(k) => k.id}>
+            <Each of={visibleKeepsakes()} key={(k) => k.id}>
               {(item) => (
                 <View class="flex-row items-center gap-1 rounded-full bg-stage-scrim px-2.5 py-1">
                   <QiIcon name={item().icon} size={12} color={token("stage-ink")} />
@@ -365,6 +429,12 @@ export function SanctuaryStage(props: {
                 </View>
               )}
             </Each>
+            <If when={Boolean(props.partnerMoodBadge)}>
+              <View class="flex-row items-center gap-1 rounded-full bg-stage-scrim px-2.5 py-1">
+                <QiIcon name="co_sanctuary" size={12} color={token("duo-accent")} />
+                <Text class="text-[11px] font-medium text-stage-ink">{props.partnerMoodBadge}</Text>
+              </View>
+            </If>
           </View>
 
           <View style={petMotion.style}>
@@ -384,17 +454,22 @@ export function SanctuaryStage(props: {
 
       {/* 温暖角色对话气泡 + 今日节律一句话概括 */}
       <View class="gap-2 rounded-2xl border border-border/55 bg-surface-sunken px-3.5 py-3">
-        <View class="flex-row items-center justify-between gap-2">
-          <View class="flex-row items-center gap-1.5">
+        <View class="flex-row flex-wrap items-center justify-between gap-2">
+          <View class="flex-row flex-wrap items-center gap-1.5">
             <QiIcon name="sparkles" size={14} color={token("primary")} />
             <Text class="text-xs font-bold text-primary">{meta().companionName}</Text>
+            <If when={Boolean(props.atelierUnlocked)}>
+              <View class="rounded-full bg-atelier-soft px-2 py-0.5">
+                <Text class="text-[10px] font-semibold text-atelier-accent">知气雅集</Text>
+              </View>
+            </If>
           </View>
-          <View class="flex-row items-center gap-1.5">
-            {props.state === "recovery_priority" ? (
+          <View class="flex-row flex-wrap items-center gap-1.5">
+            <If when={props.state === "recovery_priority"}>
               <View class="rounded-full bg-vital-recover-soft px-2 py-0.5">
                 <Text class="text-[11px] font-semibold text-vital-recover">安心静养 · 免打卡压力</Text>
               </View>
-            ) : null}
+            </If>
             <Text class="text-[11px] text-muted-foreground">
               {isNightMode() ? "柔和夜息陪护中" : "晴光舒展陪护中"}
             </Text>
@@ -639,6 +714,17 @@ export function KeepsakeShelfCard(props: {
   );
 }
 
+function sealInkClasses(sealInk?: SealInkId): { box: string; text: string } {
+  switch (sealInk) {
+    case "gold":
+      return { box: "border-ink-gold bg-atelier-soft", text: "text-ink-gold" };
+    case "lapis":
+      return { box: "border-ink-lapis bg-dew-soft", text: "text-ink-lapis" };
+    default:
+      return { box: "border-stamp-ink bg-stamp-soft", text: "text-stamp-ink" };
+  }
+}
+
 /** 小红书风「今日知气日签」可分享插画海报弹窗 */
 export function DailyPosterModal(props: {
   open: boolean;
@@ -654,24 +740,101 @@ export function DailyPosterModal(props: {
   checkedAction: boolean;
   onCopyCaption: (caption: string) => void;
   onClose: () => void;
+  sealInk?: SealInkId;
+  onChangeSealInk?: (ink: SealInkId) => void;
+  hideNumbers?: boolean;
+  onToggleHideNumbers?: (hide: boolean) => void;
+  atelierUnlocked?: boolean;
 }) {
   const meta = () => getVisualThemeMeta(props.themeId);
   const isNight = () => colorScheme() === "dark";
+  const hideNums = () => Boolean(props.hideNumbers);
+  const sealStyle = () => sealInkClasses(props.sealInk);
+  const sealInks: { id: SealInkId; label: string }[] = [
+    { id: "cinnabar", label: "朱砂印" },
+    { id: "gold", label: "泥金印" },
+    { id: "lapis", label: "石青印" },
+  ];
+
   const shareText = () =>
-    `【${meta().posterHeader} · ${props.targetDate}】\n今日元气 ${Math.round(props.score)}/100（${props.stateBadge}）· 昨晚好眠 ${
-      props.sleepHours !== null ? `${props.sleepHours.toFixed(1)} 小时` : "轻记录"
-    } · 已收晨露 ${props.dewPoints} 💧\n${props.headline}\n今日微行动：${props.microAction}\n—— 知气 Qi 端侧陪伴手账`;
+    hideNums()
+      ? `【${meta().posterHeader} · ${props.targetDate}】\n今日气韵：${props.stateBadge} · 昨夜安歇${
+          props.sleepHours !== null ? "安稳" : "自在"
+        }\n${props.headline}\n今日微行动：${props.microAction}\n—— 知气 Qi 端侧陪伴手账`
+      : `【${meta().posterHeader} · ${props.targetDate}】\n今日元气 ${Math.round(props.score)}/100（${props.stateBadge}）· 昨晚好眠 ${
+          props.sleepHours !== null ? `${props.sleepHours.toFixed(1)} 小时` : "轻记录"
+        } · 已收晨露 ${props.dewPoints} 💧\n${props.headline}\n今日微行动：${props.microAction}\n—— 知气 Qi 端侧陪伴手账`;
 
   return (
     <ModalSurface open={props.open} presentation="pageSheet" onClose={props.onClose}>
       <Scroll class="flex-1" contentStyle={{ paddingHorizontal: 20, paddingBottom: 28, gap: 16 }}>
         <View class="mx-auto w-full max-w-md gap-4">
           <View class="flex-row items-center justify-between">
-            <Text role="header" class="text-lg font-bold text-foreground">
-              今日知气日签
-            </Text>
+            <View class="flex-row items-center gap-2">
+              <Text role="header" class="text-lg font-bold text-foreground">
+                今日知气日签
+              </Text>
+              <If when={Boolean(props.atelierUnlocked)}>
+                <View class="rounded-full bg-atelier-soft px-2 py-0.5">
+                  <Text class="text-[10px] font-semibold text-atelier-accent">雅集印泥</Text>
+                </View>
+              </If>
+            </View>
             <ActionButton title="收好日签" size="sm" variant="secondary" shape="pill" onPress={props.onClose} />
           </View>
+
+          <If when={Boolean(props.onChangeSealInk || props.onToggleHideNumbers)}>
+            <View class="flex-row flex-wrap items-center justify-between gap-2 rounded-2xl border border-border/65 bg-surface-sunken px-3 py-2">
+              <If when={Boolean(props.onChangeSealInk)}>
+                <View class="flex-row items-center gap-1.5">
+                  <Each of={sealInks} key={(s) => s.id}>
+                    {(item) => {
+                      const active = () => (props.sealInk ?? "cinnabar") === item().id;
+                      return (
+                        <Button
+                          hitSlop={4}
+                          onPress={() => props.onChangeSealInk?.(item().id)}
+                          class={`min-h-8 rounded-full border px-2.5 py-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                            active()
+                              ? "border-primary bg-primary"
+                              : "border-border/75 bg-card hover:border-primary/45"
+                          }`}
+                        >
+                          <Text
+                            class={`text-[11px] font-semibold ${
+                              active() ? "text-primary-foreground" : "text-foreground"
+                            }`}
+                          >
+                            {item().label}
+                          </Text>
+                        </Button>
+                      );
+                    }}
+                  </Each>
+                </View>
+              </If>
+
+              <If when={Boolean(props.onToggleHideNumbers)}>
+                <Button
+                  hitSlop={4}
+                  onPress={() => props.onToggleHideNumbers?.(!hideNums())}
+                  class={`min-h-8 rounded-full border px-2.5 py-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                    hideNums()
+                      ? "border-atelier-accent bg-atelier-soft"
+                      : "border-border/75 bg-card hover:border-primary/45"
+                  }`}
+                >
+                  <Text
+                    class={`text-[11px] font-semibold ${
+                      hideNums() ? "text-atelier-accent" : "text-muted-foreground"
+                    }`}
+                  >
+                    {hideNums() ? "已隐去数字" : "隐藏数字"}
+                  </Text>
+                </Button>
+              </If>
+            </View>
+          </If>
 
           {/* 竖版手作明信片主体 */}
           <View class="gap-4 rounded-3xl border-2 border-border bg-card p-3.5">
@@ -695,16 +858,27 @@ export function DailyPosterModal(props: {
 
             <View class="flex-row items-center justify-between gap-3 rounded-2xl bg-bento-sage/75 px-4 py-3">
               <View class="gap-0.5">
-                <Text class="text-xs text-muted-foreground">今日元气指数</Text>
-                <View class="flex-row items-baseline gap-1.5">
-                  <Text
-                    class="text-3xl font-bold text-foreground"
-                    style={{ fontVariant: ["tabular-nums"] }}
-                  >
-                    {`${Math.round(props.score)}`}
-                  </Text>
-                  <Text class="text-xs text-muted-foreground">/ 100</Text>
-                </View>
+                <Text class="text-xs text-muted-foreground">
+                  {hideNums() ? "今日气韵" : "今日元气指数"}
+                </Text>
+                <If
+                  when={!hideNums()}
+                  else={
+                    <Text class="text-xl font-bold text-foreground">
+                      {props.state === "recovery_priority" ? "安然静养" : "气韵清润"}
+                    </Text>
+                  }
+                >
+                  <View class="flex-row items-baseline gap-1.5">
+                    <Text
+                      class="text-3xl font-bold text-foreground"
+                      style={{ fontVariant: ["tabular-nums"] }}
+                    >
+                      {`${Math.round(props.score)}`}
+                    </Text>
+                    <Text class="text-xs text-muted-foreground">/ 100</Text>
+                  </View>
+                </If>
               </View>
 
               <View class="items-end gap-1.5">
@@ -713,7 +887,9 @@ export function DailyPosterModal(props: {
                   class="text-xs font-medium text-muted-foreground"
                   style={{ fontVariant: ["tabular-nums"] }}
                 >
-                  {`好眠 ${props.sleepHours !== null ? `${props.sleepHours.toFixed(1)}h` : "轻记录"} · 晨露 ${props.dewPoints} 💧`}
+                  {hideNums()
+                    ? "只留风光 · 静享此刻"
+                    : `好眠 ${props.sleepHours !== null ? `${props.sleepHours.toFixed(1)}h` : "轻记录"} · 晨露 ${props.dewPoints} 💧`}
                 </Text>
               </View>
             </View>
@@ -731,9 +907,9 @@ export function DailyPosterModal(props: {
               </Text>
               <View
                 style={{ transform: [{ rotate: "-6deg" }] }}
-                class="rounded-lg border-2 border-stamp-ink bg-stamp-soft px-2.5 py-1"
+                class={`rounded-lg border-2 px-2.5 py-1 ${sealStyle().box}`}
               >
-                <Text class="text-xs font-bold text-stamp-ink">
+                <Text class={`text-xs font-bold ${sealStyle().text}`}>
                   {props.checkedAction ? meta().stampLabel : "知气印记"}
                 </Text>
               </View>

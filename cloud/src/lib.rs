@@ -6,6 +6,7 @@ pub mod guardrails;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::body::Bytes;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -15,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_http::cors::CorsLayer;
 
-use crate::db::{AccountIdentity, ControlPlaneDb, SyncEnvelopeInput};
+use crate::db::{AccountIdentity, ControlPlaneDb, SubscriptionTier, SyncEnvelopeInput};
 use crate::guardrails::{
     SERVER_WELLNESS_DISCLAIMER, enforce_wellness_guardrails, scrub_pii_in_memory,
 };
@@ -42,6 +43,31 @@ pub struct AuthSessionRequest {
 pub struct ActivateProRequest {
     pub tier: Option<String>,
     pub promo_code: Option<String>,
+    pub guardian_sponsor: Option<bool>,
+    pub companion_loyalty_days: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MockUpgradeRequest {
+    pub tier: Option<String>,
+    pub guardian_sponsor: Option<bool>,
+    pub companion_loyalty_days: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct CoPairRequest {
+    pub pair_code: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CoMoodRequest {
+    pub mood: i64,
+    pub outfit_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CoCareRequest {
+    pub care_action: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,7 +96,13 @@ pub fn build_router(state: AppState) -> Router {
         .route("/healthz", get(healthz))
         .route("/v1/auth/session", post(auth_session))
         .route("/v1/entitlements", get(get_entitlements))
+        .route("/v1/entitlements/refresh", post(refresh_entitlements))
         .route("/v1/billing/activate-pro", post(activate_pro))
+        .route("/v1/billing/mock-upgrade", post(mock_upgrade))
+        .route("/v1/cosanctuary/pair", post(co_pair))
+        .route("/v1/cosanctuary/mood", post(co_mood))
+        .route("/v1/cosanctuary/care", post(co_care))
+        .route("/v1/cosanctuary/status", get(co_status))
         .route("/v1/account", delete(delete_account))
         .route("/v1/zdr/complete", post(zdr_complete))
         .route("/v1/sync/ops/push", post(sync_push))
@@ -151,6 +183,17 @@ async fn get_entitlements(State(state): State<AppState>, headers: HeaderMap) -> 
     }
 }
 
+async fn refresh_entitlements(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let identity = match require_auth(&state, &headers) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    match state.db.refresh_entitlements(&identity) {
+        Ok(ent) => (StatusCode::OK, Json(ent)).into_response(),
+        Err(msg) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "db_error", &msg),
+    }
+}
+
 async fn activate_pro(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -160,16 +203,139 @@ async fn activate_pro(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    let target_tier = match req.tier.as_deref() {
+    let target_tier = match req.tier.as_deref().map(str::trim) {
         Some("free") => "free",
         Some("pro") => "pro",
-        _ => match req.promo_code.as_deref() {
+        Some(other) => SubscriptionTier::from_str_checked(other)
+            .map(|t| t.as_str())
+            .unwrap_or("pro"),
+        None => match req.promo_code.as_deref() {
             Some("QI-FREE") => "free",
             _ => "pro",
         },
     };
-    match state.db.set_plan_tier(&identity, target_tier) {
+    match state.db.upgrade_plan(
+        &identity,
+        target_tier,
+        req.guardian_sponsor,
+        req.companion_loyalty_days,
+    ) {
         Ok(ent) => (StatusCode::OK, Json(ent)).into_response(),
+        Err(msg) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "db_error", &msg),
+    }
+}
+
+async fn mock_upgrade(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<MockUpgradeRequest>,
+) -> Response {
+    let identity = match require_auth(&state, &headers) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let stored_tier = match req.tier.as_deref().map(str::trim) {
+        None | Some("") => "pro_annual",
+        Some(raw) => match SubscriptionTier::from_str_checked(raw) {
+            Some(t) => t.as_str(),
+            None => {
+                return json_error(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_tier",
+                    "不支持的订阅档位（支持 free/pro_monthly/seasonal/pro_annual/duo/family/lifetime_local）",
+                );
+            }
+        },
+    };
+    match state.db.upgrade_plan(
+        &identity,
+        stored_tier,
+        req.guardian_sponsor,
+        req.companion_loyalty_days,
+    ) {
+        Ok(ent) => (StatusCode::OK, Json(ent)).into_response(),
+        Err(msg) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "db_error", &msg),
+    }
+}
+
+async fn co_pair(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    let identity = match require_auth(&state, &headers) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let req: CoPairRequest = if body.is_empty() {
+        CoPairRequest::default()
+    } else {
+        match serde_json::from_slice(&body) {
+            Ok(parsed) => parsed,
+            Err(_) => {
+                return json_error(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_json",
+                    "请求体必须为合法 JSON",
+                );
+            }
+        }
+    };
+    match state
+        .db
+        .cosanctuary_pair(&identity.account_id, req.pair_code.as_deref())
+    {
+        Ok(status) => (StatusCode::OK, Json(status)).into_response(),
+        Err(msg) => json_error(StatusCode::BAD_REQUEST, "cosanctuary_pair_failed", &msg),
+    }
+}
+
+async fn co_mood(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<CoMoodRequest>,
+) -> Response {
+    let identity = match require_auth(&state, &headers) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if !(0..=2).contains(&req.mood) {
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_mood",
+            "mood 必须为 0 (SUNNY_PRIME)、1 (BREEZY_STEADY) 或 2 (COZY_RECOVER)",
+        );
+    }
+    match state
+        .db
+        .cosanctuary_set_mood(&identity.account_id, req.mood, req.outfit_id.as_deref())
+    {
+        Ok(status) => (StatusCode::OK, Json(status)).into_response(),
+        Err(msg) => json_error(StatusCode::BAD_REQUEST, "invalid_mood_payload", &msg),
+    }
+}
+
+async fn co_care(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<CoCareRequest>,
+) -> Response {
+    let identity = match require_auth(&state, &headers) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    match state
+        .db
+        .cosanctuary_send_care(&identity.account_id, &req.care_action)
+    {
+        Ok(status) => (StatusCode::OK, Json(status)).into_response(),
+        Err(msg) => json_error(StatusCode::BAD_REQUEST, "cosanctuary_care_failed", &msg),
+    }
+}
+
+async fn co_status(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let identity = match require_auth(&state, &headers) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    match state.db.cosanctuary_status(&identity.account_id) {
+        Ok(status) => (StatusCode::OK, Json(status)).into_response(),
         Err(msg) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "db_error", &msg),
     }
 }

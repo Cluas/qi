@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 use crate::analytics::{AnalyticsSnapshot, LabBiomarkerRow};
@@ -263,7 +264,7 @@ pub fn parse_lab_text_and_verify(scrubbed: &str) -> Vec<ParsedLabMarkerDraft> {
     results
 }
 
-fn biomarker_plain_note(canonical_key: &str, flag: &str) -> String {
+pub fn biomarker_plain_note(canonical_key: &str, flag: &str) -> String {
     let msg = match (canonical_key, flag) {
         ("uric_acid", "high") => {
             "偏高于参考上限：建议每日饮水 ≥2000ml，减少啤酒、浓肉汤与高嘌呤海鲜内脏摄入。"
@@ -375,11 +376,14 @@ pub fn canonicalize_marker(name: &str) -> String {
     }
 }
 
-/// 为同一 `canonical_key` 的多年多期体检记录补充纵向变化趋势（较上一期改善/回升/平稳）
+/// 为同一 `(profile_id, canonical_key)` 的多年多期体检记录补充纵向变化趋势（较上一期改善/回升/平稳）
 pub fn enrich_lab_longitudinal_trends(mut rows: Vec<LabBiomarkerRow>) -> Vec<LabBiomarkerRow> {
-    let mut by_key: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    let mut by_key: BTreeMap<(String, String), Vec<usize>> = BTreeMap::new();
     for (idx, r) in rows.iter().enumerate() {
-        by_key.entry(r.canonical_key.clone()).or_default().push(idx);
+        by_key
+            .entry((r.profile_id.clone(), r.canonical_key.clone()))
+            .or_default()
+            .push(idx);
     }
 
     for indices in by_key.values() {
@@ -552,6 +556,229 @@ pub fn build_morning_briefing(
         degraded: false,
         text: enforce_wellness_guardrails(raw_text.trim()),
         disclaimer: WELLNESS_DISCLAIMER.to_owned(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiProfileUlnPoint {
+    pub profile_id: String,
+    pub profile_label: String,
+    pub canonical_key: String,
+    pub marker_name: String,
+    pub test_date: String,
+    pub value: f64,
+    pub unit: String,
+    pub reference_high: f64,
+    pub uln_pct: f64,
+    pub flag: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiProfileRecheckReminder {
+    pub profile_id: String,
+    pub profile_label: String,
+    pub canonical_key: String,
+    pub marker_name: String,
+    pub last_test_date: String,
+    pub days_since_last: i64,
+    pub flag: String,
+    pub reminder_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParentsPeaceLetter {
+    pub recipient_label: String,
+    pub title: String,
+    pub greeting: String,
+    pub body: String,
+    pub highlights: Vec<String>,
+    pub recheck_notes: Vec<String>,
+    pub closing: String,
+    pub large_print_markdown: String,
+    pub e2ee_note: String,
+}
+
+pub fn profile_display_label(profile_id: &str) -> &'static str {
+    match profile_id.trim() {
+        "partner" => "伴侣",
+        "parents" => "父母长辈",
+        _ => "本人",
+    }
+}
+
+/// 跨档案 %ULN 归一化趋势与 90 天复查提醒（支持 `self` / `partner` / `parents`）。
+pub fn compute_multi_profile_uln_trends(
+    markers: &[LabBiomarkerRow],
+) -> (Vec<MultiProfileUlnPoint>, Vec<MultiProfileRecheckReminder>) {
+    let today = chrono::Local::now().date_naive();
+    let max_marker_date = markers
+        .iter()
+        .filter_map(|m| NaiveDate::parse_from_str(&m.test_date, "%Y-%m-%d").ok())
+        .max()
+        .unwrap_or(today);
+    let ref_str = max_marker_date.max(today).format("%Y-%m-%d").to_string();
+    compute_multi_profile_uln_trends_at(markers, &ref_str)
+}
+
+/// 指定参考日期的跨档案 %ULN 归一化趋势与 90 天复查提醒。
+pub fn compute_multi_profile_uln_trends_at(
+    markers: &[LabBiomarkerRow],
+    reference_date: &str,
+) -> (Vec<MultiProfileUlnPoint>, Vec<MultiProfileRecheckReminder>) {
+    let ref_date = NaiveDate::parse_from_str(reference_date.trim(), "%Y-%m-%d")
+        .unwrap_or_else(|_| chrono::Local::now().date_naive());
+
+    let mut uln_points = Vec::new();
+    let mut latest_by_profile_key: BTreeMap<(String, String), &LabBiomarkerRow> = BTreeMap::new();
+
+    for m in markers {
+        let profile_id = if m.profile_id.trim().is_empty() {
+            "self".to_owned()
+        } else {
+            m.profile_id.clone()
+        };
+        if let Some(hi) = m.reference_high.or(m.ref_high).filter(|v| v.is_finite() && *v > 0.0) {
+            let uln_pct = (((m.value / hi) * 100.0) * 10.0).round() / 10.0;
+            uln_points.push(MultiProfileUlnPoint {
+                profile_id: profile_id.clone(),
+                profile_label: profile_display_label(&profile_id).to_owned(),
+                canonical_key: m.canonical_key.clone(),
+                marker_name: m.marker_name.clone(),
+                test_date: m.test_date.clone(),
+                value: m.value,
+                unit: m.unit.clone(),
+                reference_high: hi,
+                uln_pct,
+                flag: m.flag.clone(),
+            });
+        }
+
+        let key = (profile_id, m.canonical_key.clone());
+        match latest_by_profile_key.get(&key) {
+            Some(prev) if prev.test_date >= m.test_date => {}
+            _ => {
+                latest_by_profile_key.insert(key, m);
+            }
+        }
+    }
+
+    uln_points.sort_by(|a, b| {
+        a.profile_id
+            .cmp(&b.profile_id)
+            .then_with(|| a.canonical_key.cmp(&b.canonical_key))
+            .then_with(|| a.test_date.cmp(&b.test_date))
+    });
+
+    let mut reminders = Vec::new();
+    for ((profile_id, canonical_key), latest) in latest_by_profile_key {
+        if let Ok(last_d) = NaiveDate::parse_from_str(&latest.test_date, "%Y-%m-%d") {
+            let days_since = (ref_date - last_d).num_days();
+            if days_since >= 90 {
+                let profile_label = profile_display_label(&profile_id).to_owned();
+                let reminder_text = format!(
+                    "{profile_label}的「{}」距离上次检验（{}）已过 {days_since} 天，已满 90 天复查窗口，可择期随访对照。",
+                    latest.marker_name, latest.test_date
+                );
+                reminders.push(MultiProfileRecheckReminder {
+                    profile_id,
+                    profile_label,
+                    canonical_key,
+                    marker_name: latest.marker_name.clone(),
+                    last_test_date: latest.test_date.clone(),
+                    days_since_last: days_since,
+                    flag: latest.flag.clone(),
+                    reminder_text,
+                });
+            }
+        }
+    }
+    reminders.sort_by(|a, b| b.days_since_last.cmp(&a.days_since_last));
+
+    (uln_points, reminders)
+}
+
+/// 生成大字暖心、无焦虑措辞的《气韵平安家书》（E2EE 分享草稿）。
+pub fn build_parents_peace_letter(
+    recipient_label: &str,
+    snapshot: &AnalyticsSnapshot,
+    reminders: &[MultiProfileRecheckReminder],
+) -> ParentsPeaceLetter {
+    let recipient = if recipient_label.trim().is_empty() {
+        "爸妈".to_owned()
+    } else {
+        recipient_label.trim().to_owned()
+    };
+
+    let sleep_phrase = snapshot
+        .sleep_last_night_hours
+        .map(|h| format!("昨晚睡了 {h:.1} 个小时，"))
+        .unwrap_or_default();
+    let mood_phrase = match snapshot.state.as_str() {
+        "prime_ready" => "最近精力充沛、作息步调很稳当",
+        "recovery_priority" => "这几天特意放慢了脚步、多留了些休息和散步的时间",
+        _ => "最近作息温和守中、三餐都有好好照顾自己",
+    };
+
+    let mut highlights = vec![
+        format!("近况气色：{mood_phrase}（今日元气参考 {} 分）。", snapshot.qi_score),
+        format!("{sleep_phrase}日常小习惯：{}", snapshot.micro_action),
+    ];
+    if let Some(steps) = snapshot.metrics.get("steps").and_then(|m| m.value) {
+        highlights.push(format!("每日活动：走动约 {:.0} 步，活动舒展筋骨。", steps));
+    }
+
+    let recheck_notes: Vec<String> = reminders
+        .iter()
+        .take(3)
+        .map(|r| {
+            format!(
+                "温馨小记：{}的「{}」距上次留档已满 {} 天，这阵子天气好时可顺便预约一次常规体检复核。",
+                r.profile_label, r.marker_name, r.days_since_last
+            )
+        })
+        .collect();
+
+    let title = format!("给{recipient}的《气韵平安家书》");
+    let greeting = format!("亲爱的{recipient}：");
+    let body = enforce_wellness_guardrails(&format!(
+        "见信安好！最近换季天凉，我在这边一切顺遂。{sleep_phrase}{mood_phrase}。每天按时吃饭、早点歇息，手机里也把生活节律照看得妥妥当当，不用挂念我。你们在家也要记得天冷添衣、早晚多喝温水，闲时下楼散散步。"
+    ));
+    let closing = "顺颂冬安，常联系。\n—— 惦念你们的家人敬上".to_owned();
+
+    let mut md_lines = vec![
+        format!("# {title}"),
+        String::new(),
+        greeting.clone(),
+        String::new(),
+        body.clone(),
+        String::new(),
+        "### 本期平安小记".to_owned(),
+    ];
+    for h in &highlights {
+        md_lines.push(format!("- {h}"));
+    }
+    if !recheck_notes.is_empty() {
+        md_lines.push(String::new());
+        md_lines.push("### 换季关怀备忘".to_owned());
+        for rn in &recheck_notes {
+            md_lines.push(format!("- {rn}"));
+        }
+    }
+    md_lines.push(String::new());
+    md_lines.push(closing.clone());
+    md_lines.push(String::new());
+    md_lines.push(format!("> {WELLNESS_DISCLAIMER}"));
+
+    ParentsPeaceLetter {
+        recipient_label: recipient,
+        title,
+        greeting,
+        body,
+        highlights,
+        recheck_notes,
+        closing,
+        large_print_markdown: enforce_wellness_guardrails(&md_lines.join("\n")),
+        e2ee_note: "端侧加密生成 · 仅导出您主动挑选的大字温情文本，绝不附带原始化验数值与个人证件号。".to_owned(),
     }
 }
 

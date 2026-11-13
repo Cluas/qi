@@ -1,9 +1,11 @@
 import { signal, Text, token, View } from "nsh";
 import {
+  clearEntitlementToken,
   connectCloudSession,
   copyToClipboard,
   generateEncryptedArchive,
   generateJsonlExport,
+  generateParentsPeaceLetter,
   getCloudEntitlements,
   getDewSummary,
   getDisclaimerText,
@@ -12,15 +14,18 @@ import {
   getNoticeText,
   getState,
   getVisualTheme,
+  pullWebdavSync,
   restoreFromRecoveryPhrase,
   runE2eeSyncNow,
   sendMorningTestNotification,
+  setShowAtelierModal,
   setShowQaStudio,
   setVisualTheme,
   toggleMorningPush,
   updateAiConfig,
   updateCloudUrlAndHandle,
   updateSyncConfig,
+  verifyEntitlements,
   wipeVaultAndReset,
 } from "../store";
 import {
@@ -62,6 +67,8 @@ export function MeVaultPage() {
   const showPrivacySheet = signal(false);
   const showWipeConfirm = signal(false);
   const cloudAccountOpen = signal(false);
+  const atelierVaultOpen = signal(false);
+  const entitlements = () => getState().entitlements;
 
   const settings = () => getState().settings;
   const ent = () => getCloudEntitlements();
@@ -354,7 +361,7 @@ export function MeVaultPage() {
         <If when={ent() !== null}>
           <SunkenBox>
             <Text class="text-xs font-semibold text-primary">
-              {`当前状态：${ent()!.plan_tier.toUpperCase()} · 账期 ${ent()!.month}`}
+              {`当前状态：${ent()!.plan_tier.toUpperCase()} · 账期 ${ent()!.month ?? ent()!.year_month ?? "—"}`}
             </Text>
             <Text class="text-xs text-muted-foreground">
               {ent()!.lab_parses_remaining < 0
@@ -363,6 +370,67 @@ export function MeVaultPage() {
             </Text>
           </SunkenBox>
         </If>
+      </CollapsibleCard>
+
+      {/* 可折叠：知气雅集离线通行证与只读保险箱保障 */}
+      <CollapsibleCard
+        title="知气雅集 · 通行证与家书守护"
+        subtitle="Ed25519 离线验签 · 到期仅切只读保险箱，历史数据永久可导出"
+        badgeLabel={entitlements().tier_display}
+        badgeTone={entitlements().is_atelier_unlocked ? "prime_ready" : "neutral"}
+        open={atelierVaultOpen()}
+        onToggle={() => atelierVaultOpen.set(!atelierVaultOpen())}
+      >
+        <SunkenBox>
+          <Text class="text-xs font-semibold text-foreground">
+            {`${entitlements().tier_display} · 状态：${entitlements().state}`}
+          </Text>
+          <Text class="text-xs leading-relaxed text-muted-foreground">
+            {entitlements().status_banner}
+          </Text>
+          <If when={entitlements().guardian_sponsor}>
+            <Text class="text-[11px] font-semibold text-wax-seal">
+              窗台添柴人 · 已公益点亮守护 1 份长辈平安家书席位
+            </Text>
+          </If>
+        </SunkenBox>
+        <View class="flex-row flex-wrap gap-2">
+          <ActionButton
+            title="浏览 7 档雅集方案"
+            icon="sparkles"
+            size="sm"
+            onPress={() => setShowAtelierModal(true)}
+          />
+          <ActionButton
+            title="刷新 Ed25519 验签"
+            icon="check"
+            size="sm"
+            variant="outline"
+            onPress={() => verifyEntitlements()}
+          />
+          <ActionButton
+            title="生成《气韵平安家书》"
+            icon="family_heart"
+            size="sm"
+            variant="secondary"
+            onPress={() => generateParentsPeaceLetter("爸妈")}
+          />
+          <ActionButton
+            title="WebDAV 双向拉取"
+            icon="refresh"
+            size="sm"
+            variant="outline"
+            onPress={() => pullWebdavSync()}
+          />
+          <If when={entitlements().is_atelier_unlocked}>
+            <ActionButton
+              title="退回素心清欢免费版"
+              size="sm"
+              variant="outline"
+              onPress={() => clearEntitlementToken()}
+            />
+          </If>
+        </View>
       </CollapsibleCard>
 
       {/* 4. 数据导出、合规说明与物理清空 */}

@@ -246,6 +246,140 @@ pub fn push_envelope_to_webdav(
     Ok(())
 }
 
+/// 从 WebDAV PROPFIND 多状态 XML 中提取全部 `<href>` 路径（兼容 `<D:href>` / `<d:href>` / `<href>`）。
+pub fn parse_webdav_propfind_hrefs(xml: &str) -> Vec<String> {
+    let lower = xml.to_ascii_lowercase();
+    let mut hrefs = Vec::new();
+    let mut cursor = 0usize;
+
+    while let Some(rel_start) = lower[cursor..].find("href>") {
+        let tag_start = cursor + rel_start;
+        // 确保紧邻 '<' 或 ':'（例如 `<href>` 或 `<d:href>`），避免匹配 `</href>`
+        let is_open_tag = tag_start > 0
+            && (lower.as_bytes()[tag_start - 1] == b'<'
+                || lower.as_bytes()[tag_start - 1] == b':');
+        let content_start = tag_start + "href>".len();
+        if !is_open_tag {
+            cursor = content_start;
+            continue;
+        }
+        // 检查前面确实是 '<' 而不是 '</'
+        let prefix_slice = &lower[..tag_start];
+        if let Some(open_lt) = prefix_slice.rfind('<') {
+            if lower[open_lt..tag_start].contains('/') {
+                cursor = content_start;
+                continue;
+            }
+        }
+        if let Some(rel_end) = lower[content_start..].find("</") {
+            let val = xml[content_start..content_start + rel_end].trim();
+            if !val.is_empty() && !hrefs.iter().any(|h| h == val) {
+                hrefs.push(val.to_owned());
+            }
+            cursor = content_start + rel_end + 2;
+        } else {
+            break;
+        }
+    }
+    hrefs
+}
+
+fn resolve_webdav_href_url(endpoint_root: &str, href: &str) -> String {
+    let trimmed_href = href.trim();
+    if trimmed_href.starts_with("http://") || trimmed_href.starts_with("https://") {
+        return trimmed_href.to_owned();
+    }
+    let root = endpoint_root.trim().trim_end_matches('/');
+    if trimmed_href.starts_with('/') {
+        // 提取 scheme://authority
+        if let Some(scheme_pos) = root.find("://") {
+            let after_scheme = &root[scheme_pos + 3..];
+            let authority_end = after_scheme
+                .find('/')
+                .map(|idx| scheme_pos + 3 + idx)
+                .unwrap_or(root.len());
+            let origin = &root[..authority_end];
+            return format!("{origin}{trimmed_href}");
+        }
+    }
+    format!("{root}/{}", trimmed_href.trim_start_matches('/'))
+}
+
+/// 通过 HTTP `PROPFIND` + `GET`（含 Basic Auth）从 WebDAV 拉取所有 `.enc` 加密分片。
+pub fn pull_envelopes_from_webdav(
+    endpoint_url: &str,
+    username: &str,
+    password: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let root = endpoint_url.trim().trim_end_matches('/');
+    if root.is_empty() {
+        return Err("WebDAV 网盘地址不能为空".to_owned());
+    }
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(3))
+        .timeout_read(Duration::from_secs(10))
+        .build();
+    let auth_header = basic_auth_header(username, password);
+
+    let propfind_body = r#"<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/><d:resourcetype/></d:prop></d:propfind>"#;
+    let ops_target = if root.ends_with("/ops") {
+        format!("{root}/")
+    } else {
+        format!("{root}/ops/")
+    };
+
+    let mut prop_req = agent
+        .request("PROPFIND", &ops_target)
+        .set("Depth", "2")
+        .set("Content-Type", "application/xml; charset=utf-8");
+    if let Some(ref h) = auth_header {
+        prop_req = prop_req.set("Authorization", h);
+    }
+
+    let xml_resp = match prop_req.send_string(propfind_body) {
+        Ok(resp) => resp
+            .into_string()
+            .map_err(|e| format!("读取 WebDAV PROPFIND 响应失败: {e}"))?,
+        Err(_) => {
+            // 若服务器不支持 /ops/ 路径或直接指向目录，回退请求 root
+            let mut fallback_req = agent
+                .request("PROPFIND", root)
+                .set("Depth", "2")
+                .set("Content-Type", "application/xml; charset=utf-8");
+            if let Some(ref h) = auth_header {
+                fallback_req = fallback_req.set("Authorization", h);
+            }
+            fallback_req
+                .send_string(propfind_body)
+                .map_err(|e| format!("WebDAV PROPFIND 请求失败 ({root}): {e}"))?
+                .into_string()
+                .map_err(|e| format!("读取 WebDAV PROPFIND 响应失败: {e}"))?
+        }
+    };
+
+    let enc_hrefs: Vec<String> = parse_webdav_propfind_hrefs(&xml_resp)
+        .into_iter()
+        .filter(|h| h.trim_end_matches('/').ends_with(".enc"))
+        .collect();
+
+    let mut out = Vec::new();
+    for href in enc_hrefs {
+        let file_url = resolve_webdav_href_url(root, &href);
+        let mut get_req = agent.get(&file_url);
+        if let Some(ref h) = auth_header {
+            get_req = get_req.set("Authorization", h);
+        }
+        let body = get_req
+            .call()
+            .map_err(|e| format!("WebDAV 下载分片失败 ({file_url}): {e}"))?
+            .into_string()
+            .map_err(|e| format!("读取 WebDAV 分片内容失败 ({file_url}): {e}"))?;
+        out.push((href, body));
+    }
+
+    Ok(out)
+}
+
 fn basic_auth_header(username: &str, password: &str) -> Option<String> {
     if username.trim().is_empty() && password.trim().is_empty() {
         return None;
@@ -302,4 +436,94 @@ pub fn decrypt_local_archive_json(phrase: &str, archive_json: &str) -> Result<St
     let env: EncryptedBatchEnvelope =
         serde_json::from_str(archive_json).map_err(|_| "无法识别的 .qivault 加密归档格式".to_owned())?;
     decrypt_sync_batch(&key, &env)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    #[test]
+    fn webdav_propfind_xml_and_http_pull_with_basic_auth() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base_url = format!("http://{addr}/dav/qi-vault");
+
+        let key = derive_master_key("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about").unwrap();
+        let env = encrypt_sync_batch(&key, "dev_peer", 1, r#"{"kind":"metric","date":"2026-11-13","metric":"steps","source":"garmin","value":8200,"unit":"步"}"#).unwrap();
+        let env_json = serde_json::to_string(&env).unwrap();
+        let env_json_clone = env_json.clone();
+
+        std::thread::spawn(move || {
+            for stream_res in listener.incoming().take(2) {
+                let Ok(mut stream) = stream_res else {
+                    break;
+                };
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let mut req_bytes = Vec::new();
+                let mut chunk = [0u8; 2048];
+                while let Ok(n) = stream.read(&mut chunk) {
+                    if n == 0 {
+                        break;
+                    }
+                    req_bytes.extend_from_slice(&chunk[..n]);
+                    if let Some(hdr_end) = req_bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let body_start = hdr_end + 4;
+                        let hdrs = String::from_utf8_lossy(&req_bytes[..hdr_end]);
+                        let content_len = hdrs
+                            .lines()
+                            .find_map(|line| {
+                                let (k, v) = line.split_once(':')?;
+                                k.trim()
+                                    .eq_ignore_ascii_case("content-length")
+                                    .then(|| v.trim().parse::<usize>().ok())
+                                    .flatten()
+                            })
+                            .unwrap_or(0);
+                        if req_bytes.len() >= body_start + content_len {
+                            break;
+                        }
+                    }
+                }
+                let req = String::from_utf8_lossy(&req_bytes);
+                assert!(
+                    req.contains("Authorization: Basic ZGF2X3VzZXI6ZGF2X3Bhc3M="),
+                    "missing basic auth in request: {req}"
+                );
+                let first_line = req.lines().next().unwrap_or("");
+                if first_line.starts_with("PROPFIND ") {
+                    let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="DAV:">
+  <D:response><D:href>/dav/qi-vault/ops/</D:href></D:response>
+  <D:response><D:href>/dav/qi-vault/ops/dev_peer/000001.enc</D:href></D:response>
+</D:multistatus>"#;
+                    let resp = format!(
+                        "HTTP/1.1 207 Multi-Status\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        xml.len(),
+                        xml
+                    );
+                    let _ = stream.write_all(resp.as_bytes());
+                    let _ = stream.flush();
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                } else if first_line.starts_with("GET /dav/qi-vault/ops/dev_peer/000001.enc") {
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        env_json_clone.len(),
+                        env_json_clone
+                    );
+                    let _ = stream.write_all(resp.as_bytes());
+                    let _ = stream.flush();
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                }
+            }
+        });
+
+        let pulled = pull_envelopes_from_webdav(&base_url, "dav_user", "dav_pass").unwrap();
+        assert_eq!(pulled.len(), 1);
+        assert_eq!(pulled[0].0, "/dav/qi-vault/ops/dev_peer/000001.enc");
+        let decoded_env: EncryptedBatchEnvelope = serde_json::from_str(&pulled[0].1).unwrap();
+        let plain = decrypt_sync_batch(&key, &decoded_env).unwrap();
+        assert!(plain.contains("8200"));
+    }
 }

@@ -1,5 +1,7 @@
 import { signal, Text, token, View } from "nsh";
 import {
+  claimRecoveryDew,
+  claimSeasonalReward,
   getDewSummary,
   getPetCount,
   getState,
@@ -7,11 +9,23 @@ import {
   petCompanion,
   refreshLiveBriefing,
   setHardwareTier,
+  setSealInk,
+  setShowAtelierModal,
+  setShowCoSanctuarySheet,
+  setShowCompanionLetterModal,
   setShowDailyPoster,
+  setShowFourSeasonsScrollModal,
   setTab,
   setVisualTheme,
+  setWeatherMood,
+  setWidgetPrivacyMode,
+  toggleEquippedKeepsake,
   toggleTodayAction,
 } from "../store";
+import {
+  SeasonalPassPanel,
+  WristWidgetPreviewCard,
+} from "../ui/atelier";
 import {
   AcwrSweetSpotCanvas,
   InteractiveRhythmPlot,
@@ -31,8 +45,10 @@ import { QiIcon } from "../ui/icons";
 import {
   BentoMetricCard,
   SanctuaryStage,
+  type SealInkId,
   StampCheckinCard,
   ThemeSwitcherStrip,
+  type WeatherMood,
 } from "../ui/sanctuary";
 
 const GOAL_LABELS: Record<string, string> = {
@@ -86,6 +102,9 @@ export function TodayPage() {
   const briefingOpen = signal(false);
   const trendOpen = signal(false);
   const baselineOpen = signal(false);
+  const passOpen = signal(false);
+  const solar = () => getState().solar_atelier;
+  const entitlements = () => getState().entitlements;
 
   const state = () => getState();
   const snap = () => state().snapshot;
@@ -191,7 +210,7 @@ export function TodayPage() {
         />
       </View>
 
-      {/* 1. 无框感沉浸式插画剧场 + 晨露收集 + 角色对话气泡 */}
+      {/* 1. 无框感沉浸式插画剧场 + 晨露收集 + 角色对话气泡 + v4 节气月相窗外天色 */}
       <SanctuaryStage
         themeId={getVisualTheme()}
         score={snap().qi_score}
@@ -201,6 +220,12 @@ export function TodayPage() {
         dewSummary={getDewSummary()}
         petCount={getPetCount()}
         checkedAction={settings().checked_action_today}
+        solarTerm={solar().solar_term.term_name}
+        lunarPhase={solar().solar_term.lunar_phase}
+        weatherMood={solar().solar_term.weather_mood as WeatherMood}
+        equippedKeepsakes={solar().keepsake_catalog.equipped_ids}
+        partnerMoodBadge={`${solar().co_sanctuary.partner_name} · ${solar().co_sanctuary.partner_mood_label}`}
+        atelierUnlocked={entitlements().is_atelier_unlocked}
         onPet={() => petCompanion()}
         onOpenPoster={() => setShowDailyPoster(true)}
       />
@@ -392,6 +417,134 @@ export function TodayPage() {
             </View>
           </If>
         </CollapsibleCard>
+
+        {/* 静养日永久免费双倍晨露横幅（红线 #2：绝不趁虚兜售复活卡） */}
+        <If when={snap().state === "recovery_priority"}>
+          <Card>
+            <View class="flex-row flex-wrap items-center justify-between gap-2">
+              <View class="flex-1 gap-0.5">
+                <Text class="text-sm font-semibold text-foreground">
+                  安心静养 · 睡饱双倍露 (+3 💧)
+                </Text>
+                <Text class="text-xs text-muted-foreground">
+                  今日以温和蓄能为先，素心清欢与雅集会员均永久免费领双倍晨露，绝不扣连胜。
+                </Text>
+              </View>
+              <ActionButton
+                title="领今日双倍露 +3 💧"
+                icon="sparkles"
+                size="sm"
+                onPress={() => claimRecoveryDew()}
+              />
+            </View>
+          </Card>
+        </If>
+
+        {/* 5. 雅集窗台快捷入口条 */}
+        <Card>
+          <View class="gap-2.5">
+            <View class="flex-row items-center justify-between gap-2">
+              <Text class="text-sm font-semibold text-foreground">
+                {`${solar().solar_term.term_name} · ${solar().solar_term.lunar_phase} · 雅集慢趣`}
+              </Text>
+              <Text class="text-xs font-medium text-dew-accent">
+                {`晨露 ${solar().dew_balance} 💧`}
+              </Text>
+            </View>
+            <Text class="text-xs leading-relaxed text-muted-foreground">
+              {solar().solar_term.whisper}
+            </Text>
+            <View class="flex-row flex-wrap gap-2">
+              <ActionButton
+                title="周日夜话慢递"
+                icon="envelope"
+                variant="outline"
+                size="sm"
+                onPress={() => setShowCompanionLetterModal(true)}
+              />
+              <ActionButton
+                title={`同窗串门 · ${solar().co_sanctuary.bonsai_stage}`}
+                icon="co_sanctuary"
+                variant="outline"
+                size="sm"
+                onPress={() => setShowCoSanctuarySheet(true)}
+              />
+              <ActionButton
+                title="四时风物长卷"
+                icon="handscroll"
+                variant="outline"
+                size="sm"
+                onPress={() => setShowFourSeasonsScrollModal(true)}
+              />
+            </View>
+          </View>
+        </Card>
+
+        {/* 折页四：岁时风物双轨季票与天色心境 */}
+        <CollapsibleCard
+          title="岁时风物双轨季票与窗外天色"
+          subtitle="清欢轨免费随节气解锁，雅集轨以晨露兑换服饰、泥金印泥与 3 格陈列"
+          badgeLabel={`${solar().dew_balance} 💧`}
+          badgeTone="neutral"
+          open={passOpen()}
+          onToggle={() => passOpen.set(!passOpen())}
+        >
+          <SeasonalPassPanel
+            solarTerm={solar().solar_term.term_name}
+            solarSubtitle={solar().solar_term.whisper}
+            dewBalance={solar().dew_balance}
+            atelierUnlocked={entitlements().is_atelier_unlocked}
+            nodes={solar().seasonal_pass.map((n) => ({
+              id: n.id,
+              title: n.title,
+              track: n.track === "atelier" ? "atelier" : "free",
+              dewCost: n.cost_dew,
+              claimed: n.claimed,
+              description: n.evergreen_term ? `${n.evergreen_term}节气风物` : undefined,
+            }))}
+            archiveItems={solar()
+              .seasonal_pass.filter((n) => n.evergreen_term)
+              .map((n) => ({
+                solarTerm: n.evergreen_term,
+                title: n.title,
+                badge: n.track === "free" ? "清欢永存" : "雅集归档",
+                unlocked: n.unlocked_by_tier || n.claimed,
+              }))}
+            outfits={solar().keepsake_catalog.outfits.map((o) => ({
+              id: o.id,
+              label: o.name,
+              atelierOnly: o.track === "atelier",
+            }))}
+            activeSealInk={solar().keepsake_catalog.active_seal_ink as SealInkId}
+            onSelectSealInk={(ink) => setSealInk(ink)}
+            weatherMood={solar().solar_term.weather_mood as WeatherMood}
+            onSelectWeatherMood={(mood) => setWeatherMood(mood)}
+            equippedKeepsakes={solar().keepsake_catalog.equipped_ids}
+            availableKeepsakes={solar().keepsake_catalog.items.map((k) => ({
+              id: k.id,
+              name: k.name,
+              unlocked: k.unlocked,
+            }))}
+            onToggleEquipKeepsake={(id) => toggleEquippedKeepsake(id)}
+            onClaim={(id) => claimSeasonalReward(id)}
+            onOpenAtelier={() => setShowAtelierModal(true)}
+          />
+        </CollapsibleCard>
+
+        {/* 6. 抬腕嘴替 · 表盘与桌面微件预览 */}
+        <WristWidgetPreviewCard
+          score={snap().qi_score}
+          state={snap().state}
+          stateBadge={solar().widget_preview.badge_text}
+          poeticLine={solar().widget_preview.headline}
+          numericLine={
+            solar().widget_preview.metrics_line ??
+            `元气 ${snap().qi_score} · ${solar().widget_preview.subline}`
+          }
+          solarTerm={solar().widget_preview.solar_term}
+          mode={solar().widget_preview.privacy_mode === "metrics" ? "numeric" : "poetic"}
+          onChangeMode={(m) => setWidgetPrivacyMode(m === "numeric" ? "metrics" : "metaphor")}
+        />
       </View>
     </View>
   );

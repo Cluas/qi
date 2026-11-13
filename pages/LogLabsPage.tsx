@@ -1,5 +1,8 @@
 import { Speech, signal, Text, token, View } from "nsh";
 import {
+  addFoodSticker,
+  addProfileLabMarker,
+  generateParentsPeaceLetter,
   getDisclaimerText,
   getState,
   importExternalHealthData,
@@ -9,8 +12,14 @@ import {
   pickAndOcrLabPhoto,
   requestAiAction,
   searchFoods,
+  setShowAtelierModal,
 } from "../store";
-import { LabRangeBulletCanvas } from "../ui/charts";
+import { StickerCameraMatPanel, type StickerFrameStyle } from "../ui/atelier";
+import {
+  LabRangeBulletCanvas,
+  UlnTrajectoryCanvas,
+  type UlnProfileSeries,
+} from "../ui/charts";
 import {
   ActionButton,
   Card,
@@ -125,9 +134,33 @@ export function LogLabsPage() {
 
   const externalFormat = signal<"apple_health_xml" | "csv" | "jsonl">("apple_health_xml");
   const externalText = signal(SAMPLE_APPLE_XML);
+  const selectedProfileId = signal<"self" | "partner" | "parents">("self");
+  const profileMarkerName = signal("ALT(谷丙转氨酶)");
+  const profileMarkerVal = signal("34");
+  const profileMarkerHigh = signal("40");
 
   const state = () => getState();
   const snap = () => state().snapshot;
+  const solar = () => state().solar_atelier;
+  const entitlements = () => state().entitlements;
+  const ulnSeries = (): UlnProfileSeries[] => {
+    const map = new Map<string, UlnProfileSeries>();
+    for (const pt of state().multi_profile_uln_trends) {
+      let bucket = map.get(pt.profile_id);
+      if (!bucket) {
+        bucket = { profile_id: pt.profile_id, label: pt.profile_label, points: [] };
+        map.set(pt.profile_id, bucket);
+      }
+      bucket.points.push({
+        date: pt.test_date,
+        short_label: `${pt.marker_name.slice(0, 6)} ${pt.test_date.slice(5)}`,
+        uln_pct: pt.uln_pct,
+        raw_value: pt.value,
+        unit: pt.unit,
+      });
+    }
+    return Array.from(map.values());
+  };
   const intakes = () => state().intakes;
   const labs = () => state().labs;
   const lastImport = () => state().last_lab_import;
@@ -320,6 +353,27 @@ export function LogLabsPage() {
               </View>
             </If>
           </Card>
+
+          {/* 模切食光贴纸造物机 & 人间烟火月历垫 */}
+          <StickerCameraMatPanel
+            stickers={solar().stickers.map((st, idx) => ({
+              id: String(st.id),
+              date: st.date,
+              dayNumber: Number(st.date.slice(8, 10)) || idx + 1,
+              title: st.title,
+              frameStyle: (st.filter === "watercolor" || st.filter === "celadon"
+                ? st.filter
+                : "polaroid") as StickerFrameStyle,
+              purineHint: st.nutrition_hint,
+            }))}
+            monthlyQuotaUsed={solar().sticker_quota.used_count}
+            monthlyQuotaLimit={solar().sticker_quota.limit ?? 999}
+            atelierUnlocked={entitlements().is_atelier_unlocked}
+            onCreateSticker={(input) =>
+              addFoodSticker(snap().target_date, input.title, input.frameStyle, input.purineHint ?? "")
+            }
+            onOpenAtelier={() => setShowAtelierModal(true)}
+          />
         </View>
       </If>
 
@@ -470,6 +524,107 @@ export function LogLabsPage() {
             </If>
 
             <Text class="text-[11px] leading-relaxed text-muted-foreground">{getDisclaimerText()}</Text>
+          </Card>
+
+          {/* 亲友多档案 %ULN 归一化趋势、90 天复查提醒与大字《气韵平安家书》 */}
+          <Card>
+            <SectionHeader
+              title="亲友多档案 %ULN 归一化趋势 & 平安家书"
+              subtitle="按各自化验单上限 (ULN%) 消除参考区间差异，并端侧脱敏生成父母大字平安报"
+              right={
+                <ActionButton
+                  title="生成《气韵平安家书》"
+                  icon="family_heart"
+                  size="sm"
+                  onPress={() => generateParentsPeaceLetter("爸妈")}
+                />
+              }
+            />
+
+            <View class="flex-row flex-wrap gap-1.5">
+              <Each
+                of={[
+                  { id: "self", label: "本人档案" },
+                  { id: "partner", label: "伴侣档案" },
+                  { id: "parents", label: "父母长辈" },
+                ]}
+                key={(p) => p.id}
+              >
+                {(p) => (
+                  <SelectChip
+                    label={p().label}
+                    selected={selectedProfileId() === p().id}
+                    onPress={() => selectedProfileId.set(p().id as "self" | "partner" | "parents")}
+                  />
+                )}
+              </Each>
+            </View>
+
+            <View class="flex-row flex-wrap items-center gap-2">
+              <View class="min-w-36 flex-1">
+                <FieldInput
+                  value={profileMarkerName()}
+                  placeholder="指标名（如：ALT / UA）"
+                  onChange={(v) => profileMarkerName.set(v)}
+                />
+              </View>
+              <View class="w-24">
+                <FieldInput
+                  value={profileMarkerVal()}
+                  placeholder="实测值"
+                  onChange={(v) => profileMarkerVal.set(v)}
+                />
+              </View>
+              <View class="w-24">
+                <FieldInput
+                  value={profileMarkerHigh()}
+                  placeholder="上限 ULN"
+                  onChange={(v) => profileMarkerHigh.set(v)}
+                />
+              </View>
+              <ActionButton
+                title="录入亲友档案"
+                icon="plus"
+                size="sm"
+                onPress={() => {
+                  const v = Number(profileMarkerVal());
+                  const h = Number(profileMarkerHigh());
+                  if (Number.isFinite(v)) {
+                    addProfileLabMarker(
+                      selectedProfileId(),
+                      snap().target_date,
+                      profileMarkerName(),
+                      v,
+                      "U/L",
+                      null,
+                      Number.isFinite(h) && h > 0 ? h : null,
+                    );
+                  }
+                }}
+              />
+            </View>
+
+            <If when={ulnSeries().length > 0}>
+              <UlnTrajectoryCanvas
+                series={ulnSeries()}
+                markerName="多档案 ULN% 归一化纵览"
+              />
+            </If>
+
+            <If when={state().recheck_reminders.length > 0}>
+              <View class="gap-1.5 pt-1">
+                <Text class="text-xs font-semibold text-foreground">90 天温柔复查提醒</Text>
+                <Each of={state().recheck_reminders.slice(0, 4)} key={(r) => `${r.profile_id}-${r.canonical_key}`}>
+                  {(r) => (
+                    <SunkenBox>
+                      <Text class="text-xs leading-relaxed text-foreground">
+                        {`${r().profile_label} · ${r().marker_name}（距今 ${r().days_since_last} 天）：${r().reminder_text}`}
+                      </Text>
+                    </SunkenBox>
+                  )}
+                </Each>
+              </View>
+            </If>
           </Card>
         </View>
       </If>

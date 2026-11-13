@@ -47,7 +47,15 @@
       "dew-accent": "#2E7D9B",
       "dew-soft": "#E5F3F8",
       "stage-scrim": "#1F1915BF",
-      "stage-ink": "#FAF7F2"
+      "stage-ink": "#FAF7F2",
+      "atelier-accent": "#B87333",
+      "atelier-soft": "#F6EBE0",
+      "wax-seal": "#A63428",
+      "wax-seal-soft": "#F7E4E0",
+      "duo-accent": "#D47A5E",
+      "duo-soft": "#FBEBE5",
+      "ink-lapis": "#2B4C7E",
+      "ink-gold": "#C5933B"
     },
     "dark": {
       "background": "#151412",
@@ -91,7 +99,15 @@
       "dew-accent": "#6CC3E0",
       "dew-soft": "#182B33",
       "stage-scrim": "#101211CC",
-      "stage-ink": "#F5F2EB"
+      "stage-ink": "#F5F2EB",
+      "atelier-accent": "#DF9A57",
+      "atelier-soft": "#342619",
+      "wax-seal": "#E26B5C",
+      "wax-seal-soft": "#381C19",
+      "duo-accent": "#F09C82",
+      "duo-soft": "#38221D",
+      "ink-lapis": "#6A94D4",
+      "ink-gold": "#E5B95C"
     }
   }
 }

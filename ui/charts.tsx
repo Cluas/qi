@@ -1,4 +1,5 @@
 import { Canvas, colorScheme, signal, Text, token, View } from "nsh";
+import { Button } from "nsh/base";
 import { Area, Grid, Line, Plot, PlotAxis } from "nsh/base/plot";
 import type { TrendPoint } from "../store";
 
@@ -589,3 +590,546 @@ export function AcwrSweetSpotCanvas(props: { acwr: number | null }) {
 
 /** 兼容既有页面导入别名 */
 export const AcwrZoneBarCanvas = AcwrSweetSpotCanvas;
+
+export interface UlnProfilePoint {
+  date: string;
+  short_label?: string;
+  uln_pct: number;
+  raw_value?: number;
+  unit?: string;
+}
+
+export interface UlnProfileSeries {
+  profile_id: string;
+  label: string;
+  points: UlnProfilePoint[];
+}
+
+function resolveProfileToken(profileId: string, idx: number): string {
+  switch (profileId) {
+    case "self":
+      return readToken("vital-prime");
+    case "partner":
+      return readToken("duo-accent");
+    case "parents":
+      return readToken("ink-lapis");
+    default:
+      return idx === 0
+        ? readToken("vital-prime")
+        : idx === 1
+          ? readToken("duo-accent")
+          : idx === 2
+            ? readToken("ink-lapis")
+            : readToken("atelier-accent");
+  }
+}
+
+/** 多亲友化验 %ULN 归一化趋势对比曲线（含 100% ULN 虚线基准线 + 档案胶囊筛选 + 节点读数） */
+export function UlnTrajectoryCanvas(props: {
+  series: UlnProfileSeries[];
+  markerName?: string;
+  activeProfileIds?: string[];
+}) {
+  const hiddenIds = signal<string[]>([]);
+  const selectedIndex = signal<number | null>(null);
+
+  const visibleSeries = () => {
+    const base = props.activeProfileIds?.length
+      ? props.series.filter((s) => props.activeProfileIds!.includes(s.profile_id))
+      : props.series;
+    const hidden = hiddenIds();
+    const filtered = base.filter((s) => !hidden.includes(s.profile_id));
+    return filtered.length > 0 ? filtered : base.slice(0, 1);
+  };
+
+  const timelineLabels = (): string[] => {
+    let longest: UlnProfilePoint[] = [];
+    for (const s of visibleSeries()) {
+      if (s.points.length > longest.length) longest = s.points;
+    }
+    return longest.map((p) => p.short_label || p.date);
+  };
+
+  const activePointIndex = () => {
+    const labels = timelineLabels();
+    if (labels.length === 0) return -1;
+    const idx = selectedIndex();
+    if (idx !== null && idx >= 0 && idx < labels.length) return idx;
+    return labels.length - 1;
+  };
+
+  const toggleProfile = (id: string) => {
+    const current = hiddenIds();
+    if (current.includes(id)) {
+      hiddenIds.set(current.filter((item) => item !== id));
+      return;
+    }
+    const visibleCount = props.series.filter((s) => !current.includes(s.profile_id)).length;
+    if (visibleCount <= 1) return;
+    hiddenIds.set([...current, id]);
+  };
+
+  return (
+    <View class="w-full gap-2.5">
+      <View class="flex-row flex-wrap items-center justify-between gap-2">
+        <View class="flex-row flex-wrap items-center gap-1.5">
+          <Each of={props.series} key={(s) => s.profile_id}>
+            {(item, idx) => {
+              const isActive = () =>
+                visibleSeries().some((v) => v.profile_id === item().profile_id);
+              return (
+                <Button
+                  hitSlop={4}
+                  onPress={() => toggleProfile(item().profile_id)}
+                  class={`min-h-8 flex-row items-center gap-1.5 rounded-full border px-3 py-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                    isActive()
+                      ? "border-primary/45 bg-card"
+                      : "border-border/60 bg-surface-sunken opacity-55"
+                  }`}
+                >
+                  <Canvas
+                    style={{ width: 8, height: 8 }}
+                    draw={(cx, size) => {
+                      cx.clearRect(0, 0, size.width, size.height);
+                      cx.fillStyle = resolveProfileToken(item().profile_id, idx());
+                      cx.beginPath();
+                      cx.arc(size.width / 2, size.height / 2, 3.5, 0, Math.PI * 2);
+                      cx.fill();
+                    }}
+                  />
+                  <Text class="text-xs font-semibold text-foreground">{item().label}</Text>
+                </Button>
+              );
+            }}
+          </Each>
+        </View>
+        <If when={Boolean(props.markerName)}>
+          <Text class="text-[11px] font-medium text-muted-foreground">
+            {`${props.markerName} · %ULN 归一化`}
+          </Text>
+        </If>
+      </View>
+
+      <If
+        when={timelineLabels().length > 0}
+        else={
+          <View class="items-center justify-center rounded-xl border border-border/60 bg-surface-sunken py-7">
+            <Text class="text-xs text-muted-foreground">暂无多档案化验轨迹数据</Text>
+          </View>
+        }
+      >
+        <View class="flex-row flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 bg-surface-sunken px-3 py-2">
+          <Text
+            class="text-xs font-semibold text-foreground"
+            style={{ fontVariant: ["tabular-nums"] }}
+          >
+            {activePointIndex() >= 0 ? timelineLabels()[activePointIndex()] : "最新"}
+          </Text>
+          <View class="flex-row flex-wrap items-center gap-3">
+            <Each of={visibleSeries()} key={(s) => `legend-${s.profile_id}`}>
+              {(s, idx) => {
+                const pt = () => {
+                  const pts = s().points;
+                  const targetIdx = activePointIndex();
+                  if (targetIdx < 0 || pts.length === 0) return null;
+                  return pts[Math.min(targetIdx, pts.length - 1)] ?? null;
+                };
+                return (
+                  <If when={pt()}>
+                    {(p) => (
+                      <View class="flex-row items-center gap-1">
+                        <Canvas
+                          style={{ width: 7, height: 7 }}
+                          draw={(cx, size) => {
+                            cx.clearRect(0, 0, size.width, size.height);
+                            cx.fillStyle = resolveProfileToken(s().profile_id, idx());
+                            cx.beginPath();
+                            cx.arc(size.width / 2, size.height / 2, 3, 0, Math.PI * 2);
+                            cx.fill();
+                          }}
+                        />
+                        <Text class="text-[11px] text-muted-foreground">{s().label}</Text>
+                        <Text
+                          class="text-xs font-bold text-foreground"
+                          style={{ fontVariant: ["tabular-nums"] }}
+                        >
+                          {`${Math.round(p().uln_pct)}%`}
+                        </Text>
+                        <If when={p().raw_value !== undefined && p().raw_value !== null}>
+                          <Text
+                            class="text-[10px] text-muted-foreground"
+                            style={{ fontVariant: ["tabular-nums"] }}
+                          >
+                            {`(${p().raw_value}${p().unit ? ` ${p().unit}` : ""})`}
+                          </Text>
+                        </If>
+                      </View>
+                    )}
+                  </If>
+                );
+              }}
+            </Each>
+          </View>
+        </View>
+
+        <Canvas
+          class="w-full"
+          style={{ height: 156 }}
+          draw={(cx, size) => {
+            const w = Math.max(220, size.width);
+            const h = size.height;
+            const padL = 38;
+            const padR = 14;
+            const padT = 16;
+            const padB = 26;
+            const plotW = Math.max(40, w - padL - padR);
+            const plotH = Math.max(40, h - padT - padB);
+
+            cx.clearRect(0, 0, w, h);
+
+            const active = visibleSeries();
+            const allValues = active.flatMap((s) => s.points.map((p) => p.uln_pct));
+            const maxVal = Math.max(135, ...allValues, 100);
+            const yMax = Math.ceil(maxVal / 25) * 25;
+            const yMin = 0;
+
+            const yFor = (val: number) => {
+              const ratio = (val - yMin) / Math.max(1, yMax - yMin);
+              return padT + plotH * (1 - Math.max(0, Math.min(1, ratio)));
+            };
+
+            const labels = timelineLabels();
+            const count = Math.max(1, labels.length);
+            const xFor = (i: number) =>
+              count === 1 ? padL + plotW / 2 : padL + (plotW * i) / (count - 1);
+
+            // 1) 水平网格线 (50%, 100% ULN, 150%)
+            const refLevels = [50, 100, 150].filter((lv) => lv <= yMax);
+            for (const lv of refLevels) {
+              const y = yFor(lv);
+              const isUlnLine = lv === 100;
+              cx.save();
+              cx.strokeStyle = isUlnLine ? readToken("vital-recover") : readToken("border");
+              cx.lineWidth = isUlnLine ? 1.4 : 1;
+              cx.globalAlpha = isUlnLine ? 0.78 : 0.65;
+              cx.setLineDash(isUlnLine ? [5, 4] : [2, 3]);
+              cx.beginPath();
+              cx.moveTo(padL, y);
+              cx.lineTo(padL + plotW, y);
+              cx.stroke();
+              cx.restore();
+
+              cx.save();
+              cx.font = isUlnLine ? '600 9px "Menlo", monospace' : '500 9px "Menlo", monospace';
+              cx.fillStyle = isUlnLine ? readToken("vital-recover") : readToken("ink-subtle");
+              cx.textAlign = "right";
+              cx.textBaseline = "middle";
+              cx.fillText(`${lv}%`, padL - 6, y);
+              cx.restore();
+            }
+
+            // 100% ULN 标签角标
+            const y100 = yFor(100);
+            cx.save();
+            cx.font = '600 9px "PingFang SC", sans-serif';
+            cx.fillStyle = readToken("vital-recover");
+            cx.textAlign = "right";
+            cx.textBaseline = "bottom";
+            cx.fillText("100% ULN 参考上限", padL + plotW, y100 - 3);
+            cx.restore();
+
+            // 2) 选中时间竖向准星
+            const focusIdx = activePointIndex();
+            if (focusIdx >= 0 && focusIdx < count) {
+              const fx = xFor(focusIdx);
+              cx.save();
+              cx.strokeStyle = readToken("primary");
+              cx.globalAlpha = 0.35;
+              cx.lineWidth = 1;
+              cx.beginPath();
+              cx.moveTo(fx, padT);
+              cx.lineTo(fx, padT + plotH);
+              cx.stroke();
+              cx.restore();
+            }
+
+            // 3) 多档案折线与圆点
+            active.forEach((series, sIdx) => {
+              const strokeCol = resolveProfileToken(series.profile_id, sIdx);
+              const pts = series.points;
+              if (pts.length === 0) return;
+
+              cx.save();
+              cx.strokeStyle = strokeCol;
+              cx.lineWidth = 2.2;
+              cx.lineJoin = "round";
+              cx.lineCap = "round";
+              cx.beginPath();
+              pts.forEach((pt, idx) => {
+                const px = xFor(idx);
+                const py = yFor(pt.uln_pct);
+                if (idx === 0) cx.moveTo(px, py);
+                else cx.lineTo(px, py);
+              });
+              cx.stroke();
+              cx.restore();
+
+              pts.forEach((pt, idx) => {
+                const px = xFor(idx);
+                const py = yFor(pt.uln_pct);
+                const isFocused = idx === focusIdx;
+                cx.save();
+                cx.fillStyle = readToken("card");
+                cx.beginPath();
+                cx.arc(px, py, isFocused ? 5.2 : 3.6, 0, Math.PI * 2);
+                cx.fill();
+                cx.fillStyle = strokeCol;
+                cx.beginPath();
+                cx.arc(px, py, isFocused ? 3.5 : 2.3, 0, Math.PI * 2);
+                cx.fill();
+                cx.restore();
+              });
+            });
+
+            // 4) 底部时间刻度
+            cx.save();
+            cx.font = '500 9px "Menlo", monospace';
+            cx.fillStyle = readToken("ink-subtle");
+            cx.textBaseline = "top";
+            labels.forEach((lbl, idx) => {
+              if (count <= 5 || idx === 0 || idx === count - 1 || idx === Math.floor(count / 2)) {
+                cx.textAlign = idx === 0 ? "left" : idx === count - 1 ? "right" : "center";
+                cx.fillText(lbl, xFor(idx), padT + plotH + 7);
+              }
+            });
+            cx.restore();
+          }}
+        />
+
+        <If when={timelineLabels().length > 1}>
+          <View class="flex-row flex-wrap items-center gap-1.5">
+            <Text class="text-[11px] text-muted-foreground">检视时点：</Text>
+            <Each of={timelineLabels()} key={(lbl, idx) => `uln-pt-${idx}-${lbl}`}>
+              {(lbl, idx) => {
+                const isFocused = () => activePointIndex() === idx();
+                return (
+                  <Button
+                    hitSlop={4}
+                    onPress={() => selectedIndex.set(idx())}
+                    class={`min-h-7 rounded-full border px-2.5 py-0.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                      isFocused()
+                        ? "border-primary bg-primary"
+                        : "border-border/70 bg-surface-sunken hover:border-primary/45"
+                    }`}
+                  >
+                    <Text
+                      class={`text-[10px] font-semibold ${
+                        isFocused() ? "text-primary-foreground" : "text-muted-foreground"
+                      }`}
+                      style={{ fontVariant: ["tabular-nums"] }}
+                    >
+                      {lbl()}
+                    </Text>
+                  </Button>
+                );
+              }}
+            </Each>
+          </View>
+        </If>
+      </If>
+    </View>
+  );
+}
+
+export interface MultiLagBarItem {
+  lag_label: string;
+  delta_value: number;
+  unit: string;
+  cohen_d?: number | null;
+  sample_n?: number;
+  confounder_note?: string | null;
+}
+
+function resolveCohenBadge(d: number | null | undefined): { label: string; isStrong: boolean } {
+  if (d === null || d === undefined || !Number.isFinite(d)) {
+    return { label: "效应估计中", isStrong: false };
+  }
+  const abs = Math.abs(d);
+  const tag = abs >= 0.8 ? "显著效应" : abs >= 0.5 ? "中度效应" : abs >= 0.2 ? "轻度效应" : "微弱关联";
+  return { label: `d = ${d.toFixed(2)} · ${tag}`, isStrong: abs >= 0.5 };
+}
+
+/** 90 天多滞后归因横向条（D+0 / D+1 / D+2 效应条 + Cohen's d 徽章 + 混杂变量芯片 + 样本量 n） */
+export function MultiLagRadarBars(props: {
+  title?: string;
+  outcomeLabel?: string;
+  items: MultiLagBarItem[];
+  sampleDays?: number;
+  confounders?: string[];
+}) {
+  const maxAbs = () => {
+    const vals = props.items.map((it) => Math.abs(it.delta_value));
+    return Math.max(1, ...vals);
+  };
+
+  return (
+    <View class="w-full gap-2.5">
+      <If when={Boolean(props.title || props.sampleDays)}>
+        <View class="flex-row flex-wrap items-center justify-between gap-2">
+          <If when={Boolean(props.title)}>
+            <Text class="text-xs font-semibold text-foreground">{props.title}</Text>
+          </If>
+          <If when={props.sampleDays !== undefined}>
+            <View class="rounded-full bg-atelier-soft px-2.5 py-0.5">
+              <Text
+                class="text-[11px] font-semibold text-atelier-accent"
+                style={{ fontVariant: ["tabular-nums"] }}
+              >
+                {`90 天窗口 · n=${props.sampleDays}`}
+              </Text>
+            </View>
+          </If>
+        </View>
+      </If>
+
+      <If when={Boolean(props.confounders && props.confounders.length > 0)}>
+        <View class="flex-row flex-wrap items-center gap-1.5">
+          <Text class="text-[11px] text-muted-foreground">已控混杂：</Text>
+          <Each of={props.confounders ?? []} key={(c) => c}>
+            {(chip) => (
+              <View class="rounded-full border border-border/70 bg-surface-sunken px-2 py-0.5">
+                <Text class="text-[10px] font-medium text-foreground">{chip()}</Text>
+              </View>
+            )}
+          </Each>
+        </View>
+      </If>
+
+      <If
+        when={props.items.length > 0}
+        else={
+          <View class="items-center justify-center rounded-xl border border-border/60 bg-surface-sunken py-5">
+            <Text class="text-xs text-muted-foreground">积累更多双日对照记录后生成 D+0 / D+1 / D+2 滞后条形雷达</Text>
+          </View>
+        }
+      >
+        <View class="gap-2">
+          <Each of={props.items} key={(it) => it.lag_label}>
+            {(item) => {
+              const cohen = () => resolveCohenBadge(item().cohen_d);
+              const signPrefix = () => (item().delta_value >= 0 ? "+" : "");
+              return (
+                <View class="gap-1.5 rounded-xl border border-border/65 bg-surface-sunken p-3">
+                  <View class="flex-row flex-wrap items-center justify-between gap-2">
+                    <View class="flex-row items-center gap-2">
+                      <View class="rounded-lg border border-border/70 bg-card px-2 py-0.5">
+                        <Text
+                          class="text-xs font-bold text-foreground"
+                          style={{ fontVariant: ["tabular-nums"] }}
+                        >
+                          {item().lag_label}
+                        </Text>
+                      </View>
+                      <Text
+                        class={`text-xs font-bold ${
+                          item().delta_value >= 0 ? "text-vital-prime" : "text-vital-recover"
+                        }`}
+                        style={{ fontVariant: ["tabular-nums"] }}
+                      >
+                        {`${props.outcomeLabel ?? "变化"} ${signPrefix()}${item().delta_value.toFixed(1)} ${item().unit}`}
+                      </Text>
+                    </View>
+
+                    <View class="flex-row items-center gap-1.5">
+                      <View
+                        class={`rounded-full px-2 py-0.5 ${
+                          cohen().isStrong ? "bg-atelier-soft" : "bg-card border border-border/60"
+                        }`}
+                      >
+                        <Text
+                          class={`text-[10px] font-semibold ${
+                            cohen().isStrong ? "text-atelier-accent" : "text-muted-foreground"
+                          }`}
+                          style={{ fontVariant: ["tabular-nums"] }}
+                        >
+                          {cohen().label}
+                        </Text>
+                      </View>
+                      <If when={item().sample_n !== undefined}>
+                        <Text
+                          class="text-[10px] text-muted-foreground"
+                          style={{ fontVariant: ["tabular-nums"] }}
+                        >
+                          {`n=${item().sample_n}`}
+                        </Text>
+                      </If>
+                    </View>
+                  </View>
+
+                  <Canvas
+                    class="w-full"
+                    style={{ height: 14 }}
+                    draw={(cx, size) => {
+                      const w = Math.max(140, size.width);
+                      const h = size.height;
+                      const midX = w / 2;
+                      const barH = 8;
+                      const barY = (h - barH) / 2;
+
+                      cx.clearRect(0, 0, w, h);
+
+                      // 底轨
+                      cx.save();
+                      cx.fillStyle = readToken("card");
+                      cx.strokeStyle = readToken("border");
+                      cx.lineWidth = 1;
+                      cx.beginPath();
+                      cx.roundRect(0, barY, w, barH, barH / 2);
+                      cx.fill();
+                      cx.stroke();
+                      cx.restore();
+
+                      // 中线
+                      cx.save();
+                      cx.strokeStyle = readToken("muted-foreground");
+                      cx.globalAlpha = 0.45;
+                      cx.lineWidth = 1;
+                      cx.beginPath();
+                      cx.moveTo(midX, 1);
+                      cx.lineTo(midX, h - 1);
+                      cx.stroke();
+                      cx.restore();
+
+                      // 双向影响条
+                      const ratio = Math.min(1, Math.abs(item().delta_value) / maxAbs());
+                      const segW = Math.max(4, (w / 2 - 4) * ratio);
+                      const isPositive = item().delta_value >= 0;
+                      cx.save();
+                      cx.fillStyle = isPositive
+                        ? readToken("vital-prime")
+                        : readToken("vital-recover");
+                      cx.beginPath();
+                      if (isPositive) {
+                        cx.roundRect(midX + 1, barY + 1, segW, barH - 2, 3);
+                      } else {
+                        cx.roundRect(midX - 1 - segW, barY + 1, segW, barH - 2, 3);
+                      }
+                      cx.fill();
+                      cx.restore();
+                    }}
+                  />
+
+                  <If when={Boolean(item().confounder_note)}>
+                    <Text class="text-[11px] text-muted-foreground">
+                      {`混杂控制说明：${item().confounder_note}`}
+                    </Text>
+                  </If>
+                </View>
+              );
+            }}
+          </Each>
+        </View>
+      </If>
+    </View>
+  );
+}

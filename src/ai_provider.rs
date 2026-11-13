@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use crate::analytics::{AnalyticsSnapshot, LabBiomarkerRow};
+use crate::analytics::{AnalyticsSnapshot, LabBiomarkerRow, MultiLagImpactItem};
+use crate::experiments::ExperimentEvaluation;
 use crate::safety_ai::{BriefingResult, WELLNESS_DISCLAIMER, enforce_wellness_guardrails};
 
 /// 构造脱敏后的 AI 润色 Prompt（仅包含统计特征与数值白名单，严禁传入姓名/原文 PII）
@@ -179,5 +180,127 @@ pub fn generate_live_briefing(
         degraded: false,
         text: content,
         disclaimer,
+    })
+}
+
+/// 知气雅集多日深度综合润色（结合多滞后归因雷达、N-of-1 实验与化验趋势），
+/// 免费版依然可无门槛使用上方的 `generate_live_briefing` 90 字 Ollama/端侧晨报。
+#[allow(clippy::too_many_arguments)]
+pub fn generate_atelier_synthesis(
+    snapshot: &AnalyticsSnapshot,
+    labs: &[LabBiomarkerRow],
+    radar: &[MultiLagImpactItem],
+    experiments: &[ExperimentEvaluation],
+    ai_mode: &str,
+    lan_url: &str,
+    lan_model: &str,
+    cloud_url: &str,
+    cloud_token: &str,
+) -> Result<BriefingResult, String> {
+    let radar_str = radar
+        .iter()
+        .take(3)
+        .map(|r| r.summary.clone())
+        .collect::<Vec<_>>()
+        .join("；");
+    let exp_str = experiments
+        .iter()
+        .take(2)
+        .map(|e| format!("{}（{}）", e.title, e.verdict_summary))
+        .collect::<Vec<_>>()
+        .join("；");
+    let lab_str = labs
+        .iter()
+        .filter(|l| l.flag != "normal")
+        .take(3)
+        .map(|l| format!("{}({}{})", l.marker_name, l.value, l.unit))
+        .collect::<Vec<_>>()
+        .join("、");
+
+    if ai_mode == "on_device_local" || (lan_url.trim().is_empty() && cloud_token.trim().is_empty()) {
+        let synthesized = format!(
+            "雅集多日综合回望：今日元气 {} 分（{}）。归因雷达提示：{}；实验观察：{}；重点留意指标：{}。",
+            snapshot.qi_score,
+            snapshot.state_badge,
+            if radar_str.is_empty() { "正在积累 90 天多滞后样本".to_owned() } else { radar_str },
+            if exp_str.is_empty() { "暂无进行中的实验".to_owned() } else { exp_str },
+            if lab_str.is_empty() { "各化验项位于常规区间".to_owned() } else { lab_str }
+        );
+        return Ok(BriefingResult {
+            provider_label: "知气雅集 · 本地多日特征综合引擎".to_owned(),
+            degraded: false,
+            text: enforce_wellness_guardrails(&synthesized),
+            disclaimer: WELLNESS_DISCLAIMER.to_owned(),
+        });
+    }
+
+    let prompt = format!(
+        "请用温和克制的宋韵散文语言（220字内）撰写知气雅集多日健康节律综合回望，严禁诊断/开药：\n\
+         今日元气：{}/100（{}）；多滞后归因：{}；N-of-1 实验：{}；化验关注：{}",
+        snapshot.qi_score,
+        snapshot.state_badge,
+        if radar_str.is_empty() { "积累中" } else { &radar_str },
+        if exp_str.is_empty() { "无" } else { &exp_str },
+        if lab_str.is_empty() { "无" } else { &lab_str }
+    );
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(3))
+        .timeout_read(Duration::from_secs(18))
+        .build();
+
+    if ai_mode == "lan_ollama" {
+        let base = lan_url.trim().trim_end_matches('/');
+        let endpoint = if base.ends_with("/chat/completions") {
+            base.to_owned()
+        } else {
+            format!("{base}/chat/completions")
+        };
+        let model = if lan_model.trim().is_empty() { "qwen3:latest" } else { lan_model.trim() };
+        let resp = agent
+            .post(&endpoint)
+            .set("Content-Type", "application/json")
+            .send_json(json!({
+                "model": model,
+                "temperature": 0.35,
+                "max_tokens": 420,
+                "messages": [
+                    {"role": "system", "content": "你是「知气雅集」生活节律观察者，严禁医疗诊断与开药建议。"},
+                    {"role": "user", "content": format!("/no_think\n{prompt}")}
+                ]
+            }))
+            .map_err(|e| format!("局域网模型综合生成失败: {e}"))?;
+        let val: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+        let text = enforce_wellness_guardrails(
+            val["choices"][0]["message"]["content"].as_str().unwrap_or(""),
+        );
+        return Ok(BriefingResult {
+            provider_label: format!("知气雅集 · 局域网深度综合 ({model})"),
+            degraded: false,
+            text,
+            disclaimer: WELLNESS_DISCLAIMER.to_owned(),
+        });
+    }
+
+    let c_base = cloud_url.trim().trim_end_matches('/');
+    let endpoint = format!("{c_base}/v1/zdr/complete");
+    let resp = agent
+        .post(&endpoint)
+        .set("Authorization", &format!("Bearer {}", cloud_token.trim()))
+        .set("Content-Type", "application/json")
+        .send_json(json!({
+            "task": "atelier_synthesis",
+            "scrubbed_prompt": prompt
+        }))
+        .map_err(|e| format!("雅集 ZDR 综合生成失败: {e}"))?;
+    let val: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    Ok(BriefingResult {
+        provider_label: val["provider_label"]
+            .as_str()
+            .unwrap_or("知气雅集 · ZDR 深度综合")
+            .to_owned(),
+        degraded: false,
+        text: enforce_wellness_guardrails(val["content"].as_str().unwrap_or("")),
+        disclaimer: WELLNESS_DISCLAIMER.to_owned(),
     })
 }

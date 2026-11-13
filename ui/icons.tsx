@@ -28,7 +28,15 @@ export type QiIconName =
   | "flower_branch"
   | "lantern"
   | "palette"
-  | "postcard";
+  | "postcard"
+  | "solar_term"
+  | "wax_seal"
+  | "envelope"
+  | "co_sanctuary"
+  | "widget"
+  | "handscroll"
+  | "badge_ceramic"
+  | "family_heart";
 
 /** Retina 2D 矢量线性图标（零外部字体依赖，动态读取主题 Token） */
 export function QiIcon(props: {
@@ -530,10 +538,203 @@ export function QiIcon(props: {
             cx.stroke();
             break;
           }
+
+          case "solar_term": {
+            // 二十四节气日轮与嫩芽
+            cx.beginPath();
+            cx.arc(12, 12, 8.2, 0, Math.PI * 2);
+            cx.stroke();
+            for (let i = 0; i < 4; i++) {
+              const a = (i * Math.PI) / 2;
+              cx.beginPath();
+              cx.moveTo(12 + Math.cos(a) * 8.2, 12 + Math.sin(a) * 8.2);
+              cx.lineTo(12 + Math.cos(a) * 10.4, 12 + Math.sin(a) * 10.4);
+              cx.stroke();
+            }
+            cx.beginPath();
+            cx.moveTo(12, 16.5);
+            cx.lineTo(12, 9.2);
+            cx.moveTo(12, 13);
+            cx.quadraticCurveTo(15.6, 12.6, 15.8, 9.6);
+            cx.quadraticCurveTo(12.6, 9.6, 12, 13);
+            cx.stroke();
+            break;
+          }
+
+          case "wax_seal": {
+            // 火漆封蜡印记
+            cx.beginPath();
+            cx.arc(12, 12, 8.2, 0, Math.PI * 2);
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(12, 12, 5.2, 0, Math.PI * 2);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(10.2, 10.6);
+            cx.lineTo(13.8, 10.6);
+            cx.moveTo(12, 9.4);
+            cx.lineTo(12, 14.6);
+            cx.moveTo(10.2, 13.8);
+            cx.lineTo(13.8, 13.8);
+            cx.stroke();
+            break;
+          }
+
+          case "envelope": {
+            // 周日慢递信笺
+            cx.beginPath();
+            cx.roundRect(3.2, 5.5, 17.6, 13, 2.2);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(4.2, 6.8);
+            cx.lineTo(12, 12.6);
+            cx.lineTo(19.8, 6.8);
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(12, 13.2, 1.3, 0, Math.PI * 2);
+            cx.fill();
+            break;
+          }
+
+          case "co_sanctuary": {
+            // 同窗共养 · 双枝暖窗
+            cx.beginPath();
+            cx.roundRect(4, 4, 16, 15, 2.4);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(3, 19);
+            cx.lineTo(21, 19);
+            cx.moveTo(12, 4);
+            cx.lineTo(12, 19);
+            cx.moveTo(8, 15.5);
+            cx.quadraticCurveTo(7.4, 11.8, 9.8, 10.4);
+            cx.moveTo(16, 15.5);
+            cx.quadraticCurveTo(16.6, 11.8, 14.2, 10.4);
+            cx.stroke();
+            break;
+          }
+
+          case "widget": {
+            // 抬腕微件 · 表盘弧
+            cx.beginPath();
+            cx.roundRect(5.5, 5.5, 13, 13, 3.6);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(9, 5.5);
+            cx.lineTo(9.5, 3.2);
+            cx.lineTo(14.5, 3.2);
+            cx.lineTo(15, 5.5);
+            cx.moveTo(9, 18.5);
+            cx.lineTo(9.5, 20.8);
+            cx.lineTo(14.5, 20.8);
+            cx.lineTo(15, 18.5);
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(12, 12.2, 3.6, Math.PI * 0.85, Math.PI * 2.15);
+            cx.stroke();
+            break;
+          }
+
+          case "handscroll": {
+            // 四时风物长卷
+            cx.beginPath();
+            cx.roundRect(3, 6.2, 2.8, 11.6, 1.4);
+            cx.roundRect(18.2, 6.2, 2.8, 11.6, 1.4);
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(5.8, 7.2);
+            cx.lineTo(18.2, 7.2);
+            cx.moveTo(5.8, 16.8);
+            cx.lineTo(18.2, 16.8);
+            cx.moveTo(7.4, 13.6);
+            cx.quadraticCurveTo(10.2, 9.6, 12.4, 12.2);
+            cx.quadraticCurveTo(14.6, 14.6, 16.8, 10.6);
+            cx.stroke();
+            break;
+          }
+
+          case "badge_ceramic": {
+            // 宋瓷花口勋章
+            cx.beginPath();
+            cx.moveTo(12, 3.4);
+            cx.lineTo(17.8, 6.6);
+            cx.lineTo(19.2, 12.6);
+            cx.lineTo(15.6, 17.8);
+            cx.lineTo(12, 20.6);
+            cx.lineTo(8.4, 17.8);
+            cx.lineTo(4.8, 12.6);
+            cx.lineTo(6.2, 6.6);
+            cx.closePath();
+            cx.stroke();
+            cx.beginPath();
+            cx.arc(12, 11.8, 3.2, 0, Math.PI * 2);
+            cx.stroke();
+            break;
+          }
+
+          case "family_heart": {
+            // 气韵家书暖心
+            cx.beginPath();
+            cx.moveTo(12, 20);
+            cx.bezierCurveTo(5.6, 15.6, 3.2, 12, 3.2, 8.4);
+            cx.bezierCurveTo(3.2, 5.6, 5.4, 3.8, 8, 3.8);
+            cx.bezierCurveTo(9.8, 3.8, 11.2, 4.8, 12, 6.1);
+            cx.bezierCurveTo(12.8, 4.8, 14.2, 3.8, 16, 3.8);
+            cx.bezierCurveTo(18.6, 3.8, 20.8, 5.6, 20.8, 8.4);
+            cx.bezierCurveTo(20.8, 12, 18.4, 15.6, 12, 20);
+            cx.closePath();
+            cx.stroke();
+            cx.beginPath();
+            cx.moveTo(8.5, 11.8);
+            cx.lineTo(12, 9);
+            cx.lineTo(15.5, 11.8);
+            cx.moveTo(10, 14.5);
+            cx.lineTo(14, 14.5);
+            cx.stroke();
+            break;
+          }
         }
 
         cx.restore();
       }}
     />
   );
+}
+
+export interface QiIconHelperProps {
+  size?: number;
+  color?: string;
+  strokeWidth?: number;
+}
+
+export function SolarTermIcon(props: QiIconHelperProps) {
+  return <QiIcon name="solar_term" {...props} />;
+}
+
+export function WaxSealIcon(props: QiIconHelperProps) {
+  return <QiIcon name="wax_seal" {...props} />;
+}
+
+export function EnvelopeIcon(props: QiIconHelperProps) {
+  return <QiIcon name="envelope" {...props} />;
+}
+
+export function CoSanctuaryIcon(props: QiIconHelperProps) {
+  return <QiIcon name="co_sanctuary" {...props} />;
+}
+
+export function WidgetIcon(props: QiIconHelperProps) {
+  return <QiIcon name="widget" {...props} />;
+}
+
+export function HandscrollIcon(props: QiIconHelperProps) {
+  return <QiIcon name="handscroll" {...props} />;
+}
+
+export function BadgeCeramicIcon(props: QiIconHelperProps) {
+  return <QiIcon name="badge_ceramic" {...props} />;
+}
+
+export function FamilyHeartIcon(props: QiIconHelperProps) {
+  return <QiIcon name="family_heart" {...props} />;
 }

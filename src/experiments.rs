@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::analytics::{DailyMetricRow, resolve_canonical_metrics};
 
+fn default_washout_days() -> i64 {
+    2
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExperimentRow {
     pub id: i64,
@@ -16,6 +20,8 @@ pub struct ExperimentRow {
     pub start_date: String,
     pub status: String,
     pub checkin_dates: Vec<String>,
+    #[serde(default = "default_washout_days")]
+    pub washout_days: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,11 +32,14 @@ pub struct ExperimentEvaluation {
     pub target_days: u32,
     pub start_date: String,
     pub status: String,
+    pub washout_days: i64,
+    pub washout_skipped_days: usize,
     pub completed_days: usize,
     pub checked_today: bool,
     pub hrv_delta_ms: Option<f64>,
     pub rhr_delta_bpm: Option<f64>,
     pub deep_sleep_delta_min: Option<f64>,
+    pub outcome_verdict: String,
     pub verdict_summary: String,
 }
 
@@ -103,6 +112,7 @@ pub fn evaluate_experiments(
     let mut out = Vec::new();
 
     for exp in experiments {
+        let washout = exp.washout_days.max(0);
         let checkin_set: BTreeSet<&str> = exp.checkin_dates.iter().map(|s| s.as_str()).collect();
         let next_days: BTreeSet<String> = exp
             .checkin_dates
@@ -110,6 +120,35 @@ pub fn evaluate_experiments(
             .filter_map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
             .map(|nd| (nd + Duration::days(1)).format("%Y-%m-%d").to_string())
             .collect();
+
+        // 计算洗脱期日期集合：
+        // 1) 实验开始前 [start_date - washout, start_date) 过渡洗脱窗
+        // 2) 每次干预打卡后 (d + 1 ..= d + washout] 的残留洗脱窗（若当天未继续打卡）
+        let mut washout_dates: BTreeSet<String> = BTreeSet::new();
+        if washout > 0 {
+            if let Ok(sd) = NaiveDate::parse_from_str(&exp.start_date, "%Y-%m-%d") {
+                for offset in 1..=washout {
+                    let wd = (sd - Duration::days(offset)).format("%Y-%m-%d").to_string();
+                    if !checkin_set.contains(wd.as_str()) {
+                        washout_dates.insert(wd);
+                    }
+                }
+            }
+            for c_str in &exp.checkin_dates {
+                if let Ok(cd) = NaiveDate::parse_from_str(c_str, "%Y-%m-%d") {
+                    for offset in 1..=washout {
+                        let wd = (cd + Duration::days(offset)).format("%Y-%m-%d").to_string();
+                        if !checkin_set.contains(wd.as_str()) {
+                            washout_dates.insert(wd);
+                        }
+                    }
+                }
+            }
+        }
+        let washout_skipped_days = canonical
+            .keys()
+            .filter(|d| washout_dates.contains(*d))
+            .count();
 
         let metric_delta = |metric_key: &str, use_same_night: bool| -> Option<f64> {
             let mut on_vals = Vec::new();
@@ -123,7 +162,7 @@ pub fn evaluate_experiments(
                     };
                     if hit {
                         on_vals.push(m.value);
-                    } else {
+                    } else if !washout_dates.contains(day) {
                         off_vals.push(m.value);
                     }
                 }
@@ -140,28 +179,57 @@ pub fn evaluate_experiments(
         let rhr_delta = metric_delta("resting_heart_rate_bpm", false);
         let deep_delta = metric_delta("sleep_deep_minutes", true);
 
-        let verdict_summary = match (hrv_delta, deep_delta, rhr_delta) {
-            (Some(h), Some(d), _) => format!(
-                "依从 {} 天对比常规日：次日夜间 HRV {:+.1} ms，当晚深睡 {:+.1} min。",
+        let has_any_delta = hrv_delta.is_some() || rhr_delta.is_some() || deep_delta.is_some();
+        let positive_signal = hrv_delta.map(|h| h >= 1.5).unwrap_or(false)
+            || deep_delta.map(|d| d >= 5.0).unwrap_or(false)
+            || rhr_delta.map(|r| r <= -1.0).unwrap_or(false);
+        let outcome_verdict = if !has_any_delta {
+            "insufficient_data".to_owned()
+        } else if positive_signal {
+            "effective".to_owned()
+        } else {
+            "neutral".to_owned()
+        };
+
+        let washout_tag = if washout > 0 {
+            format!("（已跳过 {washout} 天洗脱期）")
+        } else {
+            String::new()
+        };
+
+        let verdict_summary = if outcome_verdict == "neutral" && exp.checkin_dates.len() >= 3 {
+            format!(
+                "已完成 {} 天对照{}：指标波动未见显著增益（假说暂未成立，可省下无效坚持）。",
                 exp.checkin_dates.len(),
-                h,
-                d
-            ),
-            (Some(h), None, _) => format!(
-                "依从 {} 天对比常规日：次日夜间 HRV {:+.1} ms。",
-                exp.checkin_dates.len(),
-                h
-            ),
-            (_, Some(d), _) => format!(
-                "依从 {} 天对比常规日：当晚深睡时长 {:+.1} min。",
-                exp.checkin_dates.len(),
-                d
-            ),
-            _ => format!(
-                "已打卡 {} / {} 天：继续坚持 2 天以上即可解锁实验期 vs 基线生理差值。",
-                exp.checkin_dates.len(),
-                exp.target_days
-            ),
+                washout_tag
+            )
+        } else {
+            match (hrv_delta, deep_delta, rhr_delta) {
+                (Some(h), Some(d), _) => format!(
+                    "依从 {} 天对比基线{}：次日夜间 HRV {:+.1} ms，当晚深睡 {:+.1} min。",
+                    exp.checkin_dates.len(),
+                    washout_tag,
+                    h,
+                    d
+                ),
+                (Some(h), None, _) => format!(
+                    "依从 {} 天对比基线{}：次日夜间 HRV {:+.1} ms。",
+                    exp.checkin_dates.len(),
+                    washout_tag,
+                    h
+                ),
+                (_, Some(d), _) => format!(
+                    "依从 {} 天对比基线{}：当晚深睡时长 {:+.1} min。",
+                    exp.checkin_dates.len(),
+                    washout_tag,
+                    d
+                ),
+                _ => format!(
+                    "已打卡 {} / {} 天：继续坚持 2 天以上即可解锁实验期 vs 基线生理差值。",
+                    exp.checkin_dates.len(),
+                    exp.target_days
+                ),
+            }
         };
 
         out.push(ExperimentEvaluation {
@@ -171,11 +239,14 @@ pub fn evaluate_experiments(
             target_days: exp.target_days,
             start_date: exp.start_date.clone(),
             status: exp.status.clone(),
+            washout_days: washout,
+            washout_skipped_days,
             completed_days: exp.checkin_dates.len(),
             checked_today: checkin_set.contains(target_date),
             hrv_delta_ms: hrv_delta,
             rhr_delta_bpm: rhr_delta,
             deep_sleep_delta_min: deep_delta,
+            outcome_verdict,
             verdict_summary,
         });
     }

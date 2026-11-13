@@ -4,11 +4,13 @@ pub mod ai_provider;
 pub mod analytics;
 pub mod apple_native;
 pub mod crypto_sync;
+pub mod entitlements;
 pub mod experiments;
 pub mod importers;
 pub mod nutrition_db;
 pub mod personas;
 pub mod safety_ai;
+pub mod solar_atelier;
 pub mod storage;
 pub mod sync_engine;
 
@@ -20,13 +22,19 @@ use serde::Serialize;
 
 use crate::ai_provider::generate_live_briefing;
 use crate::analytics::{
-    AnalyticsSnapshot, HardwareTier, IntakeLogRow, LabBiomarkerRow, compute_snapshot,
-    resolve_canonical_metrics, source_priority,
+    AnalyticsSnapshot, HardwareTier, IntakeLogRow, LabBiomarkerRow, MultiLagImpactItem,
+    build_daily_records, compute_multi_lag_radar, compute_snapshot, resolve_canonical_metrics,
+    source_priority,
 };
 use crate::apple_native::{
     LocalAiCapabilityProbe, probe_local_ai_capabilities, run_offline_vision_ocr,
 };
 use crate::crypto_sync::{decrypt_sync_batch, derive_master_key, encrypt_sync_batch};
+use crate::entitlements::{
+    EntitlementCatalog, EntitlementVerificationResult, LOYALTY_MIN_CHECKIN_DAYS,
+    OfflineEntitlementState, SubscriptionTier, build_entitlement_catalog, has_feature,
+    mint_sandbox_oset, verify_oset_with_clock,
+};
 use crate::experiments::{
     EXPERIMENT_TEMPLATES, ExperimentEvaluation, ExperimentTemplate, PeriodComparison,
     compute_period_comparison, evaluate_experiments,
@@ -34,14 +42,20 @@ use crate::experiments::{
 use crate::importers::{parse_apple_health_xml_snippet, parse_csv_metrics};
 use crate::nutrition_db::{FoodSearchHit, parse_natural_intake_text, search_foods};
 use crate::safety_ai::{
-    BriefingResult, WELLNESS_DISCLAIMER, build_morning_briefing, enforce_wellness_guardrails,
-    scrub_lab_text_pii,
+    BriefingResult, MultiProfileRecheckReminder, MultiProfileUlnPoint, ParentsPeaceLetter,
+    WELLNESS_DISCLAIMER, build_morning_briefing, build_parents_peace_letter, canonicalize_marker,
+    compute_multi_profile_uln_trends_at, enforce_wellness_guardrails, scrub_lab_text_pii,
+};
+use crate::solar_atelier::{
+    MAX_EQUIPPED_KEEPSAKES, SolarAtelierPayload, build_seasonal_pass, build_solar_atelier_payload,
+    compute_solar_term_state, infer_sticker_nutrition_hint, normalize_weather_mood,
 };
 use crate::storage::{AppSettings, VaultDatabase};
 use crate::sync_engine::{
     SyncExecutionReport, build_local_archive_json, decrypt_local_archive_json,
-    pull_envelopes_from_byo, pull_envelopes_from_dir, push_envelope_to_byo,
-    push_envelope_to_dir, push_envelope_to_webdav, resolve_icloud_vault_dir,
+    pull_envelopes_from_byo, pull_envelopes_from_dir, pull_envelopes_from_webdav,
+    push_envelope_to_byo, push_envelope_to_dir, push_envelope_to_webdav,
+    resolve_icloud_vault_dir,
 };
 
 #[native_module("qi/native")]
@@ -76,6 +90,7 @@ pub struct DataAuditReport {
     pub tier_hrv_contract_held: bool,
     pub lab_trends_consistent: bool,
     pub pii_guard_verified: bool,
+    pub vault_non_lockout_verified: bool,
     pub passed: bool,
     pub checks: Vec<AuditCheckItem>,
 }
@@ -92,6 +107,13 @@ struct UiStatePayload {
     period_comparison: PeriodComparison,
     last_lab_import: Option<LastLabImportFeedback>,
     capability_probe: Option<LocalAiCapabilityProbe>,
+    entitlements: EntitlementVerificationResult,
+    entitlement_catalog: EntitlementCatalog,
+    solar_atelier: SolarAtelierPayload,
+    multi_lag_radar: Vec<MultiLagImpactItem>,
+    multi_profile_uln_trends: Vec<MultiProfileUlnPoint>,
+    recheck_reminders: Vec<MultiProfileRecheckReminder>,
+    parents_peace_letter_preview: ParentsPeaceLetter,
 }
 
 /// 开源合规与安全声明只读元信息。
@@ -158,6 +180,21 @@ impl QiEngine {
         }
     }
 
+    fn current_epoch() -> i64 {
+        chrono::Utc::now().timestamp()
+    }
+
+    fn evaluate_entitlement(&self, settings: &AppSettings) -> EntitlementVerificationResult {
+        let now = Self::current_epoch();
+        verify_oset_with_clock(&settings.entitlement_token, now, settings.max_seen_epoch, None)
+    }
+
+    fn award_recovery_dew_if_needed(&self, snapshot: &AnalyticsSnapshot) {
+        if snapshot.state == "recovery_priority" {
+            let _ = self.db.ensure_daily_recovery_dew(&snapshot.target_date);
+        }
+    }
+
     fn build_payload(&self) -> Result<String, String> {
         let settings = self.db.load_settings()?;
         let metrics = self.db.load_metrics()?;
@@ -190,6 +227,43 @@ impl QiEngine {
             )
         };
 
+        let entitlements = self.evaluate_entitlement(&settings);
+        let distinct_metric_days: BTreeSet<&str> = metrics.iter().map(|m| m.date.as_str()).collect();
+        let loyalty_eligible = settings.companion_loyalty_days >= LOYALTY_MIN_CHECKIN_DAYS
+            || distinct_metric_days.len() as i64 >= LOYALTY_MIN_CHECKIN_DAYS
+            || entitlements.companion_loyalty_eligible;
+        let entitlement_catalog = build_entitlement_catalog(loyalty_eligible);
+
+        let dew_balance = self.db.get_dew_balance()?;
+        let dew_ledger = self.db.list_dew_ledger(24)?;
+        let claimed_rewards = self.db.list_claimed_pass_rewards()?;
+        let presets = self.db.list_presets()?;
+        let stickers = self.db.list_stickers()?;
+        let ym: String = snapshot.target_date.chars().take(7).collect();
+        let used_stickers_in_month = self.db.count_stickers_in_month(&ym)?;
+
+        let solar_atelier = build_solar_atelier_payload(
+            &settings,
+            &snapshot,
+            &entitlements,
+            dew_balance,
+            dew_ledger,
+            &claimed_rewards,
+            presets,
+            stickers,
+            used_stickers_in_month,
+            &experiments,
+            intakes.len(),
+            distinct_metric_days.len(),
+        );
+
+        let daily_records = build_daily_records(&metrics, &intakes);
+        let multi_lag_radar = compute_multi_lag_radar(&daily_records);
+        let (multi_profile_uln_trends, recheck_reminders) =
+            compute_multi_profile_uln_trends_at(&labs, &snapshot.target_date);
+        let parents_peace_letter_preview =
+            build_parents_peace_letter("爸妈", &snapshot, &recheck_reminders);
+
         let payload = UiStatePayload {
             settings,
             snapshot,
@@ -201,6 +275,13 @@ impl QiEngine {
             period_comparison,
             last_lab_import: self.last_lab_import.clone(),
             capability_probe: self.last_probe.clone(),
+            entitlements,
+            entitlement_catalog,
+            solar_atelier,
+            multi_lag_radar,
+            multi_profile_uln_trends,
+            recheck_reminders,
+            parents_peace_letter_preview,
         };
         serde_json::to_string(&payload).map_err(|e| e.to_string())
     }
@@ -234,6 +315,14 @@ impl QiEngine {
         s.primary_goal = goal;
         s.hardware_tier = tier;
         self.db.save_settings(&s)?;
+        let snap = compute_snapshot(
+            &self.db.load_metrics()?,
+            &self.db.load_workouts()?,
+            &self.db.load_intakes()?,
+            HardwareTier::from_str(&s.hardware_tier),
+            s.morning_feeling,
+        );
+        self.award_recovery_dew_if_needed(&snap);
         self.build_payload()
     }
 
@@ -246,6 +335,14 @@ impl QiEngine {
             s.morning_feeling = f.clamp(1, 5);
         }
         self.db.save_settings(&s)?;
+        let snap = compute_snapshot(
+            &self.db.load_metrics()?,
+            &self.db.load_workouts()?,
+            &self.db.load_intakes()?,
+            HardwareTier::from_str(&s.hardware_tier),
+            s.morning_feeling,
+        );
+        self.award_recovery_dew_if_needed(&snap);
         self.build_payload()
     }
 
@@ -254,6 +351,14 @@ impl QiEngine {
         let mut s = self.db.load_settings()?;
         s.checked_action_today = !s.checked_action_today;
         self.db.save_settings(&s)?;
+        let snap = compute_snapshot(
+            &self.db.load_metrics()?,
+            &self.db.load_workouts()?,
+            &self.db.load_intakes()?,
+            HardwareTier::from_str(&s.hardware_tier),
+            s.morning_feeling,
+        );
+        self.award_recovery_dew_if_needed(&snap);
         self.build_payload()
     }
 
@@ -739,6 +844,459 @@ impl QiEngine {
 
         self.live_briefing_override = None;
         self.last_lab_import = None;
+        let snap = compute_snapshot(
+            &self.db.load_metrics()?,
+            &self.db.load_workouts()?,
+            &self.db.load_intakes()?,
+            HardwareTier::from_str(&s.hardware_tier),
+            s.morning_feeling,
+        );
+        self.award_recovery_dew_if_needed(&snap);
+        self.build_payload()
+    }
+
+    /// 重新验证当前 Ed25519 离线权益凭证并更新防回拨单调时钟水位线。
+    pub fn verify_entitlements(&mut self) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        let res = self.evaluate_entitlement(&s);
+        if res.new_max_seen_epoch > s.max_seen_epoch {
+            s.max_seen_epoch = res.new_max_seen_epoch;
+            self.db.save_settings(&s)?;
+        }
+        self.build_payload()
+    }
+
+    /// 沙盒切换会员档位/状态（内部使用真实 Ed25519 签发 OSET 通行证）。
+    pub fn set_entitlement_sandbox(
+        &mut self,
+        tier: String,
+        simulated_state: String,
+        guardian_sponsor: bool,
+        loyalty_days: i64,
+    ) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        let now = Self::current_epoch();
+        let token = mint_sandbox_oset(
+            &s.device_id,
+            &tier,
+            &simulated_state,
+            guardian_sponsor,
+            loyalty_days,
+            now,
+        )?;
+        s.sandbox_tier = SubscriptionTier::from_str(&tier).as_str().to_owned();
+        s.sandbox_state = simulated_state;
+        s.guardian_sponsor = guardian_sponsor;
+        s.companion_loyalty_days = loyalty_days.max(0);
+        s.entitlement_token = token;
+        let res = verify_oset_with_clock(&s.entitlement_token, now, s.max_seen_epoch, None);
+        s.max_seen_epoch = res.new_max_seen_epoch;
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 粘贴并应用真实签发的 Ed25519 离线权益通行证。
+    pub fn apply_entitlement_token(&mut self, token: String) -> Result<String, String> {
+        let trimmed = token.trim().to_owned();
+        let mut s = self.db.load_settings()?;
+        let now = Self::current_epoch();
+        if trimmed.is_empty() {
+            s.entitlement_token.clear();
+            s.sandbox_tier = "free".to_owned();
+            self.db.save_settings(&s)?;
+            return self.build_payload();
+        }
+        let res = verify_oset_with_clock(&trimmed, now, s.max_seen_epoch, None);
+        if !res.valid_signature {
+            return Err("雅集通行证签名校验失败，请确认令牌完整无篡改".to_owned());
+        }
+        s.entitlement_token = trimmed;
+        s.sandbox_tier = res.tier;
+        s.guardian_sponsor = res.guardian_sponsor;
+        s.max_seen_epoch = res.new_max_seen_epoch;
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 清除当前通行证，回到素心清欢永久免费版（既往档案依然 100% 可读可导出）。
+    pub fn clear_entitlement_token(&mut self) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        s.entitlement_token.clear();
+        s.sandbox_tier = "free".to_owned();
+        s.sandbox_state = "active".to_owned();
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 领取或兑换岁时风物季票节点（清欢轨永久免费，雅集轨需有效会员，兑换扣减晨露）。
+    pub fn claim_seasonal_reward(&mut self, reward_id: String) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let ent = self.evaluate_entitlement(&s);
+        let claimed = self.db.list_claimed_pass_rewards()?;
+        let pass = build_seasonal_pass(&ent, &claimed);
+        let node = pass
+            .into_iter()
+            .find(|n| n.id == reward_id || n.reward_id == reward_id)
+            .ok_or_else(|| format!("未找到季票风物节点: {reward_id}"))?;
+        if node.claimed {
+            return Err("该岁时风物已收入行囊，无需重复兑换".to_owned());
+        }
+        if !node.unlocked_by_tier {
+            return Err("该风物属于「知气雅集」限定轨，开启雅集后即可用晨露兑换".to_owned());
+        }
+        let balance = self.db.get_dew_balance()?;
+        if balance < node.cost_dew {
+            return Err(format!(
+                "晨露不足：需要 {} 💧，当前拥有 {} 💧",
+                node.cost_dew, balance
+            ));
+        }
+        self.db.add_dew_entry(
+            -node.cost_dew,
+            "seasonal_pass_claim",
+            &format!("兑换岁时风物：{}", node.title),
+            &node.reward_id,
+        )?;
+        self.build_payload()
+    }
+
+    /// 手动领取今日「安心静养 · 睡饱双倍露 (+3 💧)」（仅在静养日触发，永久免费）。
+    pub fn claim_recovery_dew(&mut self) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let snap = compute_snapshot(
+            &self.db.load_metrics()?,
+            &self.db.load_workouts()?,
+            &self.db.load_intakes()?,
+            HardwareTier::from_str(&s.hardware_tier),
+            s.morning_feeling,
+        );
+        if snap.state != "recovery_priority" {
+            return Err("今日状态稳健，仅在「调养 · 蓄能」静养日自动触发双倍晨露".to_owned());
+        }
+        self.db.ensure_daily_recovery_dew(&snap.target_date)?;
+        self.build_payload()
+    }
+
+    /// 切换窗外天色心境（`sunny_crisp` / `misty_rain` / `first_snow` / `clear_moon`）。
+    pub fn set_weather_mood(&mut self, weather_mood: String) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        s.weather_mood = normalize_weather_mood(&weather_mood).to_owned();
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 装卸窗台珍藏风物摆件（素心清欢 2 槽，雅集解锁第 3 槽）。
+    pub fn toggle_equipped_keepsake(&mut self, keepsake_id: String) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        let ent = self.evaluate_entitlement(&s);
+        let max_slots = if has_feature(&ent, "keepsake_slot_3") {
+            MAX_EQUIPPED_KEEPSAKES
+        } else {
+            2
+        };
+        let mut equipped: Vec<String> =
+            serde_json::from_str(&s.equipped_keepsakes_json).unwrap_or_default();
+        if let Some(pos) = equipped.iter().position(|x| x == &keepsake_id) {
+            equipped.remove(pos);
+        } else {
+            if equipped.len() >= max_slots {
+                return Err(if max_slots < MAX_EQUIPPED_KEEPSAKES {
+                    "素心清欢最多陈列 2 件风物，升级知气雅集解锁第 3 个珍藏陈列位".to_owned()
+                } else {
+                    "窗台最多同时陈列 3 件风物摆件".to_owned()
+                });
+            }
+            equipped.push(keepsake_id);
+        }
+        s.equipped_keepsakes_json = serde_json::to_string(&equipped).map_err(|e| e.to_string())?;
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 切换日签印泥（`cinnabar` 朱砂 / `gold` 泥金 / `lapis` 青金石）。
+    pub fn set_seal_ink(&mut self, seal_ink: String) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        let ink = match seal_ink.trim() {
+            "gold" => "gold",
+            "lapis" => "lapis",
+            _ => "cinnabar",
+        };
+        if ink != "cinnabar" {
+            let ent = self.evaluate_entitlement(&s);
+            let claimed = self.db.list_claimed_pass_rewards()?;
+            if !has_feature(&ent, "poster_custom_seals") && !claimed.iter().any(|c| c == ink) {
+                return Err("泥金/青金石印泥属于知气雅集专属（或先在季票兑换）".to_owned());
+            }
+        }
+        s.active_seal_ink = ink.to_owned();
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 保存当前书房预设（素心清欢最多 2 套，雅集无限）。
+    pub fn save_sanctuary_preset(&mut self, name: String) -> Result<String, String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("请输入书房预设名称".to_owned());
+        }
+        let s = self.db.load_settings()?;
+        let ent = self.evaluate_entitlement(&s);
+        let existing_presets = self.db.list_presets()?;
+        let is_overwrite = existing_presets.iter().any(|p| p.name == trimmed);
+        if !is_overwrite && !has_feature(&ent, "preset_slots_unlimited") && existing_presets.len() >= 2
+        {
+            return Err("素心清欢最多保存 2 套书房预设，升级知气雅集解锁无限预设位".to_owned());
+        }
+        let metrics = self.db.load_metrics()?;
+        let target_date = metrics
+            .last()
+            .map(|r| r.date.clone())
+            .unwrap_or_else(|| "2026-11-13".to_owned());
+        let solar = compute_solar_term_state(&target_date, &s.weather_mood);
+        self.db.save_preset(
+            trimmed,
+            &solar.active_world,
+            &s.weather_mood,
+            &s.active_seal_ink,
+            &s.equipped_keepsakes_json,
+        )?;
+        self.build_payload()
+    }
+
+    /// 一键套用已保存的书房预设。
+    pub fn apply_sanctuary_preset(&mut self, preset_id: i64) -> Result<String, String> {
+        let preset = self
+            .db
+            .get_preset(preset_id)?
+            .ok_or_else(|| format!("未找到书房预设 #{preset_id}"))?;
+        let mut s = self.db.load_settings()?;
+        s.weather_mood = preset.weather_mood;
+        s.active_seal_ink = preset.seal_ink;
+        s.equipped_keepsakes_json = preset.keepsakes_json;
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 添加一张食光拍立得饮食贴纸（免费版每月 5 张，雅集无限；奖励 +1 💧）。
+    pub fn add_food_sticker(
+        &mut self,
+        date: String,
+        title: String,
+        filter: String,
+        note: String,
+        image_ref: String,
+    ) -> Result<String, String> {
+        let trimmed_title = title.trim();
+        if trimmed_title.is_empty() {
+            return Err("请输入饮食贴纸名称".to_owned());
+        }
+        let use_date = if date.trim().is_empty() {
+            self.db
+                .load_metrics()?
+                .last()
+                .map(|r| r.date.clone())
+                .unwrap_or_else(|| "2026-11-13".to_owned())
+        } else {
+            date.trim().to_owned()
+        };
+        let ym: String = use_date.chars().take(7).collect();
+        let s = self.db.load_settings()?;
+        let ent = self.evaluate_entitlement(&s);
+        let used = self.db.count_stickers_in_month(&ym)?;
+        if !has_feature(&ent, "unlimited_stickers") && used >= 5 {
+            return Err("本月素心清欢 5 张食光贴纸额度已用完，升级知气雅集解锁无限手账".to_owned());
+        }
+        let clean_filter = match filter.trim() {
+            "watercolor" => "watercolor",
+            "celadon" => "celadon",
+            _ => "polaroid",
+        };
+        let hint = infer_sticker_nutrition_hint(trimmed_title);
+        self.db.insert_sticker(
+            &use_date,
+            trimmed_title,
+            clean_filter,
+            note.trim(),
+            &hint,
+            image_ref.trim(),
+        )?;
+        self.db.add_dew_entry(
+            1,
+            "food_sticker",
+            &format!("定格食光贴纸：{trimmed_title}"),
+            "",
+        )?;
+        self.build_payload()
+    }
+
+    /// 收藏或取消收藏饮食贴纸。
+    pub fn toggle_sticker_favorite(&mut self, sticker_id: i64) -> Result<String, String> {
+        self.db.toggle_sticker_favorite(sticker_id)?;
+        self.build_payload()
+    }
+
+    /// 删除饮食贴纸。
+    pub fn delete_food_sticker(&mut self, sticker_id: i64) -> Result<String, String> {
+        self.db.delete_sticker(sticker_id)?;
+        self.build_payload()
+    }
+
+    /// 隐私优先双人同窗互动（`warm_tea` / `tuck_blanket` / `paw_stamp`，奖励 +1 💧 并浇灌窗台金桂）。
+    pub fn cosanctuary_action(
+        &mut self,
+        action: String,
+        partner_name: Option<String>,
+        pair_code: Option<String>,
+    ) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        if let Some(pn) = partner_name
+            && !pn.trim().is_empty()
+        {
+            s.partner_name = pn.trim().to_owned();
+        }
+        if let Some(pc) = pair_code
+            && !pc.trim().is_empty()
+        {
+            s.pair_code = pc.trim().to_owned();
+        }
+
+        let act = action.trim();
+        let note = match act {
+            "warm_tea" => Some("同窗串门：给好友递上一盏热茶 +1 💧"),
+            "tuck_blanket" => Some("同窗串门：替好友盖好薄被 +1 💧"),
+            "paw_stamp" => Some("同窗串门：在窗台按下暖心爪印 +1 💧"),
+            _ => None,
+        };
+        if let Some(desc) = note {
+            s.bonsai_dew = s.bonsai_dew.saturating_add(1);
+            self.db.save_settings(&s)?;
+            self.db.add_dew_entry(1, "co_sanctuary", desc, "")?;
+        } else {
+            self.db.save_settings(&s)?;
+        }
+        self.build_payload()
+    }
+
+    /// 切换「抬腕嘴替」桌面微件隐私视图模式（`metaphor` 诗意隐喻 vs `metrics` 数值）。
+    pub fn set_widget_privacy_mode(&mut self, mode: String) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        s.widget_privacy_mode = if mode.trim() == "metrics" {
+            "metrics".to_owned()
+        } else {
+            "metaphor".to_owned()
+        };
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 发起自定义洗脱期（`washout_days`）的 N-of-1 自我对照实验。
+    pub fn start_custom_experiment(
+        &mut self,
+        title: String,
+        hypothesis: String,
+        target_days: u32,
+        washout_days: i64,
+    ) -> Result<String, String> {
+        if title.trim().is_empty() {
+            return Err("请输入实验标题".to_owned());
+        }
+        let start_date = self
+            .db
+            .load_metrics()?
+            .last()
+            .map(|r| r.date.clone())
+            .unwrap_or_else(|| "2026-11-13".to_owned());
+        self.db.create_experiment_with_washout(
+            &title,
+            &hypothesis,
+            target_days.max(3),
+            &start_date,
+            washout_days,
+        )?;
+        self.build_payload()
+    }
+
+    /// 生成大字暖心、端侧脱敏《气韵平安家书》JSON。
+    pub fn generate_parents_peace_letter(&mut self, recipient_label: String) -> Result<String, String> {
+        let s = self.db.load_settings()?;
+        let metrics = self.db.load_metrics()?;
+        let workouts = self.db.load_workouts()?;
+        let intakes = self.db.load_intakes()?;
+        let labs = self.db.load_labs()?;
+        let snapshot = compute_snapshot(
+            &metrics,
+            &workouts,
+            &intakes,
+            HardwareTier::from_str(&s.hardware_tier),
+            s.morning_feeling,
+        );
+        let (_, reminders) = compute_multi_profile_uln_trends_at(&labs, &snapshot.target_date);
+        let letter = build_parents_peace_letter(&recipient_label, &snapshot, &reminders);
+        serde_json::to_string(&letter).map_err(|e| e.to_string())
+    }
+
+    /// 为多亲友档案（`self` / `partner` / `parents`）录入单条体检指标，用于 %ULN 归一化对比与 90 天复查提醒。
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_profile_lab_marker(
+        &mut self,
+        profile_id: String,
+        test_date: String,
+        marker_name: String,
+        value: f64,
+        unit: String,
+        ref_low: Option<f64>,
+        ref_high: Option<f64>,
+    ) -> Result<String, String> {
+        if marker_name.trim().is_empty() || !value.is_finite() {
+            return Err("请输入有效的检验指标名称与数值".to_owned());
+        }
+        let pid = match profile_id.trim() {
+            "partner" => "partner",
+            "parents" => "parents",
+            _ => "self",
+        };
+        let canonical = canonicalize_marker(&marker_name);
+        let date_str = if test_date.trim().is_empty() {
+            "2026-11-13".to_owned()
+        } else {
+            test_date.trim().to_owned()
+        };
+        self.db.insert_lab_marker_for_profile(
+            pid,
+            &date_str,
+            &marker_name,
+            &canonical,
+            value,
+            &unit,
+            ref_low,
+            ref_high,
+        )?;
+        self.build_payload()
+    }
+
+    /// 主动从配置的 WebDAV 网盘拉取跨端 E2EE 加密分片并合并入本地数据库。
+    pub fn pull_webdav_sync(&mut self) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        let key = derive_master_key(&s.recovery_phrase)?;
+        let fetched =
+            pull_envelopes_from_webdav(&s.webdav_url, &s.webdav_username, &s.webdav_password)?;
+        let mut pulled = 0usize;
+        let mut merged = 0usize;
+        for (_, body) in fetched {
+            if let Ok(env) = serde_json::from_str::<crate::crypto_sync::EncryptedBatchEnvelope>(&body)
+            {
+                if env.device_id == s.device_id {
+                    continue;
+                }
+                if let Ok(plain) = decrypt_sync_batch(&key, &env) {
+                    merged += self.db.merge_sync_jsonl(&plain)?;
+                    pulled += 1;
+                }
+            }
+        }
+        s.last_sync_summary =
+            format!("WebDAV 双向拉取完成：解密 {pulled} 个远端分片，合并 {merged} 条记录");
+        self.db.save_settings(&s)?;
         self.build_payload()
     }
 
@@ -882,7 +1440,7 @@ impl QiEngine {
 
         // 4. 化验单参考区间与纵向趋势一致性校验
         let mut labs_ok = true;
-        let mut by_key: BTreeMap<&str, Vec<&LabBiomarkerRow>> = BTreeMap::new();
+        let mut by_key: BTreeMap<(&str, &str), Vec<&LabBiomarkerRow>> = BTreeMap::new();
         for l in &labs {
             if !l.value.is_finite() {
                 labs_ok = false;
@@ -904,7 +1462,10 @@ impl QiEngine {
             if l.flag != expected_flag {
                 labs_ok = false;
             }
-            by_key.entry(l.canonical_key.as_str()).or_default().push(l);
+            by_key
+                .entry((l.profile_id.as_str(), l.canonical_key.as_str()))
+                .or_default()
+                .push(l);
         }
         for mut group in by_key.into_values() {
             group.sort_by(|a, b| a.test_date.cmp(&b.test_date));
@@ -950,7 +1511,27 @@ impl QiEngine {
             && !probe_guard.contains("开药")
             && !has_leak_in_records;
 
-        // 6. 实验与滞后归因数值有限性校验
+        // 6. 实验、滞后归因数值有限性 + 保险箱永不锁死契约校验
+        let current_ent = self.evaluate_entitlement(&settings);
+        let expired_probe_token =
+            mint_sandbox_oset("audit_probe", "pro_monthly", "expired", false, 0, Self::current_epoch())
+                .unwrap_or_default();
+        let expired_probe = verify_oset_with_clock(
+            &expired_probe_token,
+            Self::current_epoch(),
+            settings.max_seen_epoch,
+            None,
+        );
+        let vault_non_lockout_verified = current_ent.can_read_history_vault
+            && current_ent.can_export_vault
+            && expired_probe.state == OfflineEntitlementState::ExpiredReadOnlyVault
+            && expired_probe.can_read_history_vault
+            && expired_probe.can_export_vault
+            && has_feature(&expired_probe, "raw_biometrics")
+            && has_feature(&expired_probe, "single_lab_parse")
+            && has_feature(&expired_probe, "jsonl_export")
+            && has_feature(&expired_probe, "recovery_priority");
+
         let experiments_ok = experiments_eval.iter().all(|e| {
             opt_finite(e.hrv_delta_ms)
                 && opt_finite(e.rhr_delta_bpm)
@@ -966,7 +1547,8 @@ impl QiEngine {
             && opt_finite(period_cmp.rhr_prev)
             && opt_finite(period_cmp.sleep_current_h)
             && opt_finite(period_cmp.sleep_prev_h)
-            && (metrics.is_empty() || !distinct_days.is_empty());
+            && (metrics.is_empty() || !distinct_days.is_empty())
+            && vault_non_lockout_verified;
 
         let checks = vec![
             AuditCheckItem {
@@ -1003,14 +1585,15 @@ impl QiEngine {
                 name: "experiments_and_lagged_finite".to_owned(),
                 passed: experiments_ok,
                 detail: format!(
-                    "实验 {} 项、滞后归因 {} 项均无 NaN/越界",
+                    "实验 {} 项、滞后归因 {} 项均无 NaN/越界；保险箱非锁死校验 vault_non_lockout_verified={}",
                     experiments_eval.len(),
-                    snapshot.lagged_impacts.len()
+                    snapshot.lagged_impacts.len(),
+                    vault_non_lockout_verified
                 ),
             },
         ];
 
-        let passed = checks.iter().all(|c| c.passed);
+        let passed = checks.iter().all(|c| c.passed) && vault_non_lockout_verified;
 
         let report = DataAuditReport {
             active_persona: settings.active_persona,
@@ -1024,6 +1607,7 @@ impl QiEngine {
             tier_hrv_contract_held,
             lab_trends_consistent,
             pii_guard_verified,
+            vault_non_lockout_verified,
             passed,
             checks,
         };

@@ -3,9 +3,14 @@ import {
   getDewSummary,
   getState,
   getVisualTheme,
+  hasFeature,
+  setShowAtelierModal,
+  setShowFourSeasonsScrollModal,
+  startCustomExperiment,
   startExperiment,
   toggleExperimentToday,
 } from "../store";
+import { MultiLagRadarBars } from "../ui/charts";
 import {
   ActionButton,
   Card,
@@ -17,6 +22,7 @@ import {
   SunkenBox,
   VitalBadge,
 } from "../ui/components";
+import { BadgeCeramicIcon, HandscrollIcon } from "../ui/icons";
 import { BentoMetricCard, KeepsakeShelfCard } from "../ui/sanctuary";
 
 function formatDelta(val: number | null, unit: string, lowerIsBetter = false): string {
@@ -37,6 +43,7 @@ export function InsightsPage() {
   const customTitle = signal("");
   const customHypothesis = signal("");
   const customDays = signal(7);
+  const customWashout = signal(2);
   const customOpen = signal(false);
 
   const state = () => getState();
@@ -49,7 +56,7 @@ export function InsightsPage() {
     const title = customTitle().trim();
     if (!title) return;
     const hypothesis = customHypothesis().trim() || "观察这项微习惯对夜间休息与次日精神状态的连续变化";
-    startExperiment(title, hypothesis, customDays());
+    startCustomExperiment(title, hypothesis, customDays(), customWashout());
     customTitle.set("");
     customHypothesis.set("");
     customOpen.set(false);
@@ -186,7 +193,9 @@ export function InsightsPage() {
                     </View>
                   </View>
 
-                  <Text class="text-xs font-medium text-primary">{exp().verdict_summary}</Text>
+                  <Text class="text-xs font-medium text-primary">
+                    {`${exp().verdict_summary} · 洗脱期 ${exp().washout_days} 天（跳过 ${exp().washout_skipped_days} 天残余期）`}
+                  </Text>
 
                   <ActionButton
                     title={exp().checked_today ? "今日实验已打卡 ✓" : "今日实验打卡"}
@@ -234,16 +243,29 @@ export function InsightsPage() {
           onChange={(v) => customHypothesis.set(v)}
         />
         <View class="flex-row flex-wrap items-center justify-between gap-2">
-          <View class="flex-row gap-1.5">
-            <Each of={[7, 14, 21]} key={(d) => d}>
-              {(d) => (
-                <SelectChip
-                  label={`${d()} 天`}
-                  selected={customDays() === d()}
-                  onPress={() => customDays.set(d())}
-                />
-              )}
-            </Each>
+          <View class="gap-1.5">
+            <View class="flex-row flex-wrap gap-1.5">
+              <Each of={[7, 14, 21]} key={(d) => d}>
+                {(d) => (
+                  <SelectChip
+                    label={`${d()} 天`}
+                    selected={customDays() === d()}
+                    onPress={() => customDays.set(d())}
+                  />
+                )}
+              </Each>
+            </View>
+            <View class="flex-row flex-wrap gap-1.5">
+              <Each of={[0, 1, 2, 3]} key={(w) => w}>
+                {(w) => (
+                  <SelectChip
+                    label={`洗脱 ${w()} 天`}
+                    selected={customWashout() === w()}
+                    onPress={() => customWashout.set(w())}
+                  />
+                )}
+              </Each>
+            </View>
           </View>
           <ActionButton title="创建实验" icon="plus" onPress={submitCustomExperiment} />
         </View>
@@ -280,6 +302,92 @@ export function InsightsPage() {
             </Each>
           </View>
         </If>
+      </Card>
+
+      {/* 4. v4.0 90 天 D+0/D+1/D+2 多滞后归因雷达 (Cohen's d) */}
+      <Card>
+        <SectionHeader
+          title="90 天多滞后归因雷达 (D+0 / D+1 / D+2)"
+          subtitle="剥离晚睡与酒精混杂效应，定量检验日常习惯的真实 Cohen's d 效应量"
+          right={
+            <VitalBadge
+              tone={hasFeature("multi_lag_radar") ? "prime_ready" : "neutral"}
+              label={hasFeature("multi_lag_radar") ? "雅集全量雷达" : "清欢精选预览"}
+            />
+          }
+        />
+        <MultiLagRadarBars
+          title="重点行为跨天影响"
+          sampleDays={snap().trend_14d.length}
+          items={(hasFeature("multi_lag_radar")
+            ? state().multi_lag_radar
+            : state().multi_lag_radar.slice(0, 2)
+          ).map((it) => ({
+            lag_label: `${it.tag} · ${it.lag_label} (${it.outcome_label})`,
+            delta_value: it.delta_pct,
+            unit: "%",
+            cohen_d: it.cohen_d,
+            sample_n: it.sample_n,
+            confounder_note: it.confounder_note,
+          }))}
+        />
+        <If when={!hasFeature("multi_lag_radar")}>
+          <View class="flex-row items-center justify-between gap-2 pt-1">
+            <Text class="flex-1 text-xs text-muted-foreground">
+              当前免费展示首条主因；开启「知气雅集」可解锁 90 天 D+0/D+1/D+2 全维度剥离雷达。
+            </Text>
+            <ActionButton
+              title="查看雅集方案"
+              icon="sparkles"
+              size="sm"
+              variant="outline"
+              onPress={() => setShowAtelierModal(true)}
+            />
+          </View>
+        </If>
+      </Card>
+
+      {/* 5. 宋瓷实验勋章（「证伪小达人」）与四时风物长卷 */}
+      <Card>
+        <SectionHeader
+          title="宋瓷微习惯勋章 & 四时风物长卷"
+          subtitle="哪怕实验证明「某件事其实没那么有用」，同样值得一枚清醒的「证伪小达人」勋章"
+          right={
+            <ActionButton
+              title="展开长卷"
+              icon="handscroll"
+              size="sm"
+              variant="secondary"
+              onPress={() => setShowFourSeasonsScrollModal(true)}
+            />
+          }
+        />
+        <View class="flex-row flex-wrap gap-2">
+          <Each of={state().solar_atelier.ceramic_badges} key={(b) => b.id}>
+            {(b) => (
+              <SunkenBox class="min-w-44 flex-1">
+                <View class="flex-row items-center gap-1.5">
+                  <BadgeCeramicIcon
+                    size={16}
+                    color={b().earned ? token("ink-lapis") : token("muted-foreground")}
+                  />
+                  <Text class="text-xs font-semibold text-foreground">{b().title}</Text>
+                  <VitalBadge
+                    tone={b().earned ? "prime_ready" : "neutral"}
+                    label={b().earned ? "已烧制" : "蓄力中"}
+                  />
+                </View>
+                <Text class="text-[11px] leading-relaxed text-muted-foreground">{b().reason}</Text>
+              </SunkenBox>
+            )}
+          </Each>
+        </View>
+        <View class="flex-row items-center gap-1.5 pt-1">
+          <HandscrollIcon size={14} color={token("ink-lapis")} />
+          <Text class="text-[11px] text-muted-foreground">
+            四时身体风物长卷将持续收集你的春生、夏长、秋收、冬藏高光足迹。
+          </Text>
+        </View>
       </Card>
     </View>
   );

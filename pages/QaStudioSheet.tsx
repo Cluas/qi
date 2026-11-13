@@ -1,5 +1,6 @@
 import { Text, token, View } from "nsh";
 import {
+  clearEntitlementToken,
   generateEncryptedPreview,
   getEncryptedBatchPreview,
   getLastAuditReport,
@@ -11,7 +12,9 @@ import {
   probeCapabilities,
   reseedDemoData,
   runDataIntegrityAudit,
+  setEntitlementSandbox,
   setHardwareTier,
+  setShowAtelierModal,
   setShowQaStudio,
   updateAiConfig,
 } from "../store";
@@ -289,6 +292,113 @@ export function QaStudioSheet() {
             <Text class="text-xs text-muted-foreground">{getEncryptedBatchPreview()!}</Text>
           </SunkenBox>
         </If>
+      </Card>
+
+      {/* 4. v4.0 知气雅集离线状态机与 7 档位权益沙盒 */}
+      <Card>
+        <SectionHeader
+          title="知气雅集 · 离线状态机与 7 档位沙盒"
+          subtitle="直接以本机 Ed25519 私钥签发测试 OSET 通行证，验证 Active / 7天宽限 / 只读保险箱与 30 天陪伴礼遇"
+          right={
+            <VitalBadge
+              tone={state().entitlements.is_atelier_unlocked ? "prime_ready" : "neutral"}
+              label={state().entitlements.state}
+            />
+          }
+        />
+
+        <SunkenBox>
+          <Text class="text-xs font-semibold text-foreground">
+            {`${state().entitlements.tier_display} · 有效签名：${state().entitlements.valid_signature ? "Ed25519 通过" : "无/素心免费"}`}
+          </Text>
+          <Text class="text-xs text-muted-foreground">{state().entitlements.status_banner}</Text>
+        </SunkenBox>
+
+        <View class="flex-row flex-wrap gap-1.5">
+          <Each
+            of={[
+              { id: "free", label: "素心免费" },
+              { id: "pro_monthly", label: "月雅 ¥18" },
+              { id: "seasonal", label: "季卡 ¥38" },
+              { id: "pro_annual", label: "年卡 ¥98" },
+              { id: "duo", label: "双人 ¥168" },
+              { id: "family", label: "家书 ¥228" },
+              { id: "lifetime_local", label: "买断 ¥368" },
+            ]}
+            key={(t) => t.id}
+          >
+            {(t) => (
+              <SelectChip
+                label={t().label}
+                selected={state().entitlements.tier === t().id}
+                onPress={() => {
+                  if (t().id === "free") {
+                    clearEntitlementToken();
+                  } else {
+                    setEntitlementSandbox(
+                      t().id,
+                      "active",
+                      settings().guardian_sponsor,
+                      Math.max(32, settings().companion_loyalty_days),
+                    );
+                  }
+                }}
+              />
+            )}
+          </Each>
+        </View>
+
+        <View class="flex-row flex-wrap gap-1.5">
+          <Each
+            of={[
+              { id: "active", label: "状态：ActiveAtelier" },
+              { id: "offline_grace", label: "状态：7天离线宽限" },
+              { id: "expired_read_only_vault", label: "状态：到期只读保险箱" },
+            ]}
+            key={(st) => st.id}
+          >
+            {(st) => (
+              <SelectChip
+                label={st().label}
+                selected={state().entitlements.state === st().id}
+                onPress={() =>
+                  setEntitlementSandbox(
+                    state().entitlements.tier === "free" ? "pro_annual" : state().entitlements.tier,
+                    st().id,
+                    settings().guardian_sponsor,
+                    settings().companion_loyalty_days,
+                  )
+                }
+              />
+            )}
+          </Each>
+        </View>
+
+        <View class="flex-row flex-wrap gap-2">
+          <ActionButton
+            title={settings().guardian_sponsor ? "取消添柴计划" : "模拟+¥12窗台添柴人"}
+            size="sm"
+            variant="outline"
+            onPress={() =>
+              setEntitlementSandbox(
+                state().entitlements.tier === "free" ? "pro_annual" : state().entitlements.tier,
+                "active",
+                !settings().guardian_sponsor,
+                32,
+              )
+            }
+          />
+          <ActionButton
+            title="打开知气雅集会员弹窗"
+            icon="sparkles"
+            size="sm"
+            variant="secondary"
+            onPress={() => {
+              setShowQaStudio(false);
+              setShowAtelierModal(true);
+            }}
+          />
+        </View>
       </Card>
     </SheetDialog>
   );

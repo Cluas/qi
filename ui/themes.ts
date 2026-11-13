@@ -1,7 +1,23 @@
-import { setTheme, type Theme } from "nsh";
+import { setTheme, token, type Theme, type Tokens } from "nsh";
 import type { QiIconName } from "./icons";
 
 export type VisualThemeId = "cat_window" | "zen_garden" | "playful_bento";
+
+export interface WorldTheme {
+  id: VisualThemeId;
+  readonly atelierAccent: string;
+  readonly atelierSoft: string;
+  readonly waxSeal: string;
+  readonly waxSealSoft: string;
+  readonly duoAccent: string;
+  readonly duoSoft: string;
+  readonly inkLapis: string;
+  readonly inkGold: string;
+}
+
+export function semanticColor<K extends keyof Tokens>(key: K): Tokens[K] {
+  return token(key);
+}
 
 export interface KeepsakeSpec {
   id: string;
@@ -124,6 +140,14 @@ export const CAT_WINDOW_THEME: Theme = {
       "dew-soft": "#E5F3F8",
       "stage-scrim": "#1F1915BF",
       "stage-ink": "#FAF7F2",
+      "atelier-accent": "#B87333",
+      "atelier-soft": "#F6EBE0",
+      "wax-seal": "#A63428",
+      "wax-seal-soft": "#F7E4E0",
+      "duo-accent": "#D47A5E",
+      "duo-soft": "#FBEBE5",
+      "ink-lapis": "#2B4C7E",
+      "ink-gold": "#C5933B",
     },
     dark: {
       background: "#151412",
@@ -168,6 +192,14 @@ export const CAT_WINDOW_THEME: Theme = {
       "dew-soft": "#182B33",
       "stage-scrim": "#101211CC",
       "stage-ink": "#F5F2EB",
+      "atelier-accent": "#DF9A57",
+      "atelier-soft": "#342619",
+      "wax-seal": "#E26B5C",
+      "wax-seal-soft": "#381C19",
+      "duo-accent": "#F09C82",
+      "duo-soft": "#38221D",
+      "ink-lapis": "#6A94D4",
+      "ink-gold": "#E5B95C",
     },
   },
 };
@@ -218,6 +250,14 @@ export const ZEN_GARDEN_THEME: Theme = {
       "dew-soft": "#E1F0F4",
       "stage-scrim": "#121A18BF",
       "stage-ink": "#F5F7F3",
+      "atelier-accent": "#9E6A32",
+      "atelier-soft": "#F3EBDC",
+      "wax-seal": "#A23329",
+      "wax-seal-soft": "#F6E2DF",
+      "duo-accent": "#C3725B",
+      "duo-soft": "#F9E9E4",
+      "ink-lapis": "#264B73",
+      "ink-gold": "#B88A38",
     },
     dark: {
       background: "#101413",
@@ -262,6 +302,14 @@ export const ZEN_GARDEN_THEME: Theme = {
       "dew-soft": "#15292E",
       "stage-scrim": "#0B100FCC",
       "stage-ink": "#EFF4F0",
+      "atelier-accent": "#D49B5E",
+      "atelier-soft": "#2F2519",
+      "wax-seal": "#DC695C",
+      "wax-seal-soft": "#351B19",
+      "duo-accent": "#E6957D",
+      "duo-soft": "#34211D",
+      "ink-lapis": "#638FC7",
+      "ink-gold": "#DDB25A",
     },
   },
 };
@@ -312,6 +360,14 @@ export const PLAYFUL_BENTO_THEME: Theme = {
       "dew-soft": "#E2F4FA",
       "stage-scrim": "#1F1A2EBF",
       "stage-ink": "#FFFBF4",
+      "atelier-accent": "#C67B34",
+      "atelier-soft": "#FAF0E2",
+      "wax-seal": "#BD3F32",
+      "wax-seal-soft": "#FBE7E4",
+      "duo-accent": "#E07D63",
+      "duo-soft": "#FCECE7",
+      "ink-lapis": "#34578C",
+      "ink-gold": "#CF9B3C",
     },
     dark: {
       background: "#171622",
@@ -356,8 +412,52 @@ export const PLAYFUL_BENTO_THEME: Theme = {
       "dew-soft": "#182D38",
       "stage-scrim": "#12101ECC",
       "stage-ink": "#FAF7FD",
+      "atelier-accent": "#E7A35D",
+      "atelier-soft": "#36281A",
+      "wax-seal": "#EA7466",
+      "wax-seal-soft": "#3A1E1B",
+      "duo-accent": "#F4A28A",
+      "duo-soft": "#3A231F",
+      "ink-lapis": "#749EE0",
+      "ink-gold": "#EAC063",
     },
   },
+};
+
+function createWorldTheme(id: VisualThemeId): WorldTheme {
+  return {
+    id,
+    get atelierAccent() {
+      return token("atelier-accent");
+    },
+    get atelierSoft() {
+      return token("atelier-soft");
+    },
+    get waxSeal() {
+      return token("wax-seal");
+    },
+    get waxSealSoft() {
+      return token("wax-seal-soft");
+    },
+    get duoAccent() {
+      return token("duo-accent");
+    },
+    get duoSoft() {
+      return token("duo-soft");
+    },
+    get inkLapis() {
+      return token("ink-lapis");
+    },
+    get inkGold() {
+      return token("ink-gold");
+    },
+  };
+}
+
+export const WORLD_THEMES: Record<VisualThemeId, WorldTheme> = {
+  cat_window: createWorldTheme("cat_window"),
+  zen_garden: createWorldTheme("zen_garden"),
+  playful_bento: createWorldTheme("playful_bento"),
 };
 
 export function getVisualThemeMeta(id: VisualThemeId): VisualThemeMeta {
