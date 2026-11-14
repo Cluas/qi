@@ -1,0 +1,13 @@
+.nsh/
+target/
+cloud/target/
+bin/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+.DS_Store
+*.ipa
+*.p8
+*.p12
+*.mobileprovision
