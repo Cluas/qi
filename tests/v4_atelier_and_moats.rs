@@ -563,9 +563,36 @@ fn moat4_webdav_bidirectional_pull_sync_and_moat5_ai_briefings() {
     std::thread::spawn(move || {
         for stream_res in listener.incoming().take(3) {
             let Ok(mut stream) = stream_res else { break };
-            let mut buf = [0u8; 4096];
-            let n = stream.read(&mut buf).unwrap_or(0);
-            let req = String::from_utf8_lossy(&buf[..n]);
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 4096];
+            let mut header_end = None;
+            let mut content_len = 0usize;
+            loop {
+                let n = stream.read(&mut tmp).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&tmp[..n]);
+                if header_end.is_none() {
+                    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        header_end = Some(pos + 4);
+                        let hdr = String::from_utf8_lossy(&buf[..pos + 4]);
+                        for line in hdr.lines() {
+                            if let Some((k, v)) = line.split_once(':') {
+                                if k.trim().eq_ignore_ascii_case("content-length") {
+                                    content_len = v.trim().parse().unwrap_or(0);
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(he) = header_end {
+                    if buf.len() >= he + content_len {
+                        break;
+                    }
+                }
+            }
+            let req = String::from_utf8_lossy(&buf);
             let first = req.lines().next().unwrap_or("");
             if first.starts_with("PROPFIND ") {
                 let xml = r#"<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/qi-vault/ops/peer_ipad/000001.enc</d:href></d:response></d:multistatus>"#;
@@ -575,6 +602,8 @@ fn moat4_webdav_bidirectional_pull_sync_and_moat5_ai_briefings() {
                     xml
                 );
                 let _ = stream.write_all(resp.as_bytes());
+                let _ = stream.flush();
+                let _ = stream.shutdown(std::net::Shutdown::Write);
             } else if first.starts_with("GET /dav/qi-vault/ops/peer_ipad/000001.enc") {
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -582,6 +611,8 @@ fn moat4_webdav_bidirectional_pull_sync_and_moat5_ai_briefings() {
                     env_clone
                 );
                 let _ = stream.write_all(resp.as_bytes());
+                let _ = stream.flush();
+                let _ = stream.shutdown(std::net::Shutdown::Write);
             } else if first.starts_with("POST /v1/chat/completions") {
                 let body = serde_json::json!({
                     "choices": [{ "message": { "content": "今晨元气平稳，建议保持 23:00 前安睡并适度补水。" } }]
@@ -593,6 +624,8 @@ fn moat4_webdav_bidirectional_pull_sync_and_moat5_ai_briefings() {
                     body
                 );
                 let _ = stream.write_all(resp.as_bytes());
+                let _ = stream.flush();
+                let _ = stream.shutdown(std::net::Shutdown::Write);
             }
         }
     });

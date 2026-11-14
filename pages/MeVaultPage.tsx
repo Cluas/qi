@@ -255,8 +255,9 @@ export function MeVaultPage() {
 
       {/* Subview 1: Sanctuary & Custom Pet Studio */}
       <If when={getMeSubTab() === "pet_studio"}>
-        <View class="gap-4">
-          <Card>
+        <View class="gap-5">
+          {/* 无框手帐风物屏风切换抬头 */}
+          <View class="gap-3 px-0.5 pt-0.5">
             <SectionHeader
               title={tr("me.theme_section")}
               subtitle={tr("themes.switcher_subtitle")}
@@ -272,10 +273,10 @@ export function MeVaultPage() {
               detailed={true}
               onSelect={(id) => setVisualTheme(id)}
             />
-          </Card>
+          </View>
 
-          {/* Custom Pet Companion Studio */}
-          <Card>
+          {/* Custom Pet Companion Studio（去多层边框套娃，呈风物陈列架质感） */}
+          <View class="gap-4 rounded-3xl border border-border/55 bg-card/90 p-4 shadow-2xs">
             <SectionHeader
               title={tr("pet.studio_title")}
               subtitle={tr("pet.studio_subtitle")}
@@ -290,7 +291,7 @@ export function MeVaultPage() {
               }
             />
 
-            <SunkenBox>
+            <View class="gap-2 rounded-2xl bg-bento-sage/45 p-3.5">
               <View class="flex-row flex-wrap gap-1.5">
                 <VitalBadge tone="prime_ready" label={tr("atelier.free_forever_pill")} />
                 <VitalBadge tone="neutral" label={tr("atelier.pro_pets_pill")} />
@@ -310,10 +311,10 @@ export function MeVaultPage() {
                   {tr("pet.vault_preserved_notice")}
                 </Text>
               </If>
-            </SunkenBox>
+            </View>
 
             {/* Saved custom pets & seasonal companion preset switcher */}
-            <View class="gap-2">
+            <View class="gap-2.5">
               <View class="flex-row flex-wrap items-center justify-between gap-2">
                 <SelectChip
                   label={tr("pet.preset_xiaoman")}
@@ -334,9 +335,9 @@ export function MeVaultPage() {
                 <View class="gap-2.5">
                   <Each of={customPets()} key={(pet) => pet.id}>
                     {(pet) => (
-                      <SunkenBox>
+                      <View class="gap-2.5 rounded-2xl bg-surface-sunken/75 p-3.5">
                         <View class="flex-row items-center gap-3">
-                          <View class="size-12 items-center justify-center overflow-hidden rounded-full border border-border bg-card">
+                          <View class="size-12 items-center justify-center overflow-hidden rounded-full border-2 border-card bg-card shadow-2xs">
                             <If
                               when={Boolean(pet().photo_data_url)}
                               else={
@@ -383,7 +384,7 @@ export function MeVaultPage() {
                           </View>
                         </View>
 
-                        <View class="flex-row flex-wrap gap-2 pt-1">
+                        <View class="flex-row flex-wrap gap-2 pt-0.5">
                           <ActionButton
                             title={pet().is_active ? tr("common.active") : tr("pet.set_active")}
                             size="sm"
@@ -407,7 +408,7 @@ export function MeVaultPage() {
                             }}
                           />
                         </View>
-                      </SunkenBox>
+                      </View>
                     )}
                   </Each>
                 </View>
@@ -423,7 +424,7 @@ export function MeVaultPage() {
               </Text>
 
               <If when={!editPetId() && !petQuota().can_add_more}>
-                <SunkenBox>
+                <View class="gap-2 rounded-2xl bg-atelier-soft/55 p-3.5">
                   <Text class="text-xs leading-relaxed text-muted-foreground">
                     {tr("pet.slot_limit_reached", { limit: petQuota().allowed_count })}
                   </Text>
@@ -434,7 +435,7 @@ export function MeVaultPage() {
                     variant="outline"
                     onPress={() => setShowAtelierModal(true)}
                   />
-                </SunkenBox>
+                </View>
               </If>
 
               <View class="flex-row flex-wrap items-center gap-3">
@@ -537,7 +538,7 @@ export function MeVaultPage() {
                 onPress={() => draftStarlight.set(!draftStarlight())}
               />
 
-              <SunkenBox>
+              <View class="gap-2 rounded-2xl bg-atelier-soft/50 p-3.5">
                 <View class="flex-row items-center justify-between gap-2">
                   <Text class="text-xs font-semibold text-foreground">
                     {tr("pet.paw_ex_libris_title")}
@@ -559,7 +560,7 @@ export function MeVaultPage() {
                   placeholder={tr("pet.paw_seal_placeholder")}
                   onChange={(v) => draftPawStamp.set(v)}
                 />
-              </SunkenBox>
+              </View>
 
               <ActionButton
                 title={editPetId() ? tr("common.save") : tr("pet.save_pet")}
@@ -567,10 +568,10 @@ export function MeVaultPage() {
                 onPress={submitPetForm}
               />
             </View>
-          </Card>
+          </View>
 
           {/* First-person custom pet weekly letters */}
-          <Card>
+          <View class="gap-3.5 rounded-3xl border border-border/55 bg-card/90 p-4 shadow-2xs">
             <SectionHeader
               title={tr("pet.weekly_letter_title")}
               subtitle={tr("pet.weekly_letter_pro_lock")}
@@ -616,15 +617,15 @@ export function MeVaultPage() {
             <If
               when={petLetters().length > 0}
               else={
-                <SunkenBox>
+                <View class="rounded-2xl bg-surface-sunken/70 p-3.5">
                   <Text class="text-xs text-muted-foreground">{tr("pet.weekly_letter_empty")}</Text>
-                </SunkenBox>
+                </View>
               }
             >
               <View class="gap-2.5">
                 <Each of={petLetters()} key={(l) => l.id}>
                   {(l) => (
-                    <SunkenBox>
+                    <View class="gap-2 rounded-2xl bg-bento-amber/35 p-3.5">
                       <View class="flex-row items-center justify-between gap-2">
                         <Text class="text-sm font-bold text-foreground">{l().title}</Text>
                         <VitalBadge tone="prime_ready" label={l().solar_term} />
@@ -638,19 +639,19 @@ export function MeVaultPage() {
                           {tr("pet.weekly_letter_signed", { petName: l().pet_name })}
                         </Text>
                       </View>
-                    </SunkenBox>
+                    </View>
                   )}
                 </Each>
               </View>
             </If>
-          </Card>
+          </View>
         </View>
       </If>
 
       {/* Subview 2: Atelier & Billing */}
       <If when={getMeSubTab() === "atelier_billing"}>
-        <View class="gap-4">
-          <Card>
+        <View class="gap-5">
+          <View class="gap-3.5 rounded-3xl border border-border/55 bg-card/90 p-4 shadow-2xs">
             <SectionHeader
               title={tr("me.atelier_card_title")}
               subtitle={
@@ -666,14 +667,14 @@ export function MeVaultPage() {
               }
             />
 
-            <SunkenBox>
+            <View class="gap-1 rounded-2xl bg-bento-sage/45 p-3.5">
               <Text class="text-xs font-semibold text-foreground">
                 {`${entitlements().tier_display} · ${entitlements().state}`}
               </Text>
               <Text class="text-xs leading-relaxed text-muted-foreground">
                 {entitlements().status_banner}
               </Text>
-            </SunkenBox>
+            </View>
 
             <ActionButton
               title={tr("atelier.browse_btn")}
@@ -682,7 +683,7 @@ export function MeVaultPage() {
             />
 
             {/* Commercial Consumable Hearth Gift Pass (App Store 3.2.1(vi) compliant) */}
-            <SunkenBox>
+            <View class="gap-2 rounded-2xl bg-atelier-soft/55 p-3.5">
               <View class="flex-row items-center justify-between gap-2">
                 <Text class="flex-1 text-xs font-bold text-foreground">
                   {tr("atelier.hearth_gift_title")}
@@ -704,7 +705,7 @@ export function MeVaultPage() {
                 variant="outline"
                 onPress={() => purchaseHearthGiftPass()}
               />
-            </SunkenBox>
+            </View>
 
             {/* App Store Restore Purchases & Verification */}
             <View class="flex-row flex-wrap gap-2">
@@ -745,15 +746,15 @@ export function MeVaultPage() {
             </View>
 
             <If when={Boolean(getRestoreStatusMessage())}>
-              <SunkenBox>
+              <View class="rounded-2xl bg-surface-sunken/75 p-3">
                 <Text class="text-xs text-foreground">{getRestoreStatusMessage()}</Text>
-              </SunkenBox>
+              </View>
             </If>
 
             <Text class="text-[11px] leading-relaxed text-muted-foreground">
               {tr("atelier.compliance.auto_renewal_disclosure")}
             </Text>
-          </Card>
+          </View>
 
           <WristWidgetPreviewCard
             score={getState().snapshot.qi_score}

@@ -180,7 +180,7 @@ export function ActionButton(props: {
   title: string;
   onPress: () => void;
   variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   shape?: "rounded" | "pill";
   disabled?: boolean;
   class?: string;
@@ -191,6 +191,8 @@ export function ActionButton(props: {
   const sizeClass = () => {
     const isPill = props.shape === "pill";
     switch (props.size ?? "md") {
+      case "xs":
+        return `min-h-8 ${isPill ? "rounded-full" : "rounded-lg"} px-2.5 py-1`;
       case "sm":
         return `min-h-11 ${isPill ? "rounded-full" : "rounded-lg"} px-3 py-2`;
       case "lg":
@@ -202,6 +204,8 @@ export function ActionButton(props: {
 
   const textSizeClass = () => {
     switch (props.size ?? "md") {
+      case "xs":
+        return "text-[11px]";
       case "sm":
         return "text-xs";
       case "lg":
@@ -213,6 +217,8 @@ export function ActionButton(props: {
 
   const iconSize = () => {
     switch (props.size ?? "md") {
+      case "xs":
+        return 12;
       case "sm":
         return 14;
       case "lg":
@@ -270,7 +276,7 @@ export function ActionButton(props: {
   return (
     <Button
       disabled={props.disabled}
-      hitSlop={4}
+      hitSlop={props.size === "xs" ? 8 : 4}
       accessibilityLabel={props.accessibilityLabel ?? props.title}
       onPress={() => {
         hapticSelection();
@@ -278,7 +284,7 @@ export function ActionButton(props: {
       }}
       class={`items-center justify-center transition duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-45 ${sizeClass()} ${variantClass()} ${props.class ?? ""}`}
     >
-      <View class="flex-row items-center justify-center gap-1.5">
+      <View class="flex-row items-center justify-center gap-1">
         <If when={Boolean(props.icon)}>
           <QiIcon
             name={props.icon!}
@@ -298,7 +304,7 @@ export function IconButton(props: {
   accessibilityLabel: string;
   onPress: () => void;
   variant?: "ghost" | "secondary" | "outline" | "scrim";
-  size?: "sm" | "md";
+  size?: "xs" | "sm" | "md";
   shape?: "pill" | "rounded";
   disabled?: boolean;
   iconColor?: string;
@@ -306,6 +312,9 @@ export function IconButton(props: {
 }) {
   const sizeClass = () => {
     const isPill = (props.shape ?? "pill") === "pill";
+    if (props.size === "xs") {
+      return `min-h-8 min-w-8 ${isPill ? "rounded-full" : "rounded-lg"} p-1.5`;
+    }
     if (props.size === "sm") {
       return `min-h-11 min-w-11 ${isPill ? "rounded-full" : "rounded-lg"} p-2`;
     }
@@ -340,7 +349,7 @@ export function IconButton(props: {
   return (
     <Button
       disabled={props.disabled}
-      hitSlop={4}
+      hitSlop={props.size === "xs" ? 8 : 4}
       accessibilityLabel={props.accessibilityLabel}
       onPress={() => {
         hapticSelection();
@@ -348,7 +357,11 @@ export function IconButton(props: {
       }}
       class={`items-center justify-center transition duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.95] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-45 ${sizeClass()} ${variantClass()} ${props.class ?? ""}`}
     >
-      <QiIcon name={props.icon} size={props.size === "sm" ? 16 : 18} color={defaultColor()} />
+      <QiIcon
+        name={props.icon}
+        size={props.size === "xs" ? 14 : props.size === "sm" ? 16 : 18}
+        color={defaultColor()}
+      />
     </Button>
   );
 }
@@ -711,7 +724,7 @@ export function NavRail<T extends string>(props: {
   );
 }
 
-/** 移动端拇指弧区 5 槽悬浮液态毛玻璃圆胶囊底栏（iOS 26 Liquid Glass + 朱砂圆印纽 + 原生弹簧滑移） */
+/** 移动端拇指弧区 5 槽悬浮液态毛玻璃圆胶囊底栏（iOS 26 Liquid Glass + 和纸温润朱砂印纽 + 原生弹簧滑移） */
 export function BottomTabBar<T extends string>(props: {
   items: { id: T; label: string; icon: QiIconName; sfSymbol?: string }[];
   activeId: T;
@@ -734,7 +747,7 @@ export function BottomTabBar<T extends string>(props: {
           glassEffect: colorScheme() === "dark" ? "none" : "regular",
           glassTintColor: token("card"),
         }}
-        class="rounded-full border border-border/75 bg-card/88 px-2 py-1 shadow-md"
+        class="rounded-full border border-border/65 bg-card/86 px-2 py-1 shadow-sm"
       >
         <Tabs
           class="flex-row items-center gap-1"
@@ -774,10 +787,10 @@ export function BottomTabBar<T extends string>(props: {
                 hapticSelection();
                 props.onQuickCapture?.();
               }}
-              class="mx-1 min-h-12 min-w-14 items-center justify-center gap-0.5 rounded-full bg-stamp-ink px-3.5 py-1.5 shadow-sm transition duration-150 active:scale-[0.94] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:active:scale-100"
+              class="mx-1 min-h-11 min-w-14 items-center justify-center gap-0.5 rounded-2xl border border-stamp-ink/35 bg-stamp-soft px-3 py-1 transition duration-150 hover:border-stamp-ink/55 active:scale-[0.95] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:active:scale-100"
             >
-              <QiIcon name="stamp_seal" size={16} color={token("primary-foreground")} />
-              <Text class="text-[10px] font-bold text-primary-foreground">
+              <QiIcon name="stamp_seal" size={15} color={token("stamp-ink")} />
+              <Text class="text-[10px] font-semibold text-stamp-ink">
                 {tr("nav.quick_short")}
               </Text>
             </Button>

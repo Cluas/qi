@@ -32,14 +32,12 @@ import {
 } from "../ui/charts";
 import {
   ActionButton,
-  Card,
   ConsumerStatusPill,
   DrawerSheet,
   Hairline,
   SectionHeader,
   SegmentedTabs,
   SelectChip,
-  SunkenBox,
   VitalBadge,
 } from "../ui/components";
 import { QiIcon } from "../ui/icons";
@@ -73,21 +71,6 @@ export function TodayPage() {
   const briefing = () => state().briefing;
   const solar = () => state().solar_atelier;
   const entitlements = () => state().entitlements;
-
-  const goalLabel = () => {
-    switch (settings().primary_goal) {
-      case "energy_sleep":
-        return tr("today.goal_energy_sleep");
-      case "diet_balance":
-        return tr("today.goal_diet_balance");
-      case "lab_archive":
-        return tr("today.goal_lab_archive");
-      case "smart_training":
-        return tr("today.goal_smart_training");
-      default:
-        return tr("today.goal_default");
-    }
-  };
 
   const consumerMetricTitle = (key: string, fallback: string) => {
     switch (key) {
@@ -219,36 +202,10 @@ export function TodayPage() {
     solar().pet_weekly_letters.length + solar().weekly_letters.filter((w) => w.unlocked).length;
 
   return (
-    <View class="gap-4">
-      {/* 雅致手账题签栏：紧凑整合今日手账问候、日期印记与三境屏风切换 */}
-      <View class="flex-row flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-border/60 bg-card/75 px-3.5 py-2.5">
-        <View class="gap-0.5">
-          <View class="flex-row items-center gap-2">
-            <Text role="header" class="text-lg font-bold text-foreground">
-              {tr("today.kicker")}
-            </Text>
-            <View class="rounded-full border border-border/65 bg-surface-sunken px-2.5 py-0.5">
-              <Text
-                class="text-[11px] font-medium text-muted-foreground"
-                style={{ fontVariant: ["tabular-nums"] }}
-              >
-                {snap().target_date}
-              </Text>
-            </View>
-          </View>
-          <Text class="text-xs text-muted-foreground">
-            {tr("today.greeting_sub", { goal: goalLabel() })}
-          </Text>
-        </View>
-
-        <ThemeSwitcherStrip
-          activeId={getVisualTheme()}
-          onSelect={(id) => setVisualTheme(id)}
-        />
-      </View>
-
-      {/* 1. Hero Window Sanctuary (live GPU shader + companion + Spatial Scene Dock) */}
+    <View class="gap-3.5">
+      {/* 1. 0pt 全出血窗台主舞台（页面最顶部首个元素，-mx-4 横向铺满屏宽） */}
       <SanctuaryStage
+        class="-mx-4 sm:mx-0"
         themeId={getVisualTheme()}
         score={snap().qi_score}
         state={snap().state}
@@ -273,19 +230,30 @@ export function TodayPage() {
         onOpenPetStudio={() => openPetStudio()}
       />
 
-      {/* 2. 无外框宣纸直排：今日关注与一念落印（2×2 非对称釉面瓷贴便当 + 液态/呼吸波纹联动） */}
-      <View class="gap-3 px-0.5">
-        <SectionHeader
-          title={tr("today.focus_card_title")}
-          subtitle={solar().solar_term.whisper}
-          right={
-            <VitalBadge
-              tone={snap().state}
-              label={tr("today.rhythm_score", { score: snap().qi_score })}
-            />
-          }
-        />
+      {/* 2. 窗台正下方无框极简微行：左侧柔和细标「今日手账」+ 日期，右侧三境屏风切换 */}
+      <View class="flex-row flex-wrap items-center justify-between gap-2 px-0.5">
+        <View class="flex-row items-center gap-1.5">
+          <Text role="header" class="text-xs font-semibold tracking-wide text-muted-foreground">
+            {tr("today.kicker")}
+          </Text>
+          <Text class="text-xs text-ink-subtle">·</Text>
+          <Text
+            class="text-xs font-medium text-ink-subtle"
+            style={{ fontVariant: ["tabular-nums"] }}
+          >
+            {snap().target_date}
+          </Text>
+        </View>
 
+        <ThemeSwitcherStrip
+          activeId={getVisualTheme()}
+          onSelect={(id) => setVisualTheme(id)}
+        />
+      </View>
+
+      {/* 3. 2x2 平衡方形 Bento 矩阵（双行双列等高方形瓷贴，彻底消除左列空洞） */}
+      <View class="gap-2.5 px-0.5">
+        {/* 第一行双列等高方形瓷贴：左 = 宋瓷液态元气表盘，右 = 昨夜睡眠结构 */}
         <View class="flex-row items-stretch gap-2.5">
           <BentoMetricCard
             icon="heart_pulse"
@@ -301,47 +269,61 @@ export function TodayPage() {
             </View>
           </BentoMetricCard>
 
-          <View class="flex-1 gap-2.5">
-            <BentoMetricCard
-              icon="moon"
-              label={tr("today.metric_sleep")}
-              value={sleepTile().value}
-              sublabel={sleepTile().sublabel}
-              toneSurface="lavender"
-              accentColor={token("sleep-rem")}
-            >
-              <If when={Boolean(snap().sleep_stages_last_night)}>
-                <SleepArchitectureBar
-                  deepMin={snap().sleep_stages_last_night!.deep_min}
-                  coreMin={snap().sleep_stages_last_night!.core_min}
-                  remMin={snap().sleep_stages_last_night!.rem_min}
-                  awakeMin={snap().sleep_stages_last_night!.awake_min}
-                />
-              </If>
-            </BentoMetricCard>
-
-            <BentoMetricCard
-              icon="flame"
-              label={tr("today.metric_activity")}
-              value={loadTile().value}
-              sublabel={loadTile().sublabel}
-              toneSurface="amber"
-              accentColor={token("vital-steady")}
-            >
-              <BreathWaveCanvas
-                state={snap().state}
-                activeValue={
-                  snap().metrics.hrv_rmssd_ms?.value ??
-                  snap().metrics.hrv_sdnn_ms?.value ??
-                  snap().acwr
-                }
+          <BentoMetricCard
+            icon="moon"
+            label={tr("today.metric_sleep")}
+            value={sleepTile().value}
+            sublabel={sleepTile().sublabel}
+            toneSurface="lavender"
+            accentColor={token("sleep-rem")}
+            class="flex-1"
+          >
+            <If when={Boolean(snap().sleep_stages_last_night)}>
+              <SleepArchitectureBar
+                deepMin={snap().sleep_stages_last_night!.deep_min}
+                coreMin={snap().sleep_stages_last_night!.core_min}
+                remMin={snap().sleep_stages_last_night!.rem_min}
+                awakeMin={snap().sleep_stages_last_night!.awake_min}
               />
-            </BentoMetricCard>
-          </View>
+            </If>
+          </BentoMetricCard>
+        </View>
+
+        {/* 第二行双列等高方形瓷贴：左 = 脉搏与呼吸节律，右 = 方形「今日关注与一念落印」朱砂印章卡 */}
+        <View class="flex-row items-stretch gap-2.5">
+          <BentoMetricCard
+            icon="flame"
+            label={tr("today.metric_activity")}
+            value={loadTile().value}
+            sublabel={loadTile().sublabel}
+            toneSurface="amber"
+            accentColor={token("vital-steady")}
+            class="flex-1"
+          >
+            <BreathWaveCanvas
+              state={snap().state}
+              activeValue={
+                snap().metrics.hrv_rmssd_ms?.value ??
+                snap().metrics.hrv_sdnn_ms?.value ??
+                snap().acwr
+              }
+            />
+          </BentoMetricCard>
+
+          <StampCheckinCard
+            compact={true}
+            class="flex-1"
+            themeId={getVisualTheme()}
+            microAction={snap().micro_action}
+            checked={settings().checked_action_today}
+            onToggle={() => toggleTodayAction()}
+            onGoLog={() => setTab("log")}
+            onOpenPoster={() => setShowDailyPoster(true)}
+          />
         </View>
 
         <If when={settings().hardware_tier === "tier_c"}>
-          <SunkenBox>
+          <View class="gap-2 rounded-2xl bg-bento-sage/50 p-3.5">
             <View class="flex-row items-center justify-between gap-2">
               <Text class="text-xs font-semibold text-foreground">{tr("today.feeling_prompt")}</Text>
               <Text class="text-xs text-muted-foreground">{tr("today.feeling_sub")}</Text>
@@ -357,41 +339,30 @@ export function TodayPage() {
                 )}
               </Each>
             </View>
-          </SunkenBox>
+          </View>
         </If>
 
         <If when={snap().state === "recovery_priority"}>
-          <SunkenBox>
-            <View class="flex-row flex-wrap items-center justify-between gap-2">
-              <View class="flex-1 gap-0.5">
-                <Text class="text-xs font-bold text-foreground">{tr("today.recovery_dew_title")}</Text>
-                <Text class="text-[11px] leading-relaxed text-muted-foreground">
-                  {tr("today.recovery_dew_desc")}
-                </Text>
-              </View>
-              <ActionButton
-                title={tr("today.recovery_dew_btn")}
-                icon="sparkles"
-                size="sm"
-                onPress={() => claimRecoveryDew()}
-              />
+          <View class="flex-row flex-wrap items-center justify-between gap-2 rounded-2xl bg-bento-peach/55 p-3.5">
+            <View class="flex-1 gap-0.5">
+              <Text class="text-xs font-bold text-foreground">{tr("today.recovery_dew_title")}</Text>
+              <Text class="text-[11px] leading-relaxed text-muted-foreground">
+                {tr("today.recovery_dew_desc")}
+              </Text>
             </View>
-          </SunkenBox>
+            <ActionButton
+              title={tr("today.recovery_dew_btn")}
+              icon="sparkles"
+              size="sm"
+              onPress={() => claimRecoveryDew()}
+            />
+          </View>
         </If>
 
-        <StampCheckinCard
-          themeId={getVisualTheme()}
-          microAction={snap().micro_action}
-          checked={settings().checked_action_today}
-          onToggle={() => toggleTodayAction()}
-          onGoLog={() => setTab("log")}
-          onOpenPoster={() => setShowDailyPoster(true)}
-        />
-
-        {/* 3. 渐进展开手账折页条（告别独立巨型白框，融于手账脉络底部） */}
-        <View class="flex-row items-center justify-between gap-3 rounded-2xl border border-border/70 bg-surface-sunken/90 px-3.5 py-3">
+        {/* 4. 渐进展开手账折页条（轻柔无重边框，告别套娃） */}
+        <View class="flex-row items-center justify-between gap-3 rounded-3xl bg-surface-sunken/80 px-4 py-3">
           <View class="flex-1 flex-row items-center gap-2.5">
-            <View class="size-9 items-center justify-center rounded-xl border border-border/55 bg-card">
+            <View class="size-9 items-center justify-center rounded-2xl bg-card shadow-2xs">
               <QiIcon name="record" size={17} color={token("primary")} />
             </View>
             <View class="flex-1 gap-0.5">
@@ -426,65 +397,64 @@ export function TodayPage() {
           />
 
           <If when={drawerTab() === "briefing"}>
-            <View class="gap-3">
-              <Card>
-                <SectionHeader
-                  title={tr("today.briefing_title")}
-                  subtitle={briefing().provider_label}
-                  right={
-                    <VitalBadge
-                      tone={briefing().degraded ? "moderate_steady" : "prime_ready"}
-                      label={
-                        briefing().degraded ? tr("today.briefing_lite") : tr("today.briefing_ready")
-                      }
-                    />
-                  }
-                />
-                <SunkenBox>
-                  <Text class="text-sm leading-relaxed text-foreground">{briefing().text}</Text>
-                </SunkenBox>
-
-                <If when={snap().acwr !== null}>
-                  <SunkenBox>
-                    <View class="flex-row items-center justify-between">
-                      <Text class="text-xs font-semibold text-foreground">{tr("insights.acwr_title")}</Text>
-                      <Text class="text-xs font-medium text-primary">
-                        {friendlyLoadStatus(snap().acwr)}
-                      </Text>
-                    </View>
-                    <AcwrSweetSpotCanvas acwr={snap().acwr} />
-                  </SunkenBox>
-                </If>
-
-                <View class="flex-row flex-wrap gap-2">
-                  <ActionButton
-                    title={tr("today.briefing_refresh")}
-                    icon="sparkles"
-                    variant="outline"
-                    onPress={() => refreshLiveBriefing()}
+            <View class="gap-3.5">
+              <SectionHeader
+                title={tr("today.briefing_title")}
+                subtitle={briefing().provider_label}
+                right={
+                  <VitalBadge
+                    tone={briefing().degraded ? "moderate_steady" : "prime_ready"}
+                    label={
+                      briefing().degraded ? tr("today.briefing_lite") : tr("today.briefing_ready")
+                    }
                   />
-                  <ActionButton
-                    title={tr("today.briefing_ai_prefs")}
-                    icon="sliders"
-                    variant="secondary"
-                    onPress={() => {
-                      drawerOpen.set(false);
-                      setTab("me");
-                    }}
-                  />
+                }
+              />
+
+              <View class="rounded-2xl bg-surface-sunken/80 p-3.5">
+                <Text class="text-sm leading-relaxed text-foreground">{briefing().text}</Text>
+              </View>
+
+              <If when={snap().acwr !== null}>
+                <View class="gap-2 rounded-2xl bg-bento-sage/45 p-3.5">
+                  <View class="flex-row items-center justify-between">
+                    <Text class="text-xs font-semibold text-foreground">{tr("insights.acwr_title")}</Text>
+                    <Text class="text-xs font-medium text-primary">
+                      {friendlyLoadStatus(snap().acwr)}
+                    </Text>
+                  </View>
+                  <AcwrSweetSpotCanvas acwr={snap().acwr} />
                 </View>
+              </If>
 
-                <Text class="text-[11px] leading-relaxed text-muted-foreground">
-                  {briefing().disclaimer}
-                </Text>
-              </Card>
+              <View class="flex-row flex-wrap gap-2">
+                <ActionButton
+                  title={tr("today.briefing_refresh")}
+                  icon="sparkles"
+                  variant="outline"
+                  onPress={() => refreshLiveBriefing()}
+                />
+                <ActionButton
+                  title={tr("today.briefing_ai_prefs")}
+                  icon="sliders"
+                  variant="secondary"
+                  onPress={() => {
+                    drawerOpen.set(false);
+                    setTab("me");
+                  }}
+                />
+              </View>
+
+              <Text class="text-[11px] leading-relaxed text-muted-foreground">
+                {briefing().disclaimer}
+              </Text>
             </View>
           </If>
 
           <If when={drawerTab() === "curves"}>
-            <View class="gap-3">
+            <View class="gap-4">
               <If when={Boolean(snap().sleep_stages_last_night)}>
-                <Card>
+                <View class="gap-2.5 rounded-2xl bg-bento-lavender/45 p-3.5">
                   <SectionHeader title={tr("insights.sleep_arch_title")} />
                   <SleepArchitectureBar
                     deepMin={snap().sleep_stages_last_night!.deep_min}
@@ -492,24 +462,22 @@ export function TodayPage() {
                     remMin={snap().sleep_stages_last_night!.rem_min}
                     awakeMin={snap().sleep_stages_last_night!.awake_min}
                   />
-                </Card>
+                </View>
               </If>
 
-              <Card>
+              <View class="gap-2.5">
                 <SectionHeader title={tr("insights.rhythm_trend_title")} />
                 <InteractiveRhythmPlot points={snap().trend_14d} />
-              </Card>
+              </View>
 
-              <Card>
+              <View class="gap-2.5 rounded-2xl bg-surface-sunken/70 p-3.5">
                 <SectionHeader title={tr("today.baseline_title")} />
                 <If
                   when={baselineMetrics().length > 0}
                   else={
-                    <SunkenBox>
-                      <Text class="text-xs text-muted-foreground">
-                        {tr("today.baseline_empty")}
-                      </Text>
-                    </SunkenBox>
+                    <Text class="py-2 text-xs text-muted-foreground">
+                      {tr("today.baseline_empty")}
+                    </Text>
                   }
                 >
                   <View class="gap-0">
@@ -546,7 +514,7 @@ export function TodayPage() {
                     </Each>
                   </View>
                 </If>
-              </Card>
+              </View>
 
               <WristWidgetPreviewCard
                 score={snap().qi_score}
@@ -565,7 +533,7 @@ export function TodayPage() {
           </If>
 
           <If when={drawerTab() === "seasonal"}>
-            <View class="gap-3">
+            <View class="gap-3.5">
               <SeasonalPassPanel
                 solarTerm={solar().solar_term.term_name}
                 solarSubtitle={solar().solar_term.whisper}

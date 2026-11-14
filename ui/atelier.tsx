@@ -1,6 +1,8 @@
-import { Canvas, createMotion, Image, Scroll, signal, Text, token, View } from "nsh";
+import { Canvas, colorScheme, createMotion, Image, Scroll, signal, Text, token, View } from "nsh";
 import { Button } from "nsh/base";
+import catNightImg from "../assets/scenes/cat_night.jpg";
 import fourSeasonsHandscrollImg from "../assets/scenes/four_seasons_handscroll.jpg";
+import zenDayImg from "../assets/scenes/zen_day.jpg";
 import { hapticSelection } from "./haptics";
 import {
   ActionButton,
@@ -1495,7 +1497,7 @@ export function FourSeasonsScrollModal(props: {
   );
 }
 
-/** 7. 《抬腕嘴替》Apple Watch / 桌面微件预览卡（诗意隐喻 vs 精准数值切换） */
+/** 7. 《抬腕嘴替》Apple Watch / iOS WidgetKit 三景分化微缩艺术小组件展台（Waterllama 标杆分化设计） */
 export function WristWidgetPreviewCard(props: {
   score: number;
   state: string;
@@ -1513,126 +1515,427 @@ export function WristWidgetPreviewCard(props: {
     localMode.set(m);
     props.onChangeMode?.(m);
   };
+  const toggleMode = () => setMode(activeMode() === "poetic" ? "numeric" : "poetic");
+
+  const isNightScene = () =>
+    colorScheme() === "dark" || props.state === "recovery_priority";
 
   const lockHeadlineShort = () =>
     activeMode() === "poetic"
       ? props.poeticLine
       : tr("atelier.widget.score_out_of_100", { score: Math.round(props.score) });
 
+  const clampedScore = () =>
+    Math.max(0, Math.min(100, Number.isFinite(props.score) ? Math.round(props.score) : 0));
+
   return (
-    <Card>
+    <View class="gap-3.5 rounded-3xl border border-border/55 bg-card/90 p-4 shadow-2xs">
       <SectionHeader
         title={tr("atelier.widget.title")}
         subtitle={tr("atelier.widget.subtitle")}
         right={<WidgetIcon size={18} color={token("primary")} />}
       />
 
-      <View class="flex-row gap-1.5">
-        <SelectChip
-          label={tr("atelier.widget.mode_poetic")}
-          selected={activeMode() === "poetic"}
-          onPress={() => setMode("poetic")}
-        />
-        <SelectChip
-          label={tr("atelier.widget.mode_numeric")}
-          selected={activeMode() === "numeric"}
-          onPress={() => setMode("numeric")}
-        />
-      </View>
-
-      {/* 模拟表盘卡片预览 */}
-      <View class="mx-auto w-full max-w-xs gap-2 rounded-3xl border-2 border-border bg-surface-sunken p-4">
-        <View class="flex-row items-center justify-between">
-          <Text class="text-[11px] font-semibold text-atelier-accent">
-            {props.solarTerm ? `${tr("app.name")} · ${props.solarTerm}` : tr("app.name")}
-          </Text>
-          <VitalBadge tone={props.state} label={props.stateBadge} />
-        </View>
-
-        <If
-          when={activeMode() === "poetic"}
-          else={
-            <View class="gap-1 py-1">
-              <Text class="text-2xl font-bold text-foreground" style={{ fontVariant: ["tabular-nums"] }}>
-                {tr("atelier.widget.score_out_of_100", { score: Math.round(props.score) })}
-              </Text>
-              <Text class="text-xs text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
-                {props.numericLine ?? tr("atelier.widget.rhythm_status", { status: props.stateBadge })}
-              </Text>
-            </View>
-          }
-        >
-          <View class="gap-1 py-1">
-            <Text class="text-base font-bold leading-snug text-foreground">{props.poeticLine}</Text>
-            <Text class="text-[11px] text-muted-foreground">{tr("atelier.widget.poetic_caption")}</Text>
-          </View>
-        </If>
-      </View>
-
-      {/* iOS WidgetKit Lock Screen & Home Screen Preview Matrix */}
-      <View class="gap-2 pt-1">
+      <View class="flex-row flex-wrap items-center justify-between gap-2">
         <Text class="text-xs font-semibold text-muted-foreground">
           {tr("atelier.widget.ios_gallery_title")}
         </Text>
+        <View class="flex-row gap-1.5">
+          <SelectChip
+            label={tr("atelier.widget.mode_poetic")}
+            selected={activeMode() === "poetic"}
+            onPress={() => setMode("poetic")}
+          />
+          <SelectChip
+            label={tr("atelier.widget.mode_numeric")}
+            selected={activeMode() === "numeric"}
+            onPress={() => setMode("numeric")}
+          />
+        </View>
+      </View>
 
-        {/* Lock Screen Accessory Circular + Rectangular */}
+      {/* WidgetKit 三态彻底分化微缩艺术场景矩阵 */}
+      <View class="gap-3">
+        {/* 第一行：小卡 1（深玻璃双环刻度锁屏圆环） + 小卡 2（磨砂和纸手绘猫影锁屏矩形条） */}
         <View class="flex-row items-stretch gap-2.5">
-          <View class="w-24 items-center justify-center gap-1 rounded-2xl border border-border/80 bg-surface-sunken p-2.5">
-            <View class="size-12 items-center justify-center rounded-full border-2 border-primary/70 bg-card">
-              <If
-                when={activeMode() === "poetic"}
-                else={
-                  <Text
-                    class="text-sm font-bold text-foreground"
-                    style={{ fontVariant: ["tabular-nums"] }}
-                  >
-                    {Math.round(props.score)}
-                  </Text>
+          {/* 小卡 1：锁屏圆环 — 深玻璃半透明圆角方形底座 + 高对比双环元气刻度弧与中心大字数字 */}
+          <Button
+            hitSlop={4}
+            accessibilityLabel={tr("atelier.widget.lock_circular_label")}
+            onPress={toggleMode}
+            class="w-28 items-center justify-between gap-1.5 rounded-3xl border border-stage-ink/20 bg-stage-scrim p-3 shadow-xs transition active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          >
+            <Canvas
+              style={{ width: 68, height: 68 }}
+              draw={(cx, size) => {
+                const w = size.width;
+                const h = size.height;
+                const midX = w / 2;
+                const midY = h / 2;
+                const score = clampedScore();
+                const outerR = Math.min(w, h) / 2 - 4;
+                const innerR = outerR - 7.5;
+                const startA = Math.PI * 0.78;
+                const sweepA = Math.PI * 1.44;
+                const endA = startA + sweepA;
+                const progA = startA + (sweepA * score) / 100;
+
+                const inkBright = token("stage-ink");
+                const arcPrimary =
+                  props.state === "recovery_priority"
+                    ? token("ink-gold")
+                    : token("dew-accent");
+                const arcSecondary = token("vital-prime");
+
+                cx.clearRect(0, 0, w, h);
+
+                // 外圈 19 枚锁屏微刻度短线
+                const ticks = 19;
+                for (let i = 0; i < ticks; i++) {
+                  const r = i / (ticks - 1);
+                  const a = startA + sweepA * r;
+                  const lit = r * 100 <= score && score > 0;
+                  cx.save();
+                  cx.strokeStyle = lit ? arcPrimary : inkBright;
+                  cx.globalAlpha = lit ? 0.92 : 0.22;
+                  cx.lineWidth = lit ? 1.6 : 1.1;
+                  cx.lineCap = "round";
+                  cx.beginPath();
+                  cx.moveTo(midX + Math.cos(a) * (outerR - 2.2), midY + Math.sin(a) * (outerR - 2.2));
+                  cx.lineTo(midX + Math.cos(a) * outerR, midY + Math.sin(a) * outerR);
+                  cx.stroke();
+                  cx.restore();
                 }
-              >
-                <WidgetIcon size={16} color={token("primary")} />
-              </If>
-            </View>
-            <Text class="text-[10px] font-medium text-muted-foreground">
+
+                // 内环双层轨道底弧
+                cx.save();
+                cx.strokeStyle = inkBright;
+                cx.globalAlpha = 0.18;
+                cx.lineWidth = 4.6;
+                cx.lineCap = "round";
+                cx.beginPath();
+                cx.arc(midX, midY, innerR, startA, endA);
+                cx.stroke();
+                cx.restore();
+
+                // 内环高对比元气活跃圆弧 + 次环金青细轨
+                if (score > 0) {
+                  cx.save();
+                  cx.strokeStyle = arcPrimary;
+                  cx.globalAlpha = 0.96;
+                  cx.lineWidth = 4.6;
+                  cx.lineCap = "round";
+                  cx.beginPath();
+                  cx.arc(midX, midY, innerR, startA, progA);
+                  cx.stroke();
+
+                  cx.strokeStyle = arcSecondary;
+                  cx.globalAlpha = 0.72;
+                  cx.lineWidth = 1.6;
+                  cx.beginPath();
+                  cx.arc(midX, midY, innerR - 4.8, startA, progA);
+                  cx.stroke();
+
+                  // 弧端高光圆珠
+                  const tipX = midX + Math.cos(progA) * innerR;
+                  const tipY = midY + Math.sin(progA) * innerR;
+                  cx.fillStyle = inkBright;
+                  cx.globalAlpha = 1;
+                  cx.beginPath();
+                  cx.arc(tipX, tipY, 2.3, 0, Math.PI * 2);
+                  cx.fill();
+                  cx.restore();
+                }
+
+                // 中心大字数字与副标
+                cx.save();
+                cx.textAlign = "center";
+                cx.textBaseline = "middle";
+                cx.fillStyle = inkBright;
+                cx.font = '700 20px "PingFang SC", -apple-system, sans-serif';
+                cx.fontVariantNumeric = "tabular-nums";
+                cx.fillText(`${score}`, midX, midY - 2);
+
+                cx.globalAlpha = 0.72;
+                cx.font = '600 8px "Menlo", monospace';
+                cx.fillText(activeMode() === "poetic" ? "QI" : "/100", midX, midY + 13);
+                cx.restore();
+              }}
+            />
+            <Text class="text-center text-[10px] font-semibold leading-tight text-stage-ink/90">
               {tr("atelier.widget.lock_circular_label")}
             </Text>
-          </View>
+          </Button>
 
-          <View class="flex-1 justify-between gap-1 rounded-2xl border border-border/80 bg-surface-sunken p-3">
-            <View class="flex-row items-center justify-between gap-1">
-              <Text class="text-[10px] font-semibold text-atelier-accent">
+          {/* 小卡 2：锁屏矩形条 — 细长磨砂和纸条 + 左侧手绘线条小猫侧影 + 右侧迷你双行节律波纹与轻提示 */}
+          <Button
+            hitSlop={4}
+            accessibilityLabel={tr("atelier.widget.lock_rect_label")}
+            onPress={toggleMode}
+            class="flex-1 justify-between gap-1.5 rounded-3xl border border-atelier-accent/30 bg-bento-amber/80 p-3 shadow-xs transition active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          >
+            <View class="w-full flex-row items-center justify-between gap-1">
+              <Text class="text-[10px] font-bold text-atelier-accent">
                 {props.solarTerm ? `${tr("app.name")} · ${props.solarTerm}` : tr("app.name")}
               </Text>
               <Text class="text-[10px] font-medium text-muted-foreground">
                 {tr("atelier.widget.lock_rect_label")}
               </Text>
             </View>
-            <Text class="text-xs font-semibold leading-snug text-foreground">
-              {lockHeadlineShort()}
-            </Text>
-            <Text class="text-[10px] text-muted-foreground">
-              {props.numericLine ?? tr("atelier.widget.rhythm_status", { status: props.stateBadge })}
-            </Text>
-          </View>
+
+            <View class="w-full flex-row items-center gap-2.5">
+              {/* 左侧手绘线条小猫侧影插画 */}
+              <Canvas
+                style={{ width: 46, height: 50 }}
+                draw={(cx, size) => {
+                  const w = size.width;
+                  const h = size.height;
+                  const ink = token("foreground");
+                  const scarf = token("stamp-ink");
+                  const cushion = token("card");
+                  const accent = token("atelier-accent");
+
+                  cx.clearRect(0, 0, w, h);
+
+                  // 暖团蒲草垫圆斑
+                  cx.save();
+                  cx.fillStyle = cushion;
+                  cx.globalAlpha = 0.82;
+                  cx.beginPath();
+                  cx.ellipse(w * 0.48, h - 7, 17, 5, 0, 0, Math.PI * 2);
+                  cx.fill();
+                  cx.restore();
+
+                  // 手绘线条小猫蹲坐侧影（脊背 + 圆头 + 尖耳 + 翘尾）
+                  cx.save();
+                  cx.strokeStyle = ink;
+                  cx.fillStyle = cushion;
+                  cx.lineWidth = 1.75;
+                  cx.lineCap = "round";
+                  cx.lineJoin = "round";
+
+                  // 身躯圆弧
+                  cx.beginPath();
+                  cx.moveTo(13, 41);
+                  cx.quadraticCurveTo(9, 29, 17, 23);
+                  cx.quadraticCurveTo(28, 22, 30, 33);
+                  cx.quadraticCurveTo(31, 40, 26, 41);
+                  cx.closePath();
+                  cx.fill();
+                  cx.stroke();
+
+                  // 猫咪圆脸与双尖耳
+                  cx.beginPath();
+                  cx.moveTo(14, 21);
+                  cx.lineTo(13, 10);
+                  cx.lineTo(19, 15);
+                  cx.quadraticCurveTo(22, 14, 25, 15);
+                  cx.lineTo(30, 9);
+                  cx.lineTo(29, 21);
+                  cx.quadraticCurveTo(29, 27, 21.5, 27);
+                  cx.quadraticCurveTo(14, 27, 14, 21);
+                  cx.closePath();
+                  cx.fill();
+                  cx.stroke();
+
+                  // 翘起的小尾巴
+                  cx.beginPath();
+                  cx.moveTo(28, 39);
+                  cx.bezierCurveTo(37, 38, 41, 28, 37, 22);
+                  cx.stroke();
+
+                  // 温柔闭目笑眼与胡须
+                  cx.lineWidth = 1.3;
+                  cx.beginPath();
+                  cx.arc(18.5, 20.5, 1.8, 0.15 * Math.PI, 0.85 * Math.PI);
+                  cx.stroke();
+                  cx.beginPath();
+                  cx.arc(24.5, 20.5, 1.8, 0.15 * Math.PI, 0.85 * Math.PI);
+                  cx.stroke();
+
+                  // 脖间朱砂小领巾点缀
+                  cx.strokeStyle = scarf;
+                  cx.lineWidth = 2.2;
+                  cx.beginPath();
+                  cx.moveTo(15.5, 26.5);
+                  cx.quadraticCurveTo(21.5, 29, 27.5, 26.5);
+                  cx.stroke();
+
+                  // 耳尖橘花斑点
+                  cx.fillStyle = accent;
+                  cx.globalAlpha = 0.55;
+                  cx.beginPath();
+                  cx.arc(26.5, 16.5, 2.2, 0, Math.PI * 2);
+                  cx.fill();
+                  cx.restore();
+                }}
+              />
+
+              {/* 右侧迷你双行节律波纹路径 + 一句轻提示 */}
+              <View class="min-w-0 flex-1 gap-1">
+                <Canvas
+                  class="w-full"
+                  style={{ height: 20 }}
+                  draw={(cx, size) => {
+                    const w = Math.max(80, size.width);
+                    const h = size.height;
+                    const padR = 6;
+                    const span = w - padR;
+                    const phase = (clampedScore() * 0.09) % (Math.PI * 2);
+
+                    cx.clearRect(0, 0, w, h);
+
+                    // 第二行暖金虚线呼吸伴波
+                    cx.save();
+                    cx.strokeStyle = token("atelier-accent");
+                    cx.globalAlpha = 0.55;
+                    cx.lineWidth = 1.3;
+                    cx.setLineDash([2.5, 2.5]);
+                    cx.beginPath();
+                    for (let x = 0; x <= span; x += 3) {
+                      const t = x / span;
+                      const y = h * 0.68 + Math.sin(t * Math.PI * 3.2 + phase + 1.1) * 3.2;
+                      if (x === 0) cx.moveTo(x, y);
+                      else cx.lineTo(x, y);
+                    }
+                    cx.stroke();
+                    cx.restore();
+
+                    // 第一行青瓷实线主节律波 + 右端白芯圆点
+                    const endY = h * 0.38 - Math.sin(Math.PI * 3.0 + phase) * 3.8;
+                    cx.save();
+                    cx.strokeStyle = token("vital-prime");
+                    cx.lineWidth = 2;
+                    cx.lineCap = "round";
+                    cx.beginPath();
+                    for (let x = 0; x <= span; x += 2.5) {
+                      const t = x / span;
+                      const y = h * 0.38 - Math.sin(t * Math.PI * 3.0 + phase) * 3.8;
+                      if (x === 0) cx.moveTo(x, y);
+                      else cx.lineTo(x, y);
+                    }
+                    cx.stroke();
+
+                    cx.fillStyle = token("card");
+                    cx.strokeStyle = token("vital-prime");
+                    cx.lineWidth = 1.8;
+                    cx.beginPath();
+                    cx.arc(span, endY, 2.8, 0, Math.PI * 2);
+                    cx.fill();
+                    cx.stroke();
+                    cx.restore();
+                  }}
+                />
+
+                <Text class="line-clamp-2 text-xs font-bold leading-snug text-foreground">
+                  {lockHeadlineShort()}
+                </Text>
+                <Text class="line-clamp-1 text-[10px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
+                  {props.numericLine ?? tr("atelier.widget.rhythm_status", { status: props.stateBadge })}
+                </Text>
+              </View>
+            </View>
+          </Button>
         </View>
 
-        {/* Home Screen 2x2 systemSmall Tile */}
-        <View class="w-48 gap-1.5 rounded-3xl border border-border/85 bg-surface-sunken p-3.5">
-          <View class="flex-row items-center justify-between gap-1">
-            <Text class="text-[10px] font-semibold text-primary">{tr("app.name")}</Text>
-            <VitalBadge tone={props.state} label={props.stateBadge} />
+        {/* 第二行：小卡 3（桌面 2×2 全出血场景卡 — 暖竹绿/夜雨全景微缩窗景小画 + 底部角标宠物状态丝带与大字状态签） */}
+        <Button
+          hitSlop={4}
+          accessibilityLabel={tr("atelier.widget.home_small_label")}
+          onPress={toggleMode}
+          class="relative h-44 w-full overflow-hidden rounded-3xl border-2 border-card shadow-sm transition active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        >
+          <Image
+            src={isNightScene() ? catNightImg : zenDayImg}
+            class="absolute inset-0 h-full w-full object-cover"
+            accessibilityLabel={tr("atelier.widget.home_small_label")}
+          />
+
+          {/* 微缩窗景光斑粒子与底部丝绒暗角渐晕层 */}
+          <Canvas
+            class="pointer-events-none absolute inset-0"
+            style={{ pointerEvents: "none" }}
+            draw={(cx, size) => {
+              const w = Math.max(180, size.width);
+              const h = Math.max(120, size.height);
+              const night = isNightScene();
+
+              cx.clearRect(0, 0, w, h);
+
+              // 底部柔和暗角渐晕保证白色状态大字清晰可读
+              const grad = cx.createLinearGradient(0, h * 0.18, 0, h);
+              grad.addColorStop(0, "transparent");
+              grad.addColorStop(0.58, token("stage-scrim"));
+              grad.addColorStop(1, token("stage-scrim"));
+              cx.save();
+              cx.fillStyle = grad;
+              cx.globalAlpha = night ? 0.88 : 0.82;
+              cx.fillRect(0, 0, w, h);
+              cx.restore();
+
+              // 窗景右上柔光竹影/夜雨萤火微粒
+              const motes = [
+                { rx: 0.76, ry: 0.24, r: 2.2 },
+                { rx: 0.84, ry: 0.34, r: 1.5 },
+                { rx: 0.68, ry: 0.31, r: 1.7 },
+                { rx: 0.22, ry: 0.28, r: 1.4 },
+              ];
+              cx.save();
+              cx.fillStyle = night ? token("ink-gold") : token("stage-ink");
+              for (let i = 0; i < motes.length; i++) {
+                cx.globalAlpha = night ? 0.55 - i * 0.08 : 0.42 - i * 0.06;
+                cx.beginPath();
+                cx.arc(w * motes[i].rx, h * motes[i].ry, motes[i].r, 0, Math.PI * 2);
+                cx.fill();
+              }
+              cx.restore();
+            }}
+          />
+
+          {/* 前景全出血桌面小组件信息层 */}
+          <View class="relative h-full w-full justify-between p-3.5">
+            <View class="flex-row items-center justify-between gap-2">
+              <View class="flex-row items-center gap-1.5 rounded-full border border-stage-ink/20 bg-stage-scrim/80 px-2.5 py-1">
+                <QiIcon name="sparkles" size={11} color={token("ink-gold")} />
+                <Text class="text-[11px] font-semibold text-stage-ink">
+                  {props.solarTerm ? `${tr("app.name")} · ${props.solarTerm}` : tr("app.name")}
+                </Text>
+              </View>
+              <VitalBadge tone={props.state} label={props.stateBadge} />
+            </View>
+
+            <View class="gap-2">
+              <Text
+                class="line-clamp-2 text-base font-bold leading-snug text-stage-ink sm:text-lg"
+                style={{ fontVariant: ["tabular-nums"] }}
+              >
+                {activeMode() === "poetic"
+                  ? props.poeticLine
+                  : tr("atelier.widget.score_out_of_100", { score: clampedScore() })}
+              </Text>
+
+              {/* 底部角标宠物状态丝带 */}
+              <View class="flex-row items-center justify-between gap-1.5 rounded-2xl border border-stage-ink/20 bg-stage-scrim/85 px-2.5 py-1.5">
+                <View class="min-w-0 flex-1 flex-row items-center gap-1">
+                  <QiIcon name="paw" size={11} color={token("ink-gold")} />
+                  <Text
+                    class="line-clamp-1 flex-1 text-[10px] font-medium text-stage-ink/90"
+                    style={{ fontVariant: ["tabular-nums"] }}
+                  >
+                    {activeMode() === "poetic"
+                      ? tr("atelier.widget.poetic_caption")
+                      : (props.numericLine ?? tr("atelier.widget.rhythm_status", { status: props.stateBadge }))}
+                  </Text>
+                </View>
+                <Text class="shrink-0 text-[10px] font-semibold text-ink-gold">
+                  {tr("atelier.widget.home_small_label")}
+                </Text>
+              </View>
+            </View>
           </View>
-          <Text class="text-xs font-bold leading-snug text-foreground">
-            {activeMode() === "poetic"
-              ? props.poeticLine
-              : tr("atelier.widget.score_out_of_100", { score: Math.round(props.score) })}
-          </Text>
-          <Text class="text-[10px] text-muted-foreground">
-            {tr("atelier.widget.home_small_label")}
-          </Text>
-        </View>
+        </Button>
       </View>
-    </Card>
+    </View>
   );
 }
 

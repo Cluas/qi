@@ -1,7 +1,7 @@
 import { Canvas, colorScheme, signal, Text, token, View } from "nsh";
 import { Button } from "nsh/base";
-import { Area, Grid, Line, Plot, PlotAxis } from "nsh/base/plot";
 import type { TrendPoint } from "../store";
+import { hapticSelection } from "./haptics";
 import { isEnglishLocale, tr } from "./i18n";
 
 export type RhythmPoint = TrendPoint & {
@@ -145,32 +145,33 @@ export function VitalityDialCanvas(props: { score: number; state: string; badge:
 /** 兼容既有页面导入别名 */
 export const VitalityRingCanvas = VitalityDialCanvas;
 
-/** 《胃之书》式热敏/和纸手账小票锯齿撕纸边缘（连续三角齿 + 细微裁切虚线墨痕） */
+/** 《椅子上有猫》/《胃之书》式和纸手账小票锯齿撕纸边缘（连续三角齿 + 和纸纤维微纹 + 压痕孔线） */
 export function SerratedReceiptBanner(props: { position: "top" | "bottom" }) {
   return (
     <Canvas
       class="w-full"
-      style={{ height: 14 }}
+      style={{ height: 15 }}
       draw={(cx, size) => {
         const w = Math.max(160, size.width);
         const h = size.height;
-        const toothW = 10;
+        const toothW = 10.5;
         const count = Math.ceil(w / toothW);
         const paperFill = readToken("card");
         const borderStroke = readToken("border");
         const subtleInk = readToken("ink-subtle");
+        const warmSpeck = readToken("atelier-accent");
 
         cx.clearRect(0, 0, w, h);
 
         cx.save();
         cx.fillStyle = paperFill;
         cx.strokeStyle = borderStroke;
-        cx.lineWidth = 1;
+        cx.lineWidth = 1.1;
         cx.lineJoin = "round";
 
         if (props.position === "top") {
           const baseY = h;
-          const valleyY = h - 2;
+          const valleyY = h - 2.5;
           const peakY = 2;
 
           cx.beginPath();
@@ -186,7 +187,7 @@ export function SerratedReceiptBanner(props: { position: "top" | "bottom" }) {
           cx.closePath();
           cx.fill();
 
-          // 描边锯齿外沿
+          // 锯齿外沿微描边
           cx.beginPath();
           cx.moveTo(0, valleyY);
           for (let i = 0; i < count; i++) {
@@ -197,17 +198,29 @@ export function SerratedReceiptBanner(props: { position: "top" | "bottom" }) {
           }
           cx.stroke();
 
-          // 压痕裁切虚线
+          // 和纸微纤维斑点
+          cx.fillStyle = warmSpeck;
+          cx.globalAlpha = 0.14;
+          for (let i = 1; i < count; i += 2) {
+            const sx = i * toothW + (i % 3) * 1.5;
+            const sy = valleyY - ((i * 7) % 3) - 0.5;
+            cx.beginPath();
+            cx.arc(sx, sy, 0.85, 0, Math.PI * 2);
+            cx.fill();
+          }
+
+          // 撕纸压痕微圆孔虚线
           cx.strokeStyle = subtleInk;
-          cx.globalAlpha = 0.38;
-          cx.setLineDash([3, 3]);
+          cx.globalAlpha = 0.34;
+          cx.lineWidth = 1;
+          cx.setLineDash([2, 4]);
           cx.beginPath();
-          cx.moveTo(10, h - 1);
-          cx.lineTo(w - 10, h - 1);
+          cx.moveTo(12, h - 1);
+          cx.lineTo(w - 12, h - 1);
           cx.stroke();
         } else {
           const baseY = 0;
-          const valleyY = 2;
+          const valleyY = 2.5;
           const peakY = h - 2;
 
           cx.beginPath();
@@ -223,7 +236,7 @@ export function SerratedReceiptBanner(props: { position: "top" | "bottom" }) {
           cx.closePath();
           cx.fill();
 
-          // 描边锯齿外沿
+          // 锯齿外沿微描边
           cx.beginPath();
           cx.moveTo(0, valleyY);
           for (let i = 0; i < count; i++) {
@@ -234,13 +247,25 @@ export function SerratedReceiptBanner(props: { position: "top" | "bottom" }) {
           }
           cx.stroke();
 
-          // 压痕裁切虚线
+          // 和纸微纤维斑点
+          cx.fillStyle = warmSpeck;
+          cx.globalAlpha = 0.14;
+          for (let i = 1; i < count; i += 2) {
+            const sx = i * toothW + (i % 3) * 1.5;
+            const sy = valleyY + ((i * 5) % 3) + 0.5;
+            cx.beginPath();
+            cx.arc(sx, sy, 0.85, 0, Math.PI * 2);
+            cx.fill();
+          }
+
+          // 撕纸压痕微圆孔虚线
           cx.strokeStyle = subtleInk;
-          cx.globalAlpha = 0.38;
-          cx.setLineDash([3, 3]);
+          cx.globalAlpha = 0.34;
+          cx.lineWidth = 1;
+          cx.setLineDash([2, 4]);
           cx.beginPath();
-          cx.moveTo(10, 1);
-          cx.lineTo(w - 10, 1);
+          cx.moveTo(12, 1);
+          cx.lineTo(w - 12, 1);
           cx.stroke();
         }
         cx.restore();
@@ -249,18 +274,27 @@ export function SerratedReceiptBanner(props: { position: "top" | "bottom" }) {
   );
 }
 
-/** 交互式近 14 天元气节律图（顶部选中日读数栏 + 流光双色有机节律丝带 Canvas + nsh/base/plot 原生平滑面积曲线） */
+/** Gentler Streak 标杆无框沉浸式有机丝带节律图（唯一 164px 画布：暖杏->青瓷安全区间丝带 + 实心白芯 o—o—o 节点 + 底部多色日常状态胶囊条 + 悬浮胶囊读数） */
 export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
   const hoveredIdx = signal<number | null>(null);
 
-  const activePoint = (): RhythmPoint | null => {
-    const pts = props.points;
-    if (pts.length === 0) return null;
+  const resolvedIndex = (): number => {
+    const len = props.points.length;
+    if (len === 0) return -1;
     const idx = hoveredIdx();
-    if (idx !== null && idx >= 0 && idx < pts.length) {
-      return pts[idx];
-    }
-    return pts[pts.length - 1];
+    if (idx !== null && idx >= 0 && idx < len) return idx;
+    return len - 1;
+  };
+
+  const activePoint = (): RhythmPoint | null => {
+    const idx = resolvedIndex();
+    return idx >= 0 ? props.points[idx] ?? null : null;
+  };
+
+  const scoreToneToken = (score: number): string => {
+    if (score >= 70) return "vital-prime";
+    if (score >= 50) return "vital-steady";
+    return "vital-recover";
   };
 
   return (
@@ -268,16 +302,21 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
       <If
         when={props.points.length > 0}
         else={
-          <View class="items-center justify-center rounded-xl border border-border/60 bg-surface-sunken py-7">
+          <View class="items-center justify-center rounded-2xl bg-surface-sunken/80 py-7">
             <Text class="text-xs text-muted-foreground">{tr("charts.no_rhythm_data")}</Text>
           </View>
         }
       >
+        {/* 顶部悬浮可读胶囊读数（点击下方任意节点或胶囊实时联动） */}
         <If when={activePoint()}>
           {(pt) => (
-            <View class="flex-row items-center justify-between gap-2 rounded-xl border border-border/60 bg-surface-sunken px-3 py-2">
+            <View class="flex-row flex-wrap items-center justify-between gap-2 rounded-full border border-border/50 bg-card/90 px-3.5 py-1.5 shadow-xs">
               <View class="flex-row items-center gap-2">
-                <Text class="text-xs font-semibold text-foreground" style={{ fontVariant: ["tabular-nums"] }}>
+                <View
+                  class="size-2 rounded-full"
+                  style={{ backgroundColor: readToken(scoreToneToken(pt().qi_score)) }}
+                />
+                <Text class="text-xs font-bold text-foreground" style={{ fontVariant: ["tabular-nums"] }}>
                   {pt().short_label || pt().date}
                 </Text>
                 <Text class="text-[11px] text-muted-foreground">
@@ -285,7 +324,13 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
                 </Text>
               </View>
               <View class="flex-row items-center gap-2.5">
-                <Text class="text-xs font-bold text-primary" style={{ fontVariant: ["tabular-nums"] }}>
+                <Text
+                  class="text-xs font-bold"
+                  style={{
+                    color: readToken(scoreToneToken(pt().qi_score)),
+                    fontVariant: ["tabular-nums"],
+                  }}
+                >
                   {tr("charts.vitality_readout", { score: Math.round(pt().qi_score) })}
                 </Text>
                 <If when={pt().hrv_ms !== undefined && pt().hrv_ms !== null}>
@@ -303,222 +348,301 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
           )}
         </If>
 
-        {/* Gentler Streak / StressWatch 风格流光双色有机节律丝带（30日常模舒适带 + 平滑贝塞尔气韵丝带 + 发光极值点） */}
-        <Canvas
-          class="w-full"
-          style={{ height: 84 }}
-          draw={(cx, size) => {
-            const pts = props.points;
-            const w = Math.max(220, size.width);
-            const h = size.height;
-            const padL = 28;
-            const padR = 14;
-            const padT = 10;
-            const padB = 10;
-            const plotW = Math.max(40, w - padL - padR);
-            const plotH = Math.max(30, h - padT - padB);
+        {/* 唯一 164px 沉浸式有机丝带画布 + 全域等分触控节点热区 */}
+        <View class="relative w-full">
+          <Canvas
+            class="w-full"
+            style={{ height: 164 }}
+            draw={(cx, size) => {
+              const scheme = colorScheme();
+              const pts = props.points;
+              const n = pts.length;
+              const w = Math.max(240, size.width);
+              const h = size.height;
+              const padL = 8;
+              const padR = 8;
+              const plotTop = 10;
+              const plotBottom = 122;
+              const plotH = Math.max(48, plotBottom - plotTop);
+              const pillY = 132;
+              const pillH = 7;
+              const dateY = 146;
+              const availW = Math.max(60, w - padL - padR);
 
-            cx.clearRect(0, 0, w, h);
-            if (pts.length === 0) return;
+              cx.clearRect(0, 0, w, h);
+              if (n === 0) return;
 
-            const xFor = (i: number) =>
-              pts.length === 1 ? padL + plotW / 2 : padL + (plotW * i) / (pts.length - 1);
-            const yFor = (score: number) => {
-              const clamped = Math.max(0, Math.min(100, Number.isFinite(score) ? score : 50));
-              return padT + plotH * (1 - clamped / 100);
-            };
+              const slotW = availW / n;
+              const xFor = (i: number) => padL + slotW * (i + 0.5);
+              const yFor = (score: number) => {
+                const clamped = Math.max(4, Math.min(98, Number.isFinite(score) ? score : 55));
+                return plotTop + plotH * (1 - clamped / 100);
+              };
 
-            // 1) 30 日常模舒适带 (62 - 86 分柔和呼吸走廊)
-            const bandTop = yFor(86);
-            const bandBottom = yFor(62);
-            const bandH = Math.max(8, bandBottom - bandTop);
-            cx.save();
-            cx.fillStyle = readToken("vital-prime-soft");
-            cx.globalAlpha = 0.62;
-            cx.beginPath();
-            cx.roundRect(padL, bandTop, plotW, bandH, 8);
-            cx.fill();
+              const coords = pts.map((p, idx) => {
+                const rawScore = Number.isFinite(p.qi_score) ? p.qi_score : 60;
+                return {
+                  x: xFor(idx),
+                  y: yFor(rawScore),
+                  score: rawScore,
+                };
+              });
 
-            cx.strokeStyle = readToken("vital-prime");
-            cx.globalAlpha = 0.32;
-            cx.lineWidth = 1;
-            cx.setLineDash([4, 4]);
-            cx.beginPath();
-            cx.moveTo(padL, bandTop);
-            cx.lineTo(padL + plotW, bandTop);
-            cx.moveTo(padL, bandBottom);
-            cx.lineTo(padL + plotW, bandBottom);
-            cx.stroke();
-            cx.restore();
+              // 计算随个体近期趋势舒展起伏的 14~30 日安全区间走廊包络
+              const corridor = coords.map((_, idx) => {
+                let weightedSum = 0;
+                let weightTotal = 0;
+                for (let k = -2; k <= 2; k++) {
+                  const sampleIdx = Math.max(0, Math.min(n - 1, idx + k));
+                  const wt = 3 - Math.abs(k);
+                  weightedSum += coords[sampleIdx].score * wt;
+                  weightTotal += wt;
+                }
+                const localMean = weightedSum / Math.max(1, weightTotal);
+                const anchor = localMean * 0.52 + 72 * 0.48;
+                const upper = Math.min(95, Math.max(68, anchor + 15.5));
+                const lower = Math.max(36, Math.min(64, anchor - 14.5));
+                return {
+                  x: coords[idx].x,
+                  topY: yFor(upper),
+                  botY: yFor(lower),
+                };
+              });
 
-            const coords = pts.map((p, idx) => ({
-              x: xFor(idx),
-              y: yFor(p.qi_score),
-              score: p.qi_score,
-            }));
+              const leftEdgeX = padL;
+              const rightEdgeX = w - padR;
 
-            // 2) 有机丝带柔和体积层（上下包络贝塞尔丝带）
-            if (coords.length > 1) {
+              // 1) 有机安全区间渐变丝带（暖杏 -> 青瓷柔光带）
               cx.save();
-              cx.fillStyle = readToken("vital-prime");
-              cx.globalAlpha = 0.16;
               cx.beginPath();
-              cx.moveTo(coords[0].x, coords[0].y - 5);
-              for (let i = 0; i < coords.length - 1; i++) {
-                const curr = coords[i];
-                const next = coords[i + 1];
+              cx.moveTo(leftEdgeX, corridor[0].topY);
+              cx.lineTo(corridor[0].x, corridor[0].topY);
+              for (let i = 0; i < corridor.length - 1; i++) {
+                const curr = corridor[i];
+                const next = corridor[i + 1];
                 const midX = (curr.x + next.x) * 0.5;
-                cx.bezierCurveTo(midX, curr.y - 6, midX, next.y - 6, next.x, next.y - 5);
+                cx.bezierCurveTo(midX, curr.topY, midX, next.topY, next.x, next.topY);
               }
-              for (let i = coords.length - 1; i > 0; i--) {
-                const curr = coords[i];
-                const prev = coords[i - 1];
+              cx.lineTo(rightEdgeX, corridor[corridor.length - 1].topY);
+              cx.lineTo(rightEdgeX, corridor[corridor.length - 1].botY);
+              cx.lineTo(corridor[corridor.length - 1].x, corridor[corridor.length - 1].botY);
+              for (let i = corridor.length - 1; i > 0; i--) {
+                const curr = corridor[i];
+                const prev = corridor[i - 1];
                 const midX = (curr.x + prev.x) * 0.5;
-                cx.bezierCurveTo(midX, curr.y + 6, midX, prev.y + 6, prev.x, prev.y + 5);
+                cx.bezierCurveTo(midX, curr.botY, midX, prev.botY, prev.x, prev.botY);
               }
+              cx.lineTo(leftEdgeX, corridor[0].botY);
               cx.closePath();
+
+              // 第一层温润青瓷柔底
+              cx.fillStyle = readToken("vital-prime-soft");
+              cx.globalAlpha = scheme === "dark" ? 0.82 : 0.92;
+              cx.fill();
+
+              // 第二层暖杏 -> 青瓷有机丝绸线性渐变叠光
+              const ribbonGrad = cx.createLinearGradient(leftEdgeX, plotTop, rightEdgeX, plotBottom);
+              ribbonGrad.addColorStop(0, readToken("bento-amber"));
+              ribbonGrad.addColorStop(0.32, readToken("vital-prime-soft"));
+              ribbonGrad.addColorStop(1, readToken("vital-prime"));
+              cx.fillStyle = ribbonGrad;
+              cx.globalAlpha = scheme === "dark" ? 0.36 : 0.34;
               cx.fill();
               cx.restore();
 
-              // 次谐波琥珀余韵曲线
+              // 丝带上下柔光边界细描线
+              if (corridor.length > 1) {
+                cx.save();
+                cx.strokeStyle = readToken("vital-prime");
+                cx.globalAlpha = scheme === "dark" ? 0.38 : 0.28;
+                cx.lineWidth = 1.1;
+                cx.beginPath();
+                cx.moveTo(leftEdgeX, corridor[0].topY);
+                cx.lineTo(corridor[0].x, corridor[0].topY);
+                for (let i = 0; i < corridor.length - 1; i++) {
+                  const curr = corridor[i];
+                  const next = corridor[i + 1];
+                  const midX = (curr.x + next.x) * 0.5;
+                  cx.bezierCurveTo(midX, curr.topY, midX, next.topY, next.x, next.topY);
+                }
+                cx.lineTo(rightEdgeX, corridor[corridor.length - 1].topY);
+                cx.stroke();
+                cx.restore();
+              }
+
+              const activeIdx =
+                hoveredIdx() !== null && hoveredIdx()! >= 0 && hoveredIdx()! < coords.length
+                  ? hoveredIdx()!
+                  : coords.length - 1;
+              const focusPt = coords[activeIdx];
+              const focusTone = readToken(scoreToneToken(focusPt.score));
+
+              // 2) 当前选中节点细虚线垂直游标
               cx.save();
-              cx.strokeStyle = readToken("vital-steady");
+              cx.strokeStyle = focusTone;
               cx.globalAlpha = 0.45;
-              cx.lineWidth = 1.8;
-              cx.lineCap = "round";
+              cx.lineWidth = 1.2;
+              cx.setLineDash([3, 3]);
               cx.beginPath();
-              cx.moveTo(coords[0].x, coords[0].y + 4);
-              for (let i = 0; i < coords.length - 1; i++) {
-                const curr = coords[i];
-                const next = coords[i + 1];
-                const midX = (curr.x + next.x) * 0.5;
-                cx.bezierCurveTo(midX, curr.y + 4, midX, next.y + 4, next.x, next.y + 4);
-              }
+              cx.moveTo(focusPt.x, Math.max(4, Math.min(corridor[activeIdx].topY - 4, focusPt.y - 10)));
+              cx.lineTo(focusPt.x, pillY - 4);
               cx.stroke();
               cx.restore();
 
-              // 主气韵流光贝塞尔曲线
-              cx.save();
-              cx.strokeStyle = readToken("vital-prime");
-              cx.lineWidth = 2.8;
-              cx.lineCap = "round";
-              cx.lineJoin = "round";
-              cx.beginPath();
-              cx.moveTo(coords[0].x, coords[0].y);
-              for (let i = 0; i < coords.length - 1; i++) {
-                const curr = coords[i];
-                const next = coords[i + 1];
-                const midX = (curr.x + next.x) * 0.5;
-                cx.bezierCurveTo(midX, curr.y, midX, next.y, next.x, next.y);
+              // 3) 清晰柔和的连续曲线（休整低谷段自动切换轻盈点虚线，贴合 Gentler Streak 语言）
+              if (coords.length > 1) {
+                for (let i = 0; i < coords.length - 1; i++) {
+                  const curr = coords[i];
+                  const next = coords[i + 1];
+                  const midX = (curr.x + next.x) * 0.5;
+                  const isRestDip = (curr.score + next.score) * 0.5 < 48;
+
+                  cx.save();
+                  cx.strokeStyle = readToken("foreground");
+                  cx.globalAlpha = isRestDip ? 0.72 : 0.88;
+                  cx.lineWidth = 2.15;
+                  cx.lineCap = "round";
+                  cx.lineJoin = "round";
+                  if (isRestDip) {
+                    cx.setLineDash([2.5, 3.5]);
+                  }
+                  cx.beginPath();
+                  cx.moveTo(curr.x, curr.y);
+                  cx.bezierCurveTo(midX, curr.y, midX, next.y, next.x, next.y);
+                  cx.stroke();
+                  cx.restore();
+                }
               }
-              cx.stroke();
-              cx.restore();
-            }
 
-            // 3) 发光极值点（最高峰、最低谷）与当前游标点
-            let maxIdx = 0;
-            let minIdx = 0;
-            coords.forEach((c, idx) => {
-              if (c.score > coords[maxIdx].score) maxIdx = idx;
-              if (c.score < coords[minIdx].score) minIdx = idx;
-            });
-            const activeIdx =
-              hoveredIdx() !== null && hoveredIdx()! >= 0 && hoveredIdx()! < coords.length
-                ? hoveredIdx()!
-                : coords.length - 1;
+              // 4) 实心白芯描边圆点节点链 (o—o—o) + 选中节点双环光晕
+              const baseDotR = n > 20 ? 2.7 : 3.35;
+              for (let i = 0; i < coords.length; i++) {
+                const pt = coords[i];
+                const isFocus = i === activeIdx;
 
-            // 当前游标垂直流光准星
-            const focusPt = coords[activeIdx];
-            cx.save();
-            cx.strokeStyle = readToken("primary");
-            cx.globalAlpha = 0.28;
-            cx.lineWidth = 1.2;
-            cx.beginPath();
-            cx.moveTo(focusPt.x, padT);
-            cx.lineTo(focusPt.x, padT + plotH);
-            cx.stroke();
-            cx.restore();
+                if (isFocus) {
+                  // 双环光晕：外层柔晕 + 次外描边环 + 白芯 + 中心核
+                  cx.save();
+                  cx.fillStyle = focusTone;
+                  cx.globalAlpha = 0.2;
+                  cx.beginPath();
+                  cx.arc(pt.x, pt.y, 10, 0, Math.PI * 2);
+                  cx.fill();
 
-            const highlightIndices = Array.from(new Set([minIdx, maxIdx, activeIdx]));
-            for (const idx of highlightIndices) {
-              const pt = coords[idx];
-              const isFocus = idx === activeIdx;
-              const isPeak = idx === maxIdx;
-              const dotTone = isFocus
-                ? readToken("primary")
-                : isPeak
-                  ? readToken("vital-prime")
-                  : readToken("vital-steady");
+                  cx.strokeStyle = focusTone;
+                  cx.globalAlpha = 0.7;
+                  cx.lineWidth = 1.4;
+                  cx.beginPath();
+                  cx.arc(pt.x, pt.y, 6.8, 0, Math.PI * 2);
+                  cx.stroke();
+
+                  cx.globalAlpha = 1;
+                  cx.fillStyle = readToken("card");
+                  cx.strokeStyle = readToken("foreground");
+                  cx.lineWidth = 2.1;
+                  cx.beginPath();
+                  cx.arc(pt.x, pt.y, 4.4, 0, Math.PI * 2);
+                  cx.fill();
+                  cx.stroke();
+
+                  cx.fillStyle = focusTone;
+                  cx.beginPath();
+                  cx.arc(pt.x, pt.y, 1.85, 0, Math.PI * 2);
+                  cx.fill();
+                  cx.restore();
+                } else {
+                  cx.save();
+                  cx.fillStyle = readToken("card");
+                  cx.strokeStyle = readToken("foreground");
+                  cx.lineWidth = 1.85;
+                  cx.beginPath();
+                  cx.arc(pt.x, pt.y, baseDotR, 0, Math.PI * 2);
+                  cx.fill();
+                  cx.stroke();
+                  cx.restore();
+                }
+              }
+
+              // 5) 画布底部一整行多色日常状态胶囊色条（青瓷绿 / 暖琥珀 / 陶土红）
+              const pillGap = n > 20 ? 2 : 3;
+              for (let i = 0; i < coords.length; i++) {
+                const pt = coords[i];
+                const isFocus = i === activeIdx;
+                const gx = padL + slotW * i + pillGap * 0.5;
+                const gw = Math.max(3.5, slotW - pillGap);
+                const gy = isFocus ? pillY - 1 : pillY;
+                const gh = isFocus ? pillH + 2 : pillH;
+                const pillColor = readToken(scoreToneToken(pt.score));
+
+                cx.save();
+                cx.fillStyle = pillColor;
+                cx.globalAlpha = isFocus ? 1 : 0.84;
+                cx.beginPath();
+                cx.roundRect(gx, gy, gw, gh, gh * 0.5);
+                cx.fill();
+
+                if (isFocus) {
+                  cx.strokeStyle = readToken("foreground");
+                  cx.globalAlpha = 0.55;
+                  cx.lineWidth = 1;
+                  cx.stroke();
+                }
+                cx.restore();
+              }
+
+              // 6) 底部日期微刻度
+              const tickIndices =
+                n <= 4
+                  ? pts.map((_, i) => i)
+                  : Array.from(
+                      new Set([
+                        0,
+                        Math.round((n - 1) * 0.33),
+                        Math.round((n - 1) * 0.66),
+                        n - 1,
+                      ]),
+                    );
 
               cx.save();
-              cx.fillStyle = dotTone;
-              cx.globalAlpha = isFocus ? 0.24 : 0.16;
-              cx.beginPath();
-              cx.arc(pt.x, pt.y, isFocus ? 8.5 : 6.5, 0, Math.PI * 2);
-              cx.fill();
-
-              cx.globalAlpha = 1;
-              cx.fillStyle = readToken("card");
-              cx.beginPath();
-              cx.arc(pt.x, pt.y, isFocus ? 5.2 : 4.2, 0, Math.PI * 2);
-              cx.fill();
-
-              cx.fillStyle = dotTone;
-              cx.beginPath();
-              cx.arc(pt.x, pt.y, isFocus ? 3.6 : 2.8, 0, Math.PI * 2);
-              cx.fill();
+              cx.font = '500 10px "Menlo", monospace';
+              cx.fontVariantNumeric = "tabular-nums";
+              cx.fillStyle = readToken("ink-subtle");
+              cx.textBaseline = "top";
+              for (const idx of tickIndices) {
+                const lbl = pts[idx]?.short_label || pts[idx]?.date?.slice(5) || "";
+                if (!lbl) continue;
+                cx.textAlign =
+                  idx === 0 ? "left" : idx === n - 1 ? "right" : "center";
+                const lx =
+                  idx === 0
+                    ? padL + 2
+                    : idx === n - 1
+                      ? w - padR - 2
+                      : xFor(idx);
+                cx.fillText(lbl, lx, dateY);
+              }
               cx.restore();
-            }
-          }}
-        />
-
-        <View class="pb-5 pl-7 pr-2 pt-1">
-          <Plot<RhythmPoint>
-            data={props.points}
-            x={(_d, index) => index}
-            y={(d) => d.qi_score}
-            xScale={{ type: "point" }}
-            yScale={{ type: "linear", domain: [0, 100] }}
-            interactive={true}
-            class="h-28 w-full"
-            crossLineClass="w-px bg-primary/45"
-            dotClass="size-2.5 rounded-full border-2 border-card bg-primary"
-            onHoverChange={(event) => {
-              hoveredIdx.set(event.index);
             }}
-          >
-            <Grid
-              y={[25, 50, 75]}
-              class="stroke-border"
-              style={{ strokeWidth: 1, strokeDasharray: "3 3" }}
-            />
-            <Area
-              curve="natural"
-              y0={0}
-              backgroundClass="bg-linear-to-b from-primary/25 to-primary/0"
-              hoverDotClass="hidden"
-            />
-            <Line
-              curve="natural"
-              class="stroke-primary"
-              style={{ strokeWidth: 2.25 }}
-            />
-            <PlotAxis
-              placement="left"
-              tickValues={[25, 50, 75, 100]}
-              labelClass="pr-1.5 text-[10px] text-muted-foreground"
-            />
-            <PlotAxis
-              placement="bottom"
-              ticks={4}
-              format={(value) => {
-                const idx = Math.round(value);
-                const pt = props.points[idx];
-                return pt ? pt.short_label : "";
-              }}
-              labelClass="pt-1.5 text-[10px] text-muted-foreground"
-            />
-          </Plot>
+          />
+
+          {/* 隐形全高度逐日节点交互层：点击任意一天丝带节点或胶囊即时切换选中态 */}
+          <View class="absolute inset-y-0 left-2 right-2 flex-row">
+            <Each of={props.points} key={(pt, idx) => `rhythm-hit-${idx}-${pt.date}`}>
+              {(pt, idx) => (
+                <Button
+                  hitSlop={2}
+                  accessibilityLabel={`${pt().short_label || pt().date} ${Math.round(pt().qi_score)}`}
+                  onPress={() => {
+                    hapticSelection();
+                    hoveredIdx.set(idx());
+                  }}
+                  class="h-full flex-1 rounded-md focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <View class="flex-1" />
+                </Button>
+              )}
+            </Each>
+          </View>
         </View>
       </If>
     </View>

@@ -67,7 +67,7 @@ test("知气 v5.0 确定性中文冷启动、极简顶栏、中英双语实时�
   await app.waitFor("三花猫「小满」");
   if (app.shows("关闭")) await app.press("关闭");
 
-  await app.press("生成日签");
+  await app.press(app.count("生成日签") > 1 ? "生成日签 >> nth=0" : "生成日签");
   await app.waitFor("节气日签卡");
   await app.press("收起");
   await app.waitFor("今日关注与一念落印");

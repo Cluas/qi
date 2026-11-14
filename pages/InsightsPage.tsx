@@ -83,48 +83,65 @@ export function InsightsPage() {
 
       {/* Subview 1: Rhythm Curves & N-of-1 Experiments */}
       <If when={getInsightsSubTab() === "curves"}>
-        <View class="gap-4">
-          {/* 无框流光节律画报头部：三枚釉面瓷贴直接呼吸排列在宣纸底上，告别巨型白框套娃 */}
-          <View class="gap-3 px-0.5">
-            <SectionHeader
-              title={tr("insights.period_title")}
-              subtitle={tr("insights.period_subtitle", {
-                current: period().current_window,
-                prev: period().previous_window,
-              })}
-              right={<VitalBadge tone="neutral" label={tr("insights.period_badge")} />}
-            />
+        <View class="gap-5">
+          {/* Gentler Streak 式无框人文洞察总结语录 + 轻盈趋势字标 + 三联无框釉面数字瓷贴 */}
+          <View class="gap-3.5 px-0.5 pt-0.5">
+            <View class="gap-1.5">
+              <View class="flex-row items-center justify-between gap-2">
+                <Text
+                  class="text-xs font-medium text-muted-foreground"
+                  style={{ fontVariant: ["tabular-nums"] }}
+                >
+                  {tr("insights.period_subtitle", {
+                    current: period().current_window,
+                    prev: period().previous_window,
+                  })}
+                </Text>
+                <VitalBadge tone="neutral" label={tr("insights.period_badge")} />
+              </View>
 
-            <View class="flex-row flex-wrap gap-2.5">
+              <Text role="header" class="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                {tr("insights.period_title")}
+              </Text>
+
+              <Text class="pt-0.5 text-[15px] leading-relaxed text-foreground/90">
+                {period().summary}
+              </Text>
+            </View>
+
+            <View class="flex-row gap-2">
               <BentoMetricCard
+                compact={true}
                 icon="heart_pulse"
-                label={tr("today.metric_title_hrv_rmssd")}
+                label={tr("today.metric_title_hrv_rmssd").replace(" (RMSSD)", "")}
                 value={period().hrv_current === null ? "—" : `${period().hrv_current!.toFixed(1)} ms`}
                 sublabel={
                   period().hrv_prev === null
                     ? tr("insights.prev_7d_empty")
-                    : tr("insights.prev_7d_val", { val: `${period().hrv_prev!.toFixed(1)} ms` })
+                    : tr("insights.prev_7d_val", { val: `${period().hrv_prev!.toFixed(1)}` })
                 }
                 toneSurface="sage"
                 accentColor={token("vital-prime")}
-                class="min-w-28 flex-1"
+                class="min-w-0 flex-1 border-transparent"
               />
 
               <BentoMetricCard
+                compact={true}
                 icon="flame"
                 label={tr("today.metric_title_rhr")}
                 value={period().rhr_current === null ? "—" : `${period().rhr_current!.toFixed(1)} bpm`}
                 sublabel={
                   period().rhr_prev === null
                     ? tr("insights.prev_7d_empty")
-                    : tr("insights.prev_7d_val", { val: `${period().rhr_prev!.toFixed(1)} bpm` })
+                    : tr("insights.prev_7d_val", { val: `${period().rhr_prev!.toFixed(1)}` })
                 }
                 toneSurface="peach"
                 accentColor={token("stamp-ink")}
-                class="min-w-28 flex-1"
+                class="min-w-0 flex-1 border-transparent"
               />
 
               <BentoMetricCard
+                compact={true}
                 icon="moon"
                 label={tr("today.metric_sleep")}
                 value={period().sleep_current_h === null ? "—" : `${period().sleep_current_h!.toFixed(1)} h`}
@@ -135,27 +152,36 @@ export function InsightsPage() {
                 }
                 toneSurface="lavender"
                 accentColor={token("sleep-rem")}
-                class="min-w-28 flex-1"
+                class="min-w-0 flex-1 border-transparent"
               />
-            </View>
-
-            <View class="rounded-2xl border border-border/65 bg-card/80 px-3.5 py-2.5">
-              <Text class="text-xs leading-relaxed text-foreground">{period().summary}</Text>
             </View>
           </View>
 
-          <Card>
-            <SectionHeader title={tr("insights.rhythm_trend_title")} />
+          {/* 无框沉浸有机丝带主图区（直铺宣纸背景，告别 Card 白框套娃） */}
+          <View class="gap-3 px-0.5">
+            <View class="flex-row items-center justify-between gap-2">
+              <Text role="header" class="text-base font-bold text-foreground">
+                {tr("insights.rhythm_trend_title")}
+              </Text>
+              <Text class="text-xs font-semibold text-vital-prime">{snap().state_badge}</Text>
+            </View>
+
             <InteractiveRhythmPlot points={snap().trend_14d} />
+
             <If when={Boolean(snap().sleep_stages_last_night)}>
-              <SleepArchitectureBar
-                deepMin={snap().sleep_stages_last_night!.deep_min}
-                coreMin={snap().sleep_stages_last_night!.core_min}
-                remMin={snap().sleep_stages_last_night!.rem_min}
-                awakeMin={snap().sleep_stages_last_night!.awake_min}
-              />
+              <View class="gap-2 rounded-2xl bg-bento-lavender/50 px-3.5 py-3">
+                <Text class="text-xs font-semibold text-foreground">
+                  {tr("insights.sleep_arch_title")}
+                </Text>
+                <SleepArchitectureBar
+                  deepMin={snap().sleep_stages_last_night!.deep_min}
+                  coreMin={snap().sleep_stages_last_night!.core_min}
+                  remMin={snap().sleep_stages_last_night!.rem_min}
+                  awakeMin={snap().sleep_stages_last_night!.awake_min}
+                />
+              </View>
             </If>
-          </Card>
+          </View>
 
           <Card>
             <SectionHeader

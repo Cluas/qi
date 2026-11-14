@@ -31,7 +31,7 @@ import {
   ActionButton,
   Card,
   FieldInput,
-  Hairline,
+  IconButton,
   SectionHeader,
   SegmentedTabs,
   SelectChip,
@@ -39,7 +39,7 @@ import {
   VitalBadge,
 } from "../ui/components";
 import { QiIcon, type QiIconName } from "../ui/icons";
-import { tr } from "../ui/i18n";
+import { isEnglishLocale, tr } from "../ui/i18n";
 import { StickerMealTile } from "../ui/sanctuary";
 
 const SAMPLE_APPLE_XML = `<HealthData locale="en_US">
@@ -226,43 +226,72 @@ export function LogLabsPage() {
         onSelect={(id) => setLogSubTab(id)}
       />
 
-      {/* Subview 1: Quick Log (《胃之书》式锯齿撕纸「食光手账小票」与模切贴纸餐垫) */}
+      {/* Subview 1: Quick Log (Cat on Chair 小票帐单排印 + Bellybook 轻盈贴纸手册感) */}
       <If when={getLogSubTab() === "quick"}>
-        <View class="gap-4">
+        <View class="gap-5">
           <View class="gap-0">
             <SerratedReceiptBanner position="top" />
-            <View class="gap-3.5 border-x border-border/75 bg-card px-4 py-3">
-              <SectionHeader
-                title={tr("log.nlp_title")}
-                subtitle={tr("log.nlp_subtitle")}
-              />
-
-              <View class="flex-row flex-wrap items-center gap-2">
-                <View class="min-w-48 flex-1">
-                  <FieldInput
-                    value={naturalInput()}
-                    placeholder={tr("log.nlp_placeholder")}
-                    onChange={(v) => naturalInput.set(v)}
-                  />
+            <View class="gap-3.5 border-x border-border/65 bg-card px-4 py-3.5">
+              {/* Cat on Chair 票首期数、日期与食光手账编号 */}
+              <View class="gap-2">
+                <View class="flex-row flex-wrap items-center justify-between gap-2">
+                  <Text
+                    class="text-[11px] font-semibold tracking-wider text-muted-foreground"
+                    style={{ fontVariant: ["tabular-nums"] }}
+                  >
+                    {isEnglishLocale()
+                      ? `NO. ${String(42 + intakes().length).padStart(3, "0")} · QI DIET RECEIPT`
+                      : `NO. ${String(42 + intakes().length).padStart(3, "0")} · 知气食光小票`}
+                  </Text>
+                  <Text
+                    class="text-[11px] font-medium text-ink-subtle"
+                    style={{ fontVariant: ["tabular-nums"] }}
+                  >
+                    {`${snap().target_date} · ${solar().solar_term.term_name}`}
+                  </Text>
                 </View>
-                <ActionButton title={tr("log.save_entry")} icon="plus" onPress={submitNatural} />
-                <ActionButton
-                  title={speechListening() ? tr("log.voice_stop") : tr("log.voice_start")}
-                  icon="mic"
-                  variant="outline"
-                  onPress={() => void toggleVoiceDictation()}
-                />
+                <View class="h-px w-full border-b border-dashed border-border/80" />
               </View>
 
-              <If when={Boolean(speechHint())}>
-                <Text class="text-xs text-muted-foreground">{speechHint()!}</Text>
-              </If>
+              <View class="gap-2">
+                <SectionHeader
+                  title={tr("log.nlp_title")}
+                  subtitle={tr("log.nlp_subtitle")}
+                />
 
-              <Hairline />
+                <View class="flex-row items-center gap-1.5">
+                  <View class="min-w-0 flex-1">
+                    <FieldInput
+                      value={naturalInput()}
+                      placeholder={tr("log.nlp_placeholder")}
+                      onChange={(v) => naturalInput.set(v)}
+                    />
+                  </View>
+                  <ActionButton
+                    title={tr("log.save_entry")}
+                    icon="plus"
+                    size="sm"
+                    onPress={submitNatural}
+                  />
+                  <IconButton
+                    icon="mic"
+                    size="sm"
+                    variant="outline"
+                    accessibilityLabel={
+                      speechListening() ? tr("log.voice_stop") : tr("log.voice_start")
+                    }
+                    onPress={() => void toggleVoiceDictation()}
+                  />
+                </View>
 
-              {/* 模切美食贴纸餐垫区（无套娃白框） */}
-              <View class="gap-2 rounded-2xl bg-bento-amber/45 p-2.5">
-                <View class="flex-row items-center justify-between gap-2 px-1">
+                <If when={Boolean(speechHint())}>
+                  <Text class="text-xs text-muted-foreground">{speechHint()!}</Text>
+                </If>
+              </View>
+
+              {/* Bellybook 3px 白边模切美食贴纸餐垫区（轻盈呼吸留白，无套娃白框） */}
+              <View class="gap-2 rounded-2xl bg-bento-amber/40 px-3 py-3">
+                <View class="flex-row items-center justify-between gap-2 px-0.5">
                   <Text class="text-xs font-semibold text-foreground">{tr("log.sticker_tiles_title")}</Text>
                   <Text class="text-[11px] font-medium text-dew-accent">{tr("log.sticker_tiles_dew")}</Text>
                 </View>
@@ -282,44 +311,101 @@ export function LogLabsPage() {
                 </View>
               </View>
 
-              <Hairline />
+              <View class="h-px w-full border-b border-dashed border-border/80" />
 
-              {/* 食物辞典速查行（直接排布于和纸小票票面，告别 Card 套 SunkenBox） */}
+              {/* Cat on Chair 点线帐单连接线明细（同票直现：食味名 + ······ 点线 + 热量微签 + 票尾小计） */}
               <View class="gap-2">
-                <Text class="text-xs font-semibold text-foreground">{tr("log.food_dict_title")}</Text>
-                <FieldInput
-                  value={foodSearchQuery()}
-                  placeholder={tr("log.food_dict_placeholder")}
-                  onChange={(v) => foodSearchQuery.set(v)}
-                />
-                <View class="flex-row flex-wrap gap-2">
-                  <Each of={foodHits()} key={(hit) => hit.id}>
-                    {(hit) => (
-                      <SelectChip
-                        label={`${hit().name} · ${hit().kcal}kcal`}
-                        selected={false}
-                        onPress={() =>
-                          logQuickIntake(hit().category, hit().name, hit().rhythm_tag, hit().tip, hit().kcal)
-                        }
-                      />
-                    )}
-                  </Each>
+                <View class="flex-row items-center justify-between gap-2">
+                  <Text class="text-xs font-bold text-foreground">{tr("log.recent_entries")}</Text>
+                  <Text class="text-[11px] text-ink-subtle">{tr("common.local_only")}</Text>
                 </View>
+
+                <If
+                  when={intakes().length > 0}
+                  else={
+                    <View class="py-2">
+                      <Text class="text-xs text-muted-foreground">{tr("log.recent_empty")}</Text>
+                    </View>
+                  }
+                >
+                  <View class="gap-0.5">
+                    <Each of={intakes().slice(0, 6)} key={(it) => it.id}>
+                      {(it) => (
+                        <View class="gap-0.5 py-1.5">
+                          <View class="flex-row items-baseline gap-1.5">
+                            <View class="shrink-0 flex-row items-baseline gap-1.5">
+                              <Text
+                                class="text-[11px] font-semibold text-atelier-accent"
+                                style={{ fontVariant: ["tabular-nums"] }}
+                              >
+                                {it().date.slice(5)}
+                              </Text>
+                              <Text class="text-xs font-semibold text-foreground">
+                                {it().item_name}
+                              </Text>
+                            </View>
+
+                            <View class="mb-1 min-w-6 flex-1 border-b border-dotted border-ink-subtle/75" />
+
+                            <View class="shrink-0 rounded-md bg-surface-sunken/90 px-2 py-0.5">
+                              <Text
+                                class="text-[11px] font-semibold text-muted-foreground"
+                                style={{ fontVariant: ["tabular-nums"] }}
+                              >
+                                {it().calories_kcal !== null
+                                  ? `${Math.round(it().calories_kcal!)} kcal`
+                                  : `${it().tags[0] ?? it().category}`}
+                              </Text>
+                            </View>
+                          </View>
+                          <If when={Boolean(it().notes)}>
+                            <Text class="line-clamp-1 pl-9 text-[10px] leading-snug text-muted-foreground">
+                              {it().notes}
+                            </Text>
+                          </If>
+                        </View>
+                      )}
+                    </Each>
+
+                    <View class="gap-1.5 pt-1.5">
+                      <View class="h-px w-full border-b border-dashed border-border/80" />
+                      <View class="flex-row items-center justify-between pt-0.5">
+                        <Text
+                          class="text-xs font-semibold text-muted-foreground"
+                          style={{ fontVariant: ["tabular-nums"] }}
+                        >
+                          {isEnglishLocale()
+                            ? `TOTAL ITEMS · ${intakes().length}`
+                            : `食光小计 · 共 ${intakes().length} 笔随记`}
+                        </Text>
+                        <View class="flex-row items-center gap-1">
+                          <QiIcon name="droplet" size={12} color={token("vital-prime")} />
+                          <Text
+                            class="text-xs font-bold text-vital-prime"
+                            style={{ fontVariant: ["tabular-nums"] }}
+                          >
+                            {`+${Math.max(1, Math.min(12, intakes().length))}`}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </If>
               </View>
             </View>
             <SerratedReceiptBanner position="bottom" />
           </View>
 
           <If when={snap().lagged_impacts.length > 0}>
-            <View class="gap-2.5 px-0.5">
+            <View class="gap-3 px-0.5">
               <SectionHeader
                 title={tr("log.lag_feedback_title")}
                 subtitle={tr("log.lag_feedback_sub")}
               />
-              <View class="gap-2">
+              <View class="gap-2.5">
                 <Each of={snap().lagged_impacts} key={(imp) => `${imp.tag}-${imp.outcome_label}`}>
                   {(imp) => (
-                    <View class="gap-1 rounded-2xl border border-border/70 bg-card px-3.5 py-2.5">
+                    <View class="gap-1.5 rounded-2xl bg-card/90 px-4 py-3 shadow-2xs">
                       <View class="flex-row items-center justify-between gap-2">
                         <Text class="text-xs font-semibold text-primary">
                           {`${imp().tag} → ${imp().outcome_label}`}
@@ -337,40 +423,29 @@ export function LogLabsPage() {
             </View>
           </If>
 
-          {/* 锯齿撕纸「食光手账小票 · 近期记录存根联」 */}
+          {/* 锯齿撕纸副联：本地常见食物与嘌呤速查 */}
           <View class="gap-0">
             <SerratedReceiptBanner position="top" />
-            <View class="gap-2.5 border-x border-border/75 bg-card px-4 py-3">
-              <SectionHeader title={tr("log.recent_entries")} subtitle={tr("common.local_only")} />
-              <If
-                when={intakes().length > 0}
-                else={
-                  <View class="py-2">
-                    <Text class="text-xs text-muted-foreground">{tr("log.recent_empty")}</Text>
-                  </View>
-                }
-              >
-                <View class="gap-0">
-                  <Each of={intakes().slice(0, 8)} key={(it) => it.id}>
-                    {(it) => (
-                      <View class="gap-0">
-                        <View class="flex-row items-center justify-between gap-2 py-2.5">
-                          <Text class="flex-1 text-sm font-medium text-foreground">{`${it().date} · ${it().item_name}`}</Text>
-                          <Text
-                            class="text-xs text-muted-foreground"
-                            style={{ fontVariant: ["tabular-nums"] }}
-                          >
-                            {it().calories_kcal !== null
-                              ? `${Math.round(it().calories_kcal!)} kcal · ${it().tags[0] ?? it().category}`
-                              : `${it().tags[0] ?? it().category}`}
-                          </Text>
-                        </View>
-                        <Hairline />
-                      </View>
-                    )}
-                  </Each>
-                </View>
-              </If>
+            <View class="gap-2.5 border-x border-border/65 bg-card px-4 py-3.5">
+              <Text class="text-xs font-semibold text-foreground">{tr("log.food_dict_title")}</Text>
+              <FieldInput
+                value={foodSearchQuery()}
+                placeholder={tr("log.food_dict_placeholder")}
+                onChange={(v) => foodSearchQuery.set(v)}
+              />
+              <View class="flex-row flex-wrap gap-2">
+                <Each of={foodHits()} key={(hit) => hit.id}>
+                  {(hit) => (
+                    <SelectChip
+                      label={`${hit().name} · ${hit().kcal}kcal`}
+                      selected={false}
+                      onPress={() =>
+                        logQuickIntake(hit().category, hit().name, hit().rhythm_tag, hit().tip, hit().kcal)
+                      }
+                    />
+                  )}
+                </Each>
+              </View>
             </View>
             <SerratedReceiptBanner position="bottom" />
           </View>
