@@ -1190,6 +1190,22 @@ export interface MultiLagBarItem {
   cohen_d?: number | null;
   sample_n?: number;
   confounder_note?: string | null;
+  lowerIsBetter?: boolean;
+}
+
+function isLowerBetterItem(item: MultiLagBarItem): boolean {
+  if (item.lowerIsBetter !== undefined) {
+    return item.lowerIsBetter;
+  }
+  return /静息心率|resting\s*(?:hr|heart)|\brhr\b/i.test(item.lag_label);
+}
+
+function stripConfounderPrefix(note: string | null | undefined): string {
+  if (!note) return "";
+  return note
+    .trim()
+    .replace(/^(?:混杂控制(?:说明)?[：:]\s*|Adjustment note:\s*|Confounder:\s*)+/iu, "")
+    .trim();
 }
 
 function resolveCohenBadge(d: number | null | undefined): { label: string; isStrong: boolean } {
@@ -1267,62 +1283,38 @@ export function MultiLagRadarBars(props: {
             {(item) => {
               const cohen = () => resolveCohenBadge(item().cohen_d);
               const signPrefix = () => (item().delta_value >= 0 ? "+" : "");
+              const isFavorable = () =>
+                isLowerBetterItem(item()) ? item().delta_value <= 0 : item().delta_value >= 0;
+              const confounderNote = () => stripConfounderPrefix(item().confounder_note);
               return (
                 <View class="gap-2 rounded-2xl bg-secondary/45 p-3.5">
-                  <View class="flex-row flex-wrap items-center justify-between gap-2">
-                    <View class="flex-row items-center gap-2">
-                      <View class="rounded-lg bg-card px-2 py-0.5">
-                        <Text
-                          class="text-xs font-bold text-foreground"
-                          style={{ fontVariant: ["tabular-nums"] }}
-                        >
-                          {item().lag_label}
-                        </Text>
-                      </View>
+                  <View class="flex-row items-center justify-between gap-2">
+                    <View class="rounded-lg bg-card px-2 py-0.5">
                       <Text
-                        class={`text-xs font-bold ${
-                          item().delta_value >= 0 ? "text-vital-prime" : "text-vital-recover"
-                        }`}
+                        class="text-xs font-bold text-foreground"
                         style={{ fontVariant: ["tabular-nums"] }}
                       >
-                        {tr("charts.outcome_delta", {
-                          label: props.outcomeLabel ?? tr("charts.default_outcome_label"),
-                          sign: signPrefix(),
-                          value: item().delta_value.toFixed(1),
-                          unit: item().unit,
-                        })}
+                        {item().lag_label}
                       </Text>
                     </View>
-
-                    <View class="flex-row items-center gap-1.5">
-                      <View
-                        class={`rounded-full px-2 py-0.5 ${
-                          cohen().isStrong ? "bg-atelier-soft" : "bg-card"
-                        }`}
-                      >
-                        <Text
-                          class={`text-[10px] font-semibold ${
-                            cohen().isStrong ? "text-atelier-accent" : "text-muted-foreground"
-                          }`}
-                          style={{ fontVariant: ["tabular-nums"] }}
-                        >
-                          {cohen().label}
-                        </Text>
-                      </View>
-                      <If when={item().sample_n !== undefined}>
-                        <Text
-                          class="text-[10px] text-muted-foreground"
-                          style={{ fontVariant: ["tabular-nums"] }}
-                        >
-                          {`n=${item().sample_n}`}
-                        </Text>
-                      </If>
-                    </View>
+                    <Text
+                      class={`text-xs font-bold ${
+                        isFavorable() ? "text-vital-prime" : "text-vital-recover"
+                      }`}
+                      style={{ fontVariant: ["tabular-nums"] }}
+                    >
+                      {tr("charts.outcome_delta", {
+                        label: props.outcomeLabel ?? tr("charts.default_outcome_label"),
+                        sign: signPrefix(),
+                        value: item().delta_value.toFixed(1),
+                        unit: item().unit,
+                      })}
+                    </Text>
                   </View>
 
                   <Canvas
                     class="w-full"
-                    style={{ height: 14 }}
+                    style={{ height: 12 }}
                     draw={(cx, size) => {
                       const w = Math.max(140, size.width);
                       const h = size.height;
@@ -1351,16 +1343,17 @@ export function MultiLagRadarBars(props: {
                       cx.stroke();
                       cx.restore();
 
-                      // 双向影响条
+                      // 双向影响条（几何方向反映 +/- 增减方向，色彩反映临床利好/承压极性）
                       const ratio = Math.min(1, Math.abs(item().delta_value) / maxAbs());
                       const segW = Math.max(4, (w / 2 - 4) * ratio);
-                      const isPositive = item().delta_value >= 0;
+                      const isRight = item().delta_value >= 0;
+                      const favorable = isFavorable();
                       cx.save();
-                      cx.fillStyle = isPositive
+                      cx.fillStyle = favorable
                         ? readToken("vital-prime")
                         : readToken("vital-recover");
                       cx.beginPath();
-                      if (isPositive) {
+                      if (isRight) {
                         cx.roundRect(midX + 1, barY + 1, segW, barH - 2, 3);
                       } else {
                         cx.roundRect(midX - 1 - segW, barY + 1, segW, barH - 2, 3);
@@ -1370,11 +1363,38 @@ export function MultiLagRadarBars(props: {
                     }}
                   />
 
-                  <If when={Boolean(item().confounder_note)}>
-                    <Text class="text-[11px] text-muted-foreground">
-                      {tr("charts.confounder_note", { note: item().confounder_note ?? "" })}
-                    </Text>
-                  </If>
+                  <View class="flex-row flex-wrap items-center justify-between gap-2">
+                    <If when={Boolean(confounderNote())} else={<View />}>
+                      <Text class="flex-1 text-[11px] leading-snug text-muted-foreground">
+                        {tr("charts.confounder_note", { note: confounderNote() })}
+                      </Text>
+                    </If>
+
+                    <View class="flex-row items-center gap-1.5">
+                      <View
+                        class={`rounded-full px-2 py-0.5 ${
+                          cohen().isStrong ? "bg-atelier-soft" : "bg-card"
+                        }`}
+                      >
+                        <Text
+                          class={`text-[10px] font-semibold ${
+                            cohen().isStrong ? "text-atelier-accent" : "text-muted-foreground"
+                          }`}
+                          style={{ fontVariant: ["tabular-nums"] }}
+                        >
+                          {cohen().label}
+                        </Text>
+                      </View>
+                      <If when={item().sample_n !== undefined}>
+                        <Text
+                          class="text-[10px] text-muted-foreground"
+                          style={{ fontVariant: ["tabular-nums"] }}
+                        >
+                          {`n=${item().sample_n}`}
+                        </Text>
+                      </If>
+                    </View>
+                  </View>
                 </View>
               );
             }}

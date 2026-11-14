@@ -5,6 +5,7 @@ export type QiIconName =
   | "record"
   | "compass"
   | "user_shield"
+  | "user_circle"
   | "sparkles"
   | "check"
   | "plus"
@@ -131,6 +132,21 @@ export function QiIcon(props: {
 
             cx.beginPath();
             cx.arc(12, 16.5, 3.8, Math.PI * 1.18, Math.PI * 1.82);
+            cx.stroke();
+            break;
+          }
+
+          case "user_circle": {
+            cx.beginPath();
+            cx.arc(12, 12, 8.8, 0, Math.PI * 2);
+            cx.stroke();
+
+            cx.beginPath();
+            cx.arc(12, 9.4, 2.5, 0, Math.PI * 2);
+            cx.stroke();
+
+            cx.beginPath();
+            cx.arc(12, 19.6, 5.2, Math.PI * 1.18, Math.PI * 1.82);
             cx.stroke();
             break;
           }

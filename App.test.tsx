@@ -520,6 +520,12 @@ test("知气 v7.0 首启零做题感官序幕动效与四页减法渐进披露�
   await app.press("轻盈");
   await app.waitUntil(() => !app.shows("很疲惫"));
 
+  // 今日日签 pageSheet 打开与收起校验
+  await app.press(app.count("生成日签") > 1 ? "生成日签 >> nth=0" : "生成日签");
+  await app.waitFor("节气日签卡");
+  await app.press("收起");
+  await app.waitFor("今日关注与一念落印");
+
   // 3. 记录页减法校验：隐藏重复千卡贴纸表与默认折叠原始 XML 导入框
   await app.press("记录");
   await app.waitFor("一念自然语记");
@@ -528,7 +534,7 @@ test("知气 v7.0 首启零做题感官序幕动效与四页减法渐进披露�
   await app.waitFor("炉火金库摘要");
   expect(app.texts().join("\n").includes("<HealthData")).toBe(false);
 
-  // 4. 我的页减法校验：隐私与金库移除重复 WidgetKit，雅集不暴露 free_core 枚举
+  // 4. 我的页减法校验：隐私与金库移除重复 WidgetKit，雅集不暴露 free_core 枚举，且雅集默认折叠为 3 档核心方案
   await app.press("我的");
   await app.press("隐私与金库");
   await app.waitFor("界面与习惯");
@@ -537,6 +543,20 @@ test("知气 v7.0 首启零做题感官序幕动效与四页减法渐进披露�
   await app.waitFor("知气手作坊");
   expect(app.texts().join("\n").includes("free_core")).toBe(false);
   expect(app.shows("展开往期节气博物架")).toBe(true);
+
+  await app.press("先逛逛");
+  await app.waitFor("知气雅集");
+  await app.waitFor("当前：素心清欢 · 永久免费");
+  await scrollIntoView(app, "知气雅集", 420);
+  await app.waitFor("展开全部 7 档方案（含月度 / 双人 / 家庭）");
+  await app.press("展开全部 7 档方案（含月度 / 双人 / 家庭）");
+  await app.waitFor("收起其余方案");
+  await app.press("收起其余方案");
+  await app.waitFor("展开全部 7 档方案（含月度 / 双人 / 家庭）");
+  await scrollIntoView(app, "知气雅集", 900);
+  await app.press("暂不决定 · 返回今日窗台");
+  await app.waitFor("雅集与权益");
+
   await app.press("隐私与金库");
   await scrollIntoView(app, "本地安全金库", 900);
   await scrollIntoView(app, "清空本机手账数据…", 700);

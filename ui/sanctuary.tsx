@@ -6,6 +6,7 @@ import {
   Image,
   type JSX,
   reduceMotion,
+  Scroll,
   signal,
   Text,
   token,
@@ -22,7 +23,7 @@ import solarWinterHearthImg from "../assets/scenes/solar_winter_hearth.jpg";
 import zenDayImg from "../assets/scenes/zen_day.jpg";
 import zenNightImg from "../assets/scenes/zen_night.jpg";
 import { ActionButton, ModalSurface, SealStamp, VitalBadge } from "./components";
-import { formatDurationHours, formatNumber, tr } from "./i18n";
+import { formatDurationHours, formatNumber, isEnglishLocale, tr } from "./i18n";
 import { QiIcon, type QiIconName } from "./icons";
 import {
   AmbientSceneShader,
@@ -91,6 +92,8 @@ export interface SanctuaryStageProps {
   onOpenPetStudio?: () => void;
   unreadLettersCount?: number;
   activeDockId?: SceneDockTabId | null;
+  loyaltyDays?: number;
+  onOpenKeepsakes?: () => void;
   class?: string;
 }
 
@@ -989,6 +992,12 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
     return parts.length > 0 ? parts.join(" · ") : meta().shortLabel;
   };
 
+  const loyaltyDewLabel = () => {
+    const days = Math.max(1, props.loyaltyDays ?? 1);
+    const dew = formatNumber(props.dewSummary.points);
+    return isEnglishLocale() ? `${days}d · ${dew} Dew` : `相伴 ${days} 日 · 晨露 ${dew}`;
+  };
+
   const stripItems = () => [
     {
       id: "meals" as const,
@@ -1112,6 +1121,31 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
           </If>
           <Text class="text-[11px] font-medium text-stage-ink">{topPillText()}</Text>
         </View>
+
+        {/* 右上角：相伴天数与晨露双温润微囊 */}
+        <Button
+          hitSlop={6}
+          onPress={() => {
+            hapticSelection();
+            props.onOpenKeepsakes?.();
+          }}
+          class="absolute right-3 top-3 z-10 rounded-full transition duration-150 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          accessibilityLabel={loyaltyDewLabel()}
+        >
+          <View
+            ios={{ backdropMaterial: "ultraThin" }}
+            style={{ backdropFilter: "blur(14px)" }}
+            class="flex-row items-center gap-1.5 rounded-full border border-stage-ink/20 bg-stage-scrim/75 px-2.5 py-1"
+          >
+            <QiIcon name="droplet" size={11} color={token("ink-gold")} />
+            <Text
+              class="text-[11px] font-medium text-stage-ink"
+              style={{ fontVariant: ["tabular-nums"] }}
+            >
+              {loyaltyDewLabel()}
+            </Text>
+          </View>
+        </Button>
 
         {/* 底部渐变承托层：左侧伙伴/灵境名与一句私语 + 右侧半透轻抚胶囊 */}
         <View
@@ -1404,6 +1438,16 @@ export function InkBloomSealCanvas(props: {
   );
 }
 
+function formatKeepsakeProgressHint(dewSummary: DewSummaryView): string {
+  return dewSummary.nextTarget
+    ? tr("sanctuary.keepsake_next_hint", {
+        points: formatNumber(dewSummary.points),
+        need: formatNumber(Math.max(1, dewSummary.nextTarget.threshold - dewSummary.points)),
+        name: dewSummary.nextTarget.name,
+      })
+    : tr("sanctuary.keepsake_all_unlocked");
+}
+
 /** 触感盖章打卡卡：支持嵌入式 Hero 主卡、compact 紧凑卡与默认横排详卡三模式 */
 export function StampCheckinCard(props: {
   themeId: VisualThemeId;
@@ -1414,6 +1458,8 @@ export function StampCheckinCard(props: {
   onOpenPoster: () => void;
   compact?: boolean;
   embedded?: boolean;
+  dewSummary?: DewSummaryView;
+  onOpenKeepsakes?: () => void;
   class?: string;
 }) {
   const meta = () => getVisualThemeMeta(props.themeId);
@@ -1433,9 +1479,16 @@ export function StampCheckinCard(props: {
     props.onToggle();
   };
 
+  const keepsakeHintText = () =>
+    props.dewSummary ? formatKeepsakeProgressHint(props.dewSummary) : "";
+
   if (props.embedded) {
     return (
-      <View class={`gap-2.5 ${props.class ?? ""}`}>
+      <View class={`relative gap-2.5 overflow-hidden rounded-2xl p-1 ${props.class ?? ""}`}>
+        <If when={props.checked}>
+          <InkBloomSealCanvas themeId={props.themeId} faint={true} />
+        </If>
+
         <View class="flex-row items-center gap-2">
           <View class="size-7 shrink-0 items-center justify-center rounded-[8px] bg-stamp-soft">
             <QiIcon name="stamp_seal" size={14} color={token("stamp-ink")} />
@@ -1443,6 +1496,12 @@ export function StampCheckinCard(props: {
           <Text role="header" class="min-w-0 flex-1 text-sm font-semibold text-foreground">
             {tr("today.focus_card_title")}
           </Text>
+          <View class="shrink-0 flex-row items-center gap-1 rounded-full bg-dew-soft px-2 py-0.5">
+            <QiIcon name="droplet" size={11} color={token("dew-accent")} />
+            <Text class="text-[11px] font-semibold text-dew-accent">
+              {tr("sanctuary.dew_plus_two")}
+            </Text>
+          </View>
         </View>
 
         <View class="flex-row items-center justify-between gap-3">
@@ -1476,6 +1535,26 @@ export function StampCheckinCard(props: {
             </Text>
           </Button>
         </View>
+
+        <If when={Boolean(props.dewSummary)}>
+          <Button
+            hitSlop={4}
+            accessibilityLabel={keepsakeHintText()}
+            onPress={() => {
+              hapticSelection();
+              props.onOpenKeepsakes?.();
+            }}
+            class="flex-row items-center justify-between gap-2 rounded-xl bg-surface-sunken/75 px-3 py-2 transition-colors duration-150 hover:bg-secondary/70 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          >
+            <View class="min-w-0 flex-1 flex-row items-center gap-1.5">
+              <QiIcon name="sparkles" size={12} color={token("dew-accent")} />
+              <Text class="line-clamp-1 min-w-0 flex-1 text-[11px] text-muted-foreground">
+                {keepsakeHintText()}
+              </Text>
+            </View>
+            <QiIcon name="chevron_right" size={12} color={token("muted-foreground")} />
+          </Button>
+        </If>
       </View>
     );
   }
@@ -1682,15 +1761,7 @@ export function KeepsakeShelfCard(props: {
             {tr("sanctuary.keepsake_shelf_title", { theme: meta().shortLabel })}
           </Text>
           <Text class="text-xs text-muted-foreground">
-            {props.dewSummary.nextTarget
-              ? tr("sanctuary.keepsake_next_hint", {
-                  points: formatNumber(props.dewSummary.points),
-                  need: formatNumber(
-                    Math.max(1, props.dewSummary.nextTarget.threshold - props.dewSummary.points),
-                  ),
-                  name: props.dewSummary.nextTarget.name,
-                })
-              : tr("sanctuary.keepsake_all_unlocked")}
+            {formatKeepsakeProgressHint(props.dewSummary)}
           </Text>
         </View>
         <View class="flex-row items-center gap-1 rounded-full bg-dew-soft px-3 py-1">
@@ -1853,9 +1924,13 @@ export function DailyPosterModal(props: {
         });
 
   return (
-    <ModalSurface open={props.open} onClose={props.onClose}>
-      <View class="flex-1 bg-background p-4 sm:p-6">
-        <View class="mx-auto w-full max-w-md flex-1 gap-4">
+    <ModalSurface open={props.open} presentation="pageSheet" onClose={props.onClose}>
+      <Scroll
+        class="flex-1"
+        keyboardShouldPersistTaps="handled"
+        contentStyle={{ paddingHorizontal: 18, paddingBottom: 28, gap: 14 }}
+      >
+        <View class="mx-auto w-full max-w-md gap-3.5">
           <View class="flex-row items-center justify-between gap-2">
             <View class="flex-row items-center gap-2">
               <Text role="header" class="text-lg font-bold text-foreground">
@@ -1887,10 +1962,10 @@ export function DailyPosterModal(props: {
               <Each of={INK_CHOICES} key={(c) => c.id}>
                 {(choice) => (
                   <Button
-                    hitSlop={4}
+                    hitSlop={6}
                     accessibilityLabel={tr(choice().labelKey)}
                     onPress={() => triggerInkSwitch(choice().id)}
-                    class={`min-h-11 flex-row items-center gap-1 rounded-full border px-2.5 py-1.5 focus-visible:ring-2 focus-visible:ring-ring ${
+                    class={`min-h-9 flex-row items-center gap-1 rounded-full border px-2.5 py-1 focus-visible:ring-2 focus-visible:ring-ring ${
                       activeInk() === choice().id
                         ? "border-primary bg-card"
                         : "border-transparent bg-transparent"
@@ -1909,7 +1984,7 @@ export function DailyPosterModal(props: {
             </View>
 
             <Button
-              hitSlop={4}
+              hitSlop={6}
               accessibilityLabel={
                 hideNums() ? tr("poster.hide_numbers_active") : tr("poster.hide_numbers_toggle")
               }
@@ -1922,7 +1997,7 @@ export function DailyPosterModal(props: {
                   void polaroid.reset();
                 });
               }}
-              class={`min-h-11 flex-row items-center gap-1 rounded-full border px-3 py-1.5 focus-visible:ring-2 focus-visible:ring-ring ${
+              class={`min-h-9 flex-row items-center gap-1 rounded-full border px-2.5 py-1 focus-visible:ring-2 focus-visible:ring-ring ${
                 hideNums() ? "border-primary bg-accent" : "border-border/45 bg-card"
               }`}
             >
@@ -1937,7 +2012,7 @@ export function DailyPosterModal(props: {
             style={polaroid.style()}
             class="overflow-hidden rounded-3xl border border-border/45 bg-card p-3.5 shadow-2xs"
           >
-            <View class="relative h-56 overflow-hidden rounded-2xl">
+            <View class="relative h-48 overflow-hidden rounded-2xl sm:h-56">
               <Image
                 src={sceneImg()}
                 class="h-full w-full object-cover"
@@ -2029,7 +2104,7 @@ export function DailyPosterModal(props: {
             <ActionButton title={tr("common.back")} variant="secondary" onPress={props.onClose} />
           </View>
         </View>
-      </View>
+      </Scroll>
     </ModalSurface>
   );
 }

@@ -205,6 +205,7 @@ export function OnboardingModal() {
       >
         <Scroll
           class="flex-1"
+          keyboardShouldPersistTaps="handled"
           contentStyle={{
             flexGrow: 1,
             justifyContent: "space-between",

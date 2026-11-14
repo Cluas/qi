@@ -552,6 +552,15 @@ pub fn compute_lagged_impacts(
                 } else {
                     "（有助于次日恢复）"
                 };
+                let sep = if outcome_label
+                    .bytes()
+                    .last()
+                    .is_some_and(|b| b.is_ascii_alphanumeric())
+                {
+                    " "
+                } else {
+                    ""
+                };
                 impacts.push(LaggedImpact {
                     tag: tag.clone(),
                     outcome_label: outcome_label.to_owned(),
@@ -559,7 +568,7 @@ pub fn compute_lagged_impacts(
                     delta_value: delta,
                     unit: unit.to_owned(),
                     summary: format!(
-                        "记录「{tag}」{} 天：{}{direction}{hint}",
+                        "记录「{tag}」{} 天：{}{sep}{direction}{hint}",
                         with_vals.len(),
                         outcome_label
                     ),

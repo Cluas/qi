@@ -1,4 +1,18 @@
-import { effect, type JSX, Keyboard, platform, Scroll, signal, Text, token, View, windowSize } from "nsh";
+import {
+  cleanup,
+  createMotion,
+  effect,
+  type JSX,
+  Keyboard,
+  platform,
+  reduceMotion,
+  Scroll,
+  signal,
+  Text,
+  token,
+  View,
+  windowSize,
+} from "nsh";
 import { Button, Collapsible, Dialog, Input, Progress, Sheet, Switch, Tab, Tabs } from "nsh/base";
 import { isAvailable as isDesktopHost, Window } from "nsh/desktop";
 import { isAvailable as isMobileHost, TabBar } from "nsh/mobile";
@@ -814,6 +828,7 @@ export function FieldInput(props: {
   placeholder?: string;
   multiline?: boolean;
   onChange: (value: string) => void;
+  onSubmit?: () => void;
 }) {
   const focused = signal(false);
 
@@ -828,7 +843,8 @@ export function FieldInput(props: {
         onFocus={() => focused.set(true)}
         onBlur={() => focused.set(false)}
         onChange={({ value }) => props.onChange(value)}
-        class={`rounded-xl border border-input bg-card px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring ${
+        onSubmit={() => props.onSubmit?.()}
+        class={`rounded-xl border border-input bg-card px-3.5 py-2.5 text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring sm:text-sm ${
           props.multiline ? "min-h-24" : "min-h-11"
         }`}
       />
@@ -867,19 +883,68 @@ export function MeterBar(props: { value: number; accessibilityLabel: string; cla
   );
 }
 
-/** 全局轻量 Toast 反馈横幅 */
+/** 全局轻量浮动 Toast 胶囊（绝对定位，不挤占页面主文档流，支持自动收起） */
 export function ToastBanner(props: { message: string; onDismiss: () => void }) {
+  const entrance = createMotion();
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+
+  const stopTimer = () => {
+    if (timerId !== null) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+  };
+
+  cleanup(() => stopTimer());
+
+  effect(() => {
+    void props.message;
+    stopTimer();
+    if (!reduceMotion()) {
+      void entrance.play("popIn");
+    }
+    timerId = setTimeout(() => {
+      props.onDismiss();
+    }, 4800);
+  });
+
   return (
-    <View class="mx-4 mt-2 flex-row items-center justify-between gap-2 rounded-xl border border-primary/30 bg-accent px-3.5 py-2">
-      <Text class="flex-1 text-xs font-medium text-accent-foreground">{props.message}</Text>
-      <Button
-        hitSlop={4}
-        accessibilityLabel={tr("common.close")}
-        onPress={props.onDismiss}
-        class="min-h-9 justify-center rounded-lg px-2.5 py-1 transition-colors hover:bg-primary/10 active:opacity-70 focus-visible:ring-2 focus-visible:ring-ring"
+    <View
+      style={{
+        position: "absolute",
+        top: 0,
+        paddingTop: "calc(env(safe-area-inset-top) + 6px)",
+        left: 16,
+        right: 16,
+        zIndex: 50,
+        pointerEvents: "box-none",
+        alignItems: "center",
+        ...entrance.style,
+      }}
+    >
+      <View
+        ios={{ backdropMaterial: "thin" }}
+        style={{ backdropFilter: "blur(20px)" }}
+        class="w-full max-w-md flex-row items-center justify-between gap-2.5 rounded-full border border-border/50 bg-card/90 py-1.5 pl-3 pr-1.5 shadow-sm"
       >
-        <Text class="text-xs font-semibold text-accent-foreground">{tr("common.close")}</Text>
-      </Button>
+        <View class="size-6 items-center justify-center rounded-full bg-secondary">
+          <QiIcon name="sparkles" size={12} color={token("primary")} />
+        </View>
+        <Text class="line-clamp-2 flex-1 text-xs font-medium text-foreground">
+          {props.message}
+        </Text>
+        <Button
+          hitSlop={4}
+          accessibilityLabel={tr("common.close")}
+          onPress={() => {
+            hapticSelection();
+            props.onDismiss();
+          }}
+          class="min-h-8 justify-center rounded-full bg-secondary/85 px-2.5 py-1 transition-opacity active:opacity-70 focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Text class="text-[11px] font-semibold text-foreground">{tr("common.close")}</Text>
+        </Button>
+      </View>
     </View>
   );
 }
@@ -1077,7 +1142,7 @@ export function SheetDialog(props: {
         <View class="mb-2 items-center">
           <View class="h-1 w-10 rounded-full bg-border/90" />
         </View>
-        <View class="flex-row items-center justify-between gap-3 border-b border-border px-4 pb-3">
+        <View class="flex-row items-center justify-between gap-3 border-b border-border/50 px-4 pb-3">
           <View class="flex-1 gap-0.5">
             <Text role="header" class="text-lg font-semibold text-foreground">
               {props.title}
@@ -1094,7 +1159,11 @@ export function SheetDialog(props: {
             onPress={props.onClose}
           />
         </View>
-        <Scroll class="flex-1" contentStyle={{ padding: 16, gap: 14 }}>
+        <Scroll
+          class="flex-1"
+          keyboardShouldPersistTaps="handled"
+          contentStyle={{ padding: 16, gap: 14 }}
+        >
           {props.children}
         </Scroll>
       </View>
@@ -1150,7 +1219,7 @@ export function DrawerSheet(props: {
             <View class="h-1 w-10 rounded-full bg-border" />
           </View>
         </If>
-        <View class="flex-row items-center justify-between gap-3 border-b border-border/80 px-4 pb-3">
+        <View class="flex-row items-center justify-between gap-3 border-b border-border/50 px-4 pb-3">
           <View class="flex-1 gap-0.5">
             <Text role="header" class="text-base font-semibold text-foreground">
               {props.title}
@@ -1167,11 +1236,15 @@ export function DrawerSheet(props: {
             onPress={props.onClose}
           />
         </View>
-        <Scroll class="flex-1" contentStyle={{ padding: 16, gap: 14 }}>
+        <Scroll
+          class="flex-1"
+          keyboardShouldPersistTaps="handled"
+          contentStyle={{ padding: 16, gap: 14 }}
+        >
           {props.children}
         </Scroll>
         <If when={Boolean(props.footer)}>
-          <View class="border-t border-border/75 px-4 pt-3">{props.footer}</View>
+          <View class="border-t border-border/50 px-4 pt-3">{props.footer}</View>
         </If>
       </View>
     </Sheet>

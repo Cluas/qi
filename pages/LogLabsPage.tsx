@@ -314,6 +314,7 @@ export function LogLabsPage() {
                   value={naturalInput()}
                   placeholder={tr("log.nlp_placeholder")}
                   onChange={(v) => naturalInput.set(v)}
+                  onSubmit={submitNatural}
                 />
               </View>
               <IconButton

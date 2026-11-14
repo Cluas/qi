@@ -41,6 +41,10 @@ function progressPercent(completed: number, target: number): number {
   return Math.max(0, Math.min(100, Math.round((completed / target) * 100)));
 }
 
+function isLowerBetterOutcome(text: string): boolean {
+  return /静息心率|resting\s*(?:hr|heart)|\brhr\b/i.test(text);
+}
+
 export function InsightsPage() {
   const customTitle = signal("");
   const customHypothesis = signal("");
@@ -127,14 +131,12 @@ export function InsightsPage() {
           {/* Card 2: 近两周节律起伏对比 */}
           <Card class="gap-3.5 rounded-3xl p-4">
             <View class="gap-1.5">
-              <View class="flex-row items-center justify-between gap-2">
-                <Text role="header" class="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-                  {tr("insights.period_title")}
-                </Text>
-                <VitalBadge tone="neutral" label={tr("insights.period_badge")} />
-              </View>
+              <SectionHeader
+                title={tr("insights.period_title")}
+                right={<VitalBadge tone="neutral" label={tr("insights.period_badge")} />}
+              />
 
-              <Text class="pt-0.5 text-[15px] leading-relaxed text-foreground/90">
+              <Text class="text-xs leading-relaxed text-muted-foreground">
                 {period().summary}
               </Text>
             </View>
@@ -400,30 +402,41 @@ export function InsightsPage() {
                 of={snap().lagged_impacts}
                 key={(imp) => `${imp.tag}-${imp.outcome_label}`}
               >
-                {(imp, idx) => (
-                  <IosListRow
-                    icon="heart_pulse"
-                    iconBgColor={
-                      imp().delta_value >= 0
-                        ? token("vital-prime-soft")
-                        : token("vital-recover-soft")
-                    }
-                    iconColor={
-                      imp().delta_value >= 0
-                        ? token("vital-prime")
-                        : token("vital-recover")
-                    }
-                    title={`${imp().tag} → ${imp().outcome_label}`}
-                    subtitle={imp().summary}
-                    divider={idx() < snap().lagged_impacts.length - 1}
-                    trailing={
-                      <VitalBadge
-                        tone={imp().delta_value >= 0 ? "optimal" : "watch_low"}
-                        label={`${imp().delta_value >= 0 ? "+" : ""}${imp().delta_value.toFixed(1)} ${imp().unit}`}
-                      />
-                    }
-                  />
-                )}
+                {(imp, idx) => {
+                  const lowerBetter = () => isLowerBetterOutcome(imp().outcome_label);
+                  const favorable = () =>
+                    lowerBetter() ? imp().delta_value <= 0 : imp().delta_value >= 0;
+                  return (
+                    <IosListRow
+                      icon="heart_pulse"
+                      iconBgColor={
+                        favorable()
+                          ? token("vital-prime-soft")
+                          : token("vital-recover-soft")
+                      }
+                      iconColor={
+                        favorable()
+                          ? token("vital-prime")
+                          : token("vital-recover")
+                      }
+                      title={`${imp().tag} → ${imp().outcome_label}`}
+                      subtitle={imp().summary}
+                      divider={idx() < snap().lagged_impacts.length - 1}
+                      trailing={
+                        <VitalBadge
+                          tone={
+                            favorable()
+                              ? "optimal"
+                              : lowerBetter()
+                                ? "watch_high"
+                                : "watch_low"
+                          }
+                          label={`${imp().delta_value >= 0 ? "+" : ""}${imp().delta_value.toFixed(1)} ${imp().unit}`}
+                        />
+                      }
+                    />
+                  );
+                }}
               </Each>
             </If>
           </IosGroupedSection>
@@ -456,6 +469,7 @@ export function InsightsPage() {
                 cohen_d: it.cohen_d,
                 sample_n: it.sample_n,
                 confounder_note: it.confounder_note,
+                lowerIsBetter: isLowerBetterOutcome(`${it.outcome_key} ${it.outcome_label}`),
               }))}
             />
             <If when={!hasFeature("multi_lag_radar")}>

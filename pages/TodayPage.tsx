@@ -214,6 +214,15 @@ export function TodayPage() {
   const unreadLetterCount = () =>
     solar().pet_weekly_letters.length + solar().weekly_letters.filter((w) => w.unlocked).length;
 
+  const recoveryDewClaimedToday = () => {
+    const today = snap().target_date;
+    return solar().dew_ledger.some(
+      (entry) =>
+        entry.source === `recovery_priority:${today}` ||
+        (entry.source.startsWith("recovery_priority") && entry.created_at.slice(0, 10) === today),
+    );
+  };
+
   const currentFeelingLabel = () =>
     feelingLevels().find((item) => item.score === settings().morning_feeling)?.label ??
     tr("today.feeling_3");
@@ -297,12 +306,14 @@ export function TodayPage() {
         atelierUnlocked={entitlements().is_atelier_unlocked}
         customPet={solar().active_custom_pet}
         unreadLettersCount={unreadLetterCount()}
+        loyaltyDays={settings().companion_loyalty_days}
         onPet={() => petCompanion()}
         onOpenPoster={() => setShowDailyPoster(true)}
         onOpenMeals={() => openMealsLog()}
         onOpenLetters={() => setShowCompanionLetterModal(true)}
         onOpenCoWindow={() => setShowCoSanctuarySheet(true)}
         onOpenPetStudio={() => openPetStudio()}
+        onOpenKeepsakes={() => openFourSeasonsInsights()}
       />
 
       <View class="gap-3.5 rounded-3xl border border-border/45 bg-card p-4 shadow-2xs">
@@ -323,10 +334,32 @@ export function TodayPage() {
           themeId={getVisualTheme()}
           microAction={snap().micro_action}
           checked={settings().checked_action_today}
+          dewSummary={getDewSummary()}
           onToggle={() => toggleTodayAction()}
           onGoLog={() => setTab("log")}
           onOpenPoster={() => setShowDailyPoster(true)}
+          onOpenKeepsakes={() => openFourSeasonsInsights()}
         />
+
+        <If when={snap().state === "recovery_priority" && !recoveryDewClaimedToday()}>
+          <View class="flex-row items-center justify-between gap-2.5 rounded-2xl bg-dew-soft px-3 py-2">
+            <View class="min-w-0 flex-1 flex-row items-center gap-2">
+              <View class="size-6 shrink-0 items-center justify-center rounded-[7px] bg-card/85">
+                <QiIcon name="sparkles" size={13} color={token("dew-accent")} />
+              </View>
+              <Text class="min-w-0 flex-1 text-xs font-medium text-foreground">
+                {tr("today.recovery_dew_title")}
+              </Text>
+            </View>
+            <ActionButton
+              title={tr("today.recovery_dew_btn")}
+              icon="sparkles"
+              size="sm"
+              shape="pill"
+              onPress={() => claimRecoveryDew()}
+            />
+          </View>
+        </If>
 
         <Hairline />
 

@@ -83,7 +83,7 @@ function App() {
     { id: "today", label: tr("nav.today"), icon: "sun", sfSymbol: "sun.max.fill" },
     { id: "log", label: tr("nav.log"), icon: "record", sfSymbol: "square.and.pencil" },
     { id: "insights", label: tr("nav.insights"), icon: "compass", sfSymbol: "chart.xyaxis.line" },
-    { id: "me", label: tr("nav.me"), icon: "user_shield", sfSymbol: "person.crop.circle" },
+    { id: "me", label: tr("nav.me"), icon: "user_circle", sfSymbol: "person.crop.circle" },
   ];
 
   const submitGlobalQuickCapture = () => {
@@ -108,10 +108,6 @@ function App() {
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
-      <If when={Boolean(getToast())}>
-        <ToastBanner message={getToast()!} onDismiss={() => clearToast()} />
-      </If>
-
       <SceneCrossfade
         value={settings().onboarding_done ? "sanctuary" : "prelude"}
         duration={MOTION_TOKENS.duration.slower}
@@ -143,34 +139,29 @@ function App() {
                 />
               </If>
 
-              <SceneCrossfade
-                value={activeTab()}
-                duration={MOTION_TOKENS.duration.base}
+              <Scroll
                 class="flex-1"
+                keyboardShouldPersistTaps="handled"
+                contentStyle={{
+                  paddingTop: 6,
+                  paddingLeft: 16,
+                  paddingRight: 16,
+                  paddingBottom: 36,
+                  gap: 16,
+                }}
               >
-                <Scroll
-                  class="flex-1"
-                  contentStyle={{
-                    paddingTop: 6,
-                    paddingLeft: 16,
-                    paddingRight: 16,
-                    paddingBottom: 36,
-                    gap: 16,
-                  }}
-                >
-                  <View class={`mx-auto w-full gap-4 ${isDesktop() ? "max-w-3xl" : "max-w-xl"}`}>
-                    {activeTab() === "today" ? (
-                      <TodayPage />
-                    ) : activeTab() === "log" ? (
-                      <LogLabsPage />
-                    ) : activeTab() === "insights" ? (
-                      <InsightsPage />
-                    ) : (
-                      <MeVaultPage />
-                    )}
-                  </View>
-                </Scroll>
-              </SceneCrossfade>
+                <View class={`mx-auto w-full gap-4 ${isDesktop() ? "max-w-3xl" : "max-w-xl"}`}>
+                  {activeTab() === "today" ? (
+                    <TodayPage />
+                  ) : activeTab() === "log" ? (
+                    <LogLabsPage />
+                  ) : activeTab() === "insights" ? (
+                    <InsightsPage />
+                  ) : (
+                    <MeVaultPage />
+                  )}
+                </View>
+              </Scroll>
             </View>
 
             <If when={!isDesktop()}>
@@ -183,6 +174,10 @@ function App() {
           </View>
         </If>
       </SceneCrossfade>
+
+      <If when={Boolean(getToast())}>
+        <ToastBanner message={getToast()!} onDismiss={() => clearToast()} />
+      </If>
 
       <If when={isQaStudioEnabled()}>
         <QaStudioSheet />
@@ -434,6 +429,7 @@ function App() {
             value={quickText()}
             placeholder={tr("log.quick_sheet_placeholder")}
             onChange={(v) => quickText.set(v)}
+            onSubmit={submitGlobalQuickCapture}
           />
           <ActionButton
             title={tr("log.quick_sheet_submit")}

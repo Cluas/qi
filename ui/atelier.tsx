@@ -224,6 +224,7 @@ export function QiAtelierModal(props: {
   const localSelected = signal<AtelierTierId>(
     props.selectedTier ?? (props.currentTier === "free" ? "pro_annual" : props.currentTier),
   );
+  const showAllPlans = signal(false);
   const legalDrawer = signal<"terms" | "privacy" | null>(null);
   const localRestoreHint = signal<string>("");
 
@@ -239,6 +240,16 @@ export function QiAtelierModal(props: {
   const plans = () => props.plans ?? getDefaultAtelierPlans();
   const timeline = () => props.timelineSteps ?? getDefaultTrialTimeline();
   const promises = () => props.ethicalPromises ?? getDefaultEthicalPromises();
+
+  const displayedPlans = () => {
+    const all = plans();
+    if (showAllPlans() || all.length <= 3) return all;
+    const featuredIds = new Set<AtelierTierId>(["pro_annual", "seasonal", "lifetime_local"]);
+    if (props.currentTier !== "free") featuredIds.add(props.currentTier);
+    const active = activeTier();
+    if (active !== "free") featuredIds.add(active);
+    return all.filter((p) => featuredIds.has(p.tier));
+  };
 
   const selectedPlan = () => plans().find((p) => p.tier === activeTier()) ?? plans()[0];
 
@@ -264,7 +275,11 @@ export function QiAtelierModal(props: {
 
   return (
     <ModalSurface open={props.open} presentation="pageSheet" onClose={props.onClose}>
-      <Scroll class="flex-1" contentStyle={{ paddingHorizontal: 18, paddingBottom: 32, gap: 14 }}>
+      <Scroll
+        class="flex-1"
+        keyboardShouldPersistTaps="handled"
+        contentStyle={{ paddingHorizontal: 18, paddingBottom: 32, gap: 14 }}
+      >
         <View class="mx-auto w-full max-w-2xl gap-3.5">
           {/* 顶部标题与礼遇胶囊 */}
           <View class="flex-row items-center justify-between gap-2">
@@ -343,12 +358,25 @@ export function QiAtelierModal(props: {
             </View>
           </View>
 
-          {/* 7 档方案卡片 */}
+          {/* 方案卡片（默认呈现 3 档核心方案，可按需展开全部） */}
           <View class="gap-2">
-            <Text class="text-xs font-semibold text-muted-foreground">
-              {tr("atelier.plans_section_label", { count: plans().length })}
-            </Text>
-            <Each of={plans()} key={(p) => p.tier}>
+            <View class="flex-row flex-wrap items-center justify-between gap-2">
+              <Text class="text-xs font-semibold text-muted-foreground">
+                {showAllPlans()
+                  ? tr("atelier.plans_section_label", { count: plans().length })
+                  : isEnglishLocale()
+                    ? `Featured ${displayedPlans().length} plans (${plans().length} total)`
+                    : `精选 ${displayedPlans().length} 档方案（共 ${plans().length} 档）`}
+              </Text>
+              <If when={props.currentTier === "free" && !showAllPlans()}>
+                <View class="rounded-full bg-vital-prime-soft px-2.5 py-0.5">
+                  <Text class="text-[10px] font-semibold text-vital-prime">
+                    {isEnglishLocale() ? "Current: Calm Core · Free forever" : "当前：素心清欢 · 永久免费"}
+                  </Text>
+                </View>
+              </If>
+            </View>
+            <Each of={displayedPlans()} key={(p) => p.tier}>
               {(plan) => {
                 const isSelected = () => activeTier() === plan().tier;
                 const isCurrent = () => props.currentTier === plan().tier;
@@ -414,6 +442,31 @@ export function QiAtelierModal(props: {
                 );
               }}
             </Each>
+            <If when={plans().length > 3}>
+              <Button
+                hitSlop={4}
+                onPress={() => {
+                  hapticSelection();
+                  showAllPlans.update((v) => !v);
+                }}
+                class="min-h-10 flex-row items-center justify-center gap-1.5 rounded-2xl border border-border/55 bg-surface-sunken px-3 py-2 active:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Text class="text-xs font-semibold text-foreground">
+                  {showAllPlans()
+                    ? isEnglishLocale()
+                      ? "Show fewer plans"
+                      : "收起其余方案"
+                    : isEnglishLocale()
+                      ? `Show all ${plans().length} plans (Monthly / Duo / Family)`
+                      : `展开全部 ${plans().length} 档方案（含月度 / 双人 / 家庭）`}
+                </Text>
+                <QiIcon
+                  name={showAllPlans() ? "chevron_down" : "chevron_right"}
+                  size={13}
+                  color={token("muted-foreground")}
+                />
+              </Button>
+            </If>
           </View>
 
           {/* 商业消耗型内购：窗台添柴礼赠券 · 赠予社区漂流席位 (+¥12) */}
@@ -951,7 +1004,21 @@ export function StickerCameraMatPanel(props: {
     { id: "celadon", label: tr("atelier.camera_mat.tpl_celadon") },
   ];
 
-  const days = Array.from({ length: 28 }, (_, i) => i + 1);
+  const calendarRows = [0, 7, 14, 21];
+  const calendarCols = [0, 1, 2, 3, 4, 5, 6];
+
+  const submitSticker = () => {
+    if (quotaReached()) {
+      props.onOpenAtelier?.();
+      return;
+    }
+    const trimmed = draftTitle().trim() || tr("atelier.camera_mat.create_fallback");
+    props.onCreateSticker({
+      title: trimmed,
+      frameStyle: draftFrame(),
+      purineHint: resolvedHint(),
+    });
+  };
 
   return (
     <Card>
@@ -976,118 +1043,109 @@ export function StickerCameraMatPanel(props: {
         }
       />
 
-      {/* Canvas 实时模切贴纸预览框 */}
-      <View class="flex-row flex-wrap items-center gap-2.5 rounded-2xl bg-surface-sunken p-2.5">
-        <Canvas
-          style={{ width: 122, height: 122 }}
-          draw={(cx, size) => {
-            const w = size.width;
-            const h = size.height;
-            const style = draftFrame();
-            const isEn = isEnglishLocale();
-            cx.clearRect(0, 0, w, h);
+      {/* Canvas 实时模切贴纸工作台：96x96 预览 + 标题输入/贴士，独立成行的 3 模切样式 */}
+      <View class="gap-2.5 rounded-2xl bg-surface-sunken p-3">
+        <View class="flex-row items-center gap-3">
+          <Canvas
+            style={{ width: 96, height: 96 }}
+            draw={(cx, size) => {
+              const w = size.width;
+              const h = size.height;
+              const style = draftFrame();
+              const isEn = isEnglishLocale();
+              cx.clearRect(0, 0, w, h);
 
-            // 外层模切白边
-            cx.save();
-            cx.fillStyle = token("card");
-            cx.strokeStyle =
-              style === "celadon"
-                ? token("primary")
-                : style === "watercolor"
-                  ? token("atelier-accent")
-                  : token("border");
-            cx.lineWidth = 2;
-            cx.beginPath();
-            cx.roundRect(6, 6, w - 12, h - 12, style === "polaroid" ? 8 : 18);
-            cx.fill();
-            cx.stroke();
-            cx.restore();
+              // 外层模切白边
+              cx.save();
+              cx.fillStyle = token("card");
+              cx.strokeStyle =
+                style === "celadon"
+                  ? token("primary")
+                  : style === "watercolor"
+                    ? token("atelier-accent")
+                    : token("border");
+              cx.lineWidth = 2;
+              cx.beginPath();
+              cx.roundRect(4, 4, w - 8, h - 8, style === "polaroid" ? 8 : 16);
+              cx.fill();
+              cx.stroke();
+              cx.restore();
 
-            // 内框美食画布区
-            cx.save();
-            cx.fillStyle =
-              style === "celadon"
-                ? token("bento-sage")
-                : style === "watercolor"
-                  ? token("bento-peach")
-                  : token("bento-amber");
-            const innerH = style === "polaroid" ? h - 42 : h - 28;
-            cx.beginPath();
-            cx.roundRect(14, 14, w - 28, innerH, style === "polaroid" ? 4 : 12);
-            cx.fill();
-            cx.restore();
+              // 内框美食画布区
+              cx.save();
+              cx.fillStyle =
+                style === "celadon"
+                  ? token("bento-sage")
+                  : style === "watercolor"
+                    ? token("bento-peach")
+                    : token("bento-amber");
+              const innerH = style === "polaroid" ? h - 32 : h - 22;
+              cx.beginPath();
+              cx.roundRect(10, 10, w - 20, innerH, style === "polaroid" ? 4 : 10);
+              cx.fill();
+              cx.restore();
 
-            // 中心食物器皿矢量简绘
-            cx.save();
-            cx.strokeStyle = token("primary");
-            cx.lineWidth = 2;
-            cx.beginPath();
-            cx.arc(w / 2, style === "polaroid" ? 50 : 58, 20, 0, Math.PI * 2);
-            cx.stroke();
-            cx.beginPath();
-            cx.arc(w / 2, style === "polaroid" ? 50 : 58, 12, 0.2, Math.PI * 1.4);
-            cx.stroke();
-            cx.restore();
+              // 中心食物器皿矢量简绘
+              const plateY = style === "polaroid" ? h * 0.39 : h * 0.45;
+              cx.save();
+              cx.strokeStyle = token("primary");
+              cx.lineWidth = 1.8;
+              cx.beginPath();
+              cx.arc(w / 2, plateY, 14, 0, Math.PI * 2);
+              cx.stroke();
+              cx.beginPath();
+              cx.arc(w / 2, plateY, 8.5, 0.2, Math.PI * 1.4);
+              cx.stroke();
+              cx.restore();
 
-            // 底部手写标签
-            cx.save();
-            cx.fillStyle = token("foreground");
-            cx.font = isEn ? "600 10px system-ui, sans-serif" : '600 10px "PingFang SC", sans-serif';
-            cx.textAlign = "center";
-            cx.textBaseline = "middle";
-            const maxChars = isEn ? 14 : 8;
-            const shortTitle = (resolvedTitle() || tr("atelier.camera_mat.canvas_fallback")).slice(
-              0,
-              maxChars,
-            );
-            cx.fillText(shortTitle, w / 2, h - 18);
-            cx.restore();
-          }}
-        />
-
-        <View class="min-w-52 flex-1 gap-2">
-          <FieldInput
-            value={draftTitle()}
-            placeholder={tr("atelier.camera_mat.input_placeholder")}
-            onChange={(val) => draftTitle.set(val)}
-          />
-          <View class="flex-row flex-wrap gap-1.5">
-            <Each of={frameStyles()} key={(f) => f.id}>
-              {(f) => (
-                <SelectChip
-                  label={f().label}
-                  selected={draftFrame() === f().id}
-                  onPress={() => draftFrame.set(f().id)}
-                />
-              )}
-            </Each>
-          </View>
-          <ActionButton
-            title={
-              quotaReached()
-                ? tr("atelier.camera_mat.cta_quota_reached", { limit: limit() })
-                : tr("atelier.camera_mat.cta_create")
-            }
-            icon="camera"
-            size="sm"
-            variant={quotaReached() ? "outline" : "primary"}
-            onPress={() => {
-              if (quotaReached()) {
-                props.onOpenAtelier?.();
-                return;
-              }
-              const trimmed = draftTitle().trim() || tr("atelier.camera_mat.create_fallback");
-              props.onCreateSticker({
-                title: trimmed,
-                frameStyle: draftFrame(),
-                purineHint: resolvedHint(),
-              });
+              // 底部手写标签
+              cx.save();
+              cx.fillStyle = token("foreground");
+              cx.font = isEn ? "600 9px system-ui, sans-serif" : '600 9px "PingFang SC", sans-serif';
+              cx.textAlign = "center";
+              cx.textBaseline = "middle";
+              const maxChars = isEn ? 11 : 6;
+              const rawLabel =
+                (resolvedTitle() || tr("atelier.camera_mat.canvas_fallback")).split("·")[0].trim() ||
+                tr("atelier.camera_mat.canvas_fallback");
+              const shortTitle = rawLabel.slice(0, maxChars).replace(/[·\s,，、]+$/u, "");
+              cx.fillText(shortTitle, w / 2, h - 13);
+              cx.restore();
             }}
           />
+
+          <View class="min-w-0 flex-1 gap-1.5">
+            <FieldInput
+              value={draftTitle()}
+              placeholder={tr("atelier.camera_mat.input_placeholder")}
+              onChange={(val) => draftTitle.set(val)}
+              onSubmit={submitSticker}
+            />
+            <Text class="line-clamp-1 text-[11px] text-muted-foreground">{resolvedHint()}</Text>
+          </View>
         </View>
+
+        <SegmentedTabs
+          items={frameStyles()}
+          activeId={draftFrame()}
+          onSelect={(id) => draftFrame.set(id)}
+          size="sm"
+        />
+
+        <ActionButton
+          title={
+            quotaReached()
+              ? tr("atelier.camera_mat.cta_quota_reached", { limit: limit() })
+              : tr("atelier.camera_mat.cta_create")
+          }
+          icon="camera"
+          size="sm"
+          variant={quotaReached() ? "outline" : "primary"}
+          onPress={submitSticker}
+        />
       </View>
 
-      {/* 人间烟火月历垫网格 */}
+      {/* 人间烟火月历垫网格（7 列 × 4 周严格对齐） */}
       <View class="gap-1.5 rounded-2xl bg-surface-sunken p-2.5">
         <View class="flex-row items-center justify-between">
           <Text class="text-xs font-bold text-foreground">{tr("atelier.camera_mat.calendar_title")}</Text>
@@ -1095,32 +1153,41 @@ export function StickerCameraMatPanel(props: {
             {tr("atelier.camera_mat.calendar_count", { count: props.stickers.length })}
           </Text>
         </View>
-        <View class="flex-row flex-wrap gap-1">
-          <Each of={days} key={(d) => `cal-day-${d}`}>
-            {(day) => {
-              const matched = () => props.stickers.filter((s) => s.dayNumber === day());
-              return (
-                <View
-                  class={`h-10 w-9 items-center justify-center rounded-xl ${
-                    matched().length > 0 ? "bg-card shadow-2xs" : "bg-card/55"
-                  }`}
-                >
-                  <Text
-                    class="text-[10px] font-semibold text-muted-foreground"
-                    style={{ fontVariant: ["tabular-nums"] }}
-                  >
-                    {`${day()}`}
-                  </Text>
-                  <If when={matched().length > 0}>
-                    <View class="mt-0.5 rounded-full bg-secondary px-1.5">
-                      <Text class="text-[9px] font-bold text-primary">
-                        {tr("atelier.camera_mat.day_sticker_badge", { count: matched().length })}
-                      </Text>
-                    </View>
-                  </If>
-                </View>
-              );
-            }}
+        <View class="gap-1.5">
+          <Each of={calendarRows} key={(rowStart) => `cal-row-${rowStart}`}>
+            {(rowStart) => (
+              <View class="flex-row gap-1.5">
+                <Each of={calendarCols} key={(colIdx) => `cal-cell-${rowStart() + colIdx + 1}`}>
+                  {(colIdx) => {
+                    const day = () => rowStart() + colIdx() + 1;
+                    const matched = () => props.stickers.filter((s) => s.dayNumber === day());
+                    return (
+                      <View
+                        class={`h-10 flex-1 items-center justify-center rounded-xl ${
+                          matched().length > 0 ? "bg-card shadow-2xs" : "bg-card/55"
+                        }`}
+                      >
+                        <Text
+                          class="text-[10px] font-semibold text-muted-foreground"
+                          style={{ fontVariant: ["tabular-nums"] }}
+                        >
+                          {`${day()}`}
+                        </Text>
+                        <If when={matched().length > 0}>
+                          <View class="mt-0.5 rounded-full bg-secondary px-1.5">
+                            <Text class="text-[9px] font-bold text-primary">
+                              {tr("atelier.camera_mat.day_sticker_badge", {
+                                count: matched().length,
+                              })}
+                            </Text>
+                          </View>
+                        </If>
+                      </View>
+                    );
+                  }}
+                </Each>
+              </View>
+            )}
           </Each>
         </View>
       </View>
@@ -1164,7 +1231,11 @@ export function CompanionLetterModal(props: {
 
   return (
     <ModalSurface open={props.open} presentation="pageSheet" onClose={props.onClose}>
-      <Scroll class="flex-1" contentStyle={{ paddingHorizontal: 18, paddingBottom: 28, gap: 14 }}>
+      <Scroll
+        class="flex-1"
+        keyboardShouldPersistTaps="handled"
+        contentStyle={{ paddingHorizontal: 18, paddingBottom: 28, gap: 14 }}
+      >
         <View class="mx-auto w-full max-w-xl gap-4">
           <View class="flex-row items-center justify-between">
             <View class="flex-row items-center gap-2">
@@ -1413,7 +1484,11 @@ export function FourSeasonsScrollModal(props: {
 }) {
   return (
     <ModalSurface open={props.open} presentation="pageSheet" onClose={props.onClose}>
-      <Scroll class="flex-1" contentStyle={{ paddingHorizontal: 18, paddingBottom: 28, gap: 16 }}>
+      <Scroll
+        class="flex-1"
+        keyboardShouldPersistTaps="handled"
+        contentStyle={{ paddingHorizontal: 18, paddingBottom: 28, gap: 16 }}
+      >
         <View class="mx-auto w-full max-w-3xl gap-4">
           <View class="flex-row items-center justify-between">
             <View class="flex-row items-center gap-2">
@@ -1977,7 +2052,11 @@ export function FamilyPeaceLetterModal(props: {
 
   return (
     <ModalSurface open={props.open} presentation="pageSheet" onClose={props.onClose}>
-      <Scroll class="flex-1" contentStyle={{ paddingHorizontal: 20, paddingBottom: 28, gap: 16 }}>
+      <Scroll
+        class="flex-1"
+        keyboardShouldPersistTaps="handled"
+        contentStyle={{ paddingHorizontal: 20, paddingBottom: 28, gap: 16 }}
+      >
         <View class="mx-auto w-full max-w-lg gap-4">
           <View class="flex-row items-center justify-between">
             <View class="flex-row items-center gap-2">

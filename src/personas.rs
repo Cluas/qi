@@ -240,20 +240,20 @@ fn seed_urban_overwork(db: &VaultDatabase) -> Result<(), String> {
             db.insert_intake(
                 &d,
                 "caffeine",
-                "15:00后冰美式",
+                "15:00 后冰美式",
                 Some(15.0),
                 "下午加班提神",
-                &["15:00后冰美式"],
+                &["15:00 后冰美式"],
             )?;
         }
         if bbq_days.contains(&i) {
             db.insert_intake(
                 &d,
                 "meal",
-                "22:30夜宵烧烤",
+                "22:30 夜宵烧烤",
                 Some(780.0),
                 "深夜聚餐高油高盐",
-                &["22:30夜宵烧烤"],
+                &["22:30 夜宵烧烤"],
             )?;
         }
     }
