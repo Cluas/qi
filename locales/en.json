@@ -488,7 +488,9 @@
     "wearable_merge_note": "Supports Fitbit or Apple Health JSON/CSV exports while preserving recent local notes",
     "wearable_placeholder": "Paste exported wearable JSON or CSV data…",
     "wearable_subtitle": "Merge exported wearable slices cleanly without creating duplicate days",
-    "wearable_title": "Offline wearable import"
+    "wearable_title": "Offline wearable import",
+    "healthkit_card_title": "Apple Health direct sync",
+    "healthkit_card_sub": "Read sleep, HRV, and steps straight from HealthKit on iPhone without exporting huge XML files"
   },
   "charts": {
     "no_rhythm_data": "No recent rhythm trend yet",
@@ -600,6 +602,18 @@
     "custom_pet_entry_desc": "Create from a photo or coat style — 1 custom pet stays free forever",
     "sync_section": "Health sources & encrypted sync",
     "healthkit_title": "Apple HealthKit",
+    "healthkit_badge_connected": "Connected · On-device",
+    "healthkit_badge_local": "Read-only",
+    "healthkit_subtitle": "Reads Apple Health sleep stages, HRV (SDNN), resting HR, steps, and workouts strictly on device — never uploaded",
+    "healthkit_connect_btn": "Connect Apple Health (Last 35d)",
+    "healthkit_sync_35d_btn": "Sync last 35 days",
+    "healthkit_sync_90d_btn": "Backfill 90-day baseline",
+    "healthkit_syncing_btn": "Reading Apple Health…",
+    "healthkit_auto_sync_title": "Auto-sync last 7 days on launch",
+    "healthkit_auto_sync_sub": "Quietly refreshes overnight sleep and steps when Qi opens",
+    "healthkit_last_at": "Last read: %{time}",
+    "healthkit_perm_hint": "Read-only access; if no samples appear, check iOS Settings › Health › Data Access & Devices › Qi",
+    "healthkit_desktop_hint": "Native HealthKit authorization activates on iPhone; use encrypted sync or XML/CSV import in Log › Hearth vault here.",
     "fitbit_title": "Fitbit device sync",
     "icloud_title": "iCloud end-to-end sync",
     "webdav_title": "Self-hosted WebDAV vault",
@@ -990,7 +1004,9 @@
     "tier_b_sub": "Band or tracker steps and heart rate paired with quick check-ins",
     "tier_b_title": "Tracker · Steps & heart rate",
     "tier_c_sub": "No wearable needed — rely on morning feelings and mindful logs",
-    "tier_c_title": "Phone & paper · Felt rhythm"
+    "tier_c_title": "Phone & paper · Felt rhythm",
+    "healthkit_opt_title": "Also connect Apple Health (last 35 days)",
+    "healthkit_opt_sub": "Opens the iOS read-only permission sheet to replace sample rhythms with your real sleep & steps"
   },
   "qa": {
     "title": "QA preview studio",
@@ -1137,6 +1153,10 @@
     "verify_hint": "Signature verification notice: %{error}",
     "wearable_failed": "Could not parse wearable file: %{error}",
     "wearable_imported": "Wearable export merged into local journal",
+    "healthkit_synced": "Synced data from Apple Health",
+    "healthkit_failed": "Could not sync Apple Health: %{error}",
+    "healthkit_auto_on": "Enabled automatic 7-day Apple Health sync on launch",
+    "healthkit_auto_off": "Paused automatic HealthKit sync on launch",
     "weather_changed": "Updated sill window atmosphere",
     "webdav_hint": "Please check WebDAV settings: %{error}"
   },

@@ -488,7 +488,9 @@
     "wearable_merge_note": "支持 Fitbit / Apple Health 导出的 JSON 或 CSV，优先保留本机最新读数",
     "wearable_placeholder": "粘贴穿戴导出的 JSON 或 CSV 内容…",
     "wearable_subtitle": "补录离线设备导出的数据切片，自动按日期去重对齐",
-    "wearable_title": "离线穿戴数据导入"
+    "wearable_title": "离线穿戴数据导入",
+    "healthkit_card_title": "Apple 健康 (HealthKit) 一键直连",
+    "healthkit_card_sub": "在 iPhone 上直接只读同步睡眠、HRV 与步数，无需导出庞大的 export.xml"
   },
   "charts": {
     "no_rhythm_data": "暂无近期节律变化数据",
@@ -600,6 +602,18 @@
     "custom_pet_entry_desc": "上传照片或挑一只毛色，1 位自定陪伴永久免费",
     "sync_section": "健康源与加密同步",
     "healthkit_title": "Apple 健康 (HealthKit)",
+    "healthkit_badge_connected": "已直连 · 本机",
+    "healthkit_badge_local": "本机只读",
+    "healthkit_subtitle": "仅在手机端只读睡眠分期、HRV (SDNN)、静息心率、步数与运动记录，0 字节上传云端",
+    "healthkit_connect_btn": "连接 Apple 健康并导入近 35 天",
+    "healthkit_sync_35d_btn": "同步近 35 天",
+    "healthkit_sync_90d_btn": "回溯 90 天基线",
+    "healthkit_syncing_btn": "正在读取 Apple 健康…",
+    "healthkit_auto_sync_title": "启动时自动增量同步近 7 天",
+    "healthkit_auto_sync_sub": "打开知气时在后台静默更新昨晚睡眠与今日步数",
+    "healthkit_last_at": "上次读取：%{time}",
+    "healthkit_perm_hint": "仅申请只读权限；若未见新数据，请前往系统「设置 › 健康 › 数据访问与设备 › 知气」开启读取开关",
+    "healthkit_desktop_hint": "原生 Apple 健康系统弹窗仅在 iPhone 真机激活；当前桌面环境可使用加密同步或在「记录 › 炉火金库」粘贴 XML/CSV 导入。",
     "fitbit_title": "Fitbit 设备同步",
     "icloud_title": "iCloud 端到端加密同步",
     "webdav_title": "自建 WebDAV 私密同步",
@@ -990,7 +1004,9 @@
     "tier_b_sub": "腕带或手环计步与静息心率，配合本机轻松打卡",
     "tier_b_title": "轻量手环 · 步数与心率",
     "tier_c_sub": "不戴穿戴设备，依靠晨间感受与手动记一笔",
-    "tier_c_title": "无穿戴设备 · 纸笔体感手账"
+    "tier_c_title": "无穿戴设备 · 纸笔体感手账",
+    "healthkit_opt_title": "顺便连接 Apple 健康（导入近 35 天）",
+    "healthkit_opt_sub": "推开窗扉后弹出 iOS 只读授权，用真实睡眠与步数替换示例数据"
   },
   "qa": {
     "title": "体验调试台",
@@ -1137,6 +1153,10 @@
     "verify_hint": "未能通过签名校验：%{error}",
     "wearable_failed": "穿戴数据解析失败：%{error}",
     "wearable_imported": "离线穿戴数据已按日期合并入库",
+    "healthkit_synced": "已完成 Apple 健康同步",
+    "healthkit_failed": "Apple 健康读取未完成：%{error}",
+    "healthkit_auto_on": "已开启每次启动自动同步近 7 天 Apple 健康",
+    "healthkit_auto_off": "已暂停自动同步，可随时在「我的」或「记录」手动同步",
     "weather_changed": "今日窗景天光已柔和切换",
     "webdav_hint": "请再核对 WebDAV 参数：%{error}"
   },

@@ -23,7 +23,9 @@ import {
   getRestoreStatusMessage,
   getState,
   getVisualTheme,
+  isHealthkitSupported,
   isQaStudioEnabled,
+  isSyncingHealthkit,
   type MeSubTab,
   pickCustomPetPhotoDataUrl,
   pullWebdavSync,
@@ -35,6 +37,7 @@ import {
   setActiveCustomPet,
   setAppearancePref,
   setAppLocale,
+  setHealthkitAutoSync,
   setMeSubTab,
   setSealInk,
   setShowAtelierModal,
@@ -43,6 +46,7 @@ import {
   setVisualTheme,
   setWeatherMood,
   setWidgetPrivacyMode,
+  syncAppleHealthkit,
   toggleEquippedKeepsake,
   toggleMorningPush,
   updateAiConfig,
@@ -871,6 +875,83 @@ export function MeVaultPage() {
                 />
               </View>
             </View>
+          </Card>
+
+          <Card>
+            <SectionHeader
+              title={tr("me.healthkit_title")}
+              subtitle={tr("me.healthkit_subtitle")}
+              right={
+                <VitalBadge
+                  tone={settings().healthkit_authorized ? "prime_ready" : "neutral"}
+                  label={
+                    settings().healthkit_authorized
+                      ? tr("me.healthkit_badge_connected")
+                      : tr("me.healthkit_badge_local")
+                  }
+                />
+              }
+            />
+
+            <If when={isHealthkitSupported()}>
+              <View class="gap-3">
+                <View class="flex-row flex-wrap gap-2">
+                  <ActionButton
+                    title={
+                      isSyncingHealthkit()
+                        ? tr("me.healthkit_syncing_btn")
+                        : settings().healthkit_authorized
+                          ? tr("me.healthkit_sync_35d_btn")
+                          : tr("me.healthkit_connect_btn")
+                    }
+                    icon="heart_pulse"
+                    disabled={isSyncingHealthkit()}
+                    onPress={() => void syncAppleHealthkit(35, false)}
+                    class="flex-1"
+                  />
+                  <ActionButton
+                    title={tr("me.healthkit_sync_90d_btn")}
+                    icon="refresh"
+                    variant="outline"
+                    disabled={isSyncingHealthkit()}
+                    onPress={() => void syncAppleHealthkit(90, false)}
+                  />
+                </View>
+
+                <SwitchRow
+                  title={tr("me.healthkit_auto_sync_title")}
+                  subtitle={tr("me.healthkit_auto_sync_sub")}
+                  checked={settings().healthkit_auto_sync}
+                  onChange={(v) => setHealthkitAutoSync(v)}
+                />
+
+                <If when={Boolean(settings().healthkit_last_summary) || Boolean(settings().healthkit_last_sync_at)}>
+                  <SunkenBox>
+                    <If when={Boolean(settings().healthkit_last_sync_at)}>
+                      <Text class="text-xs font-semibold text-primary">
+                        {tr("me.healthkit_last_at", { time: settings().healthkit_last_sync_at })}
+                      </Text>
+                    </If>
+                    <If when={Boolean(settings().healthkit_last_summary)}>
+                      <Text class="text-xs leading-relaxed text-foreground">
+                        {settings().healthkit_last_summary}
+                      </Text>
+                    </If>
+                    <Text class="text-[11px] leading-relaxed text-muted-foreground">
+                      {tr("me.healthkit_perm_hint")}
+                    </Text>
+                  </SunkenBox>
+                </If>
+              </View>
+            </If>
+
+            <If when={!isHealthkitSupported()}>
+              <SunkenBox>
+                <Text class="text-xs leading-relaxed text-muted-foreground">
+                  {tr("me.healthkit_desktop_hint")}
+                </Text>
+              </SunkenBox>
+            </If>
           </Card>
 
           <Card>

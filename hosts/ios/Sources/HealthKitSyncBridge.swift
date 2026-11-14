@@ -1,10 +1,13 @@
 import Foundation
 import HealthKit
 
-/// iOS HealthKit 零过桥同步适配器（源自 Apache-2.0 PulsHealthSync 理念重构）：
+/// iOS HealthKit 零过桥同步适配器参考实现：
+/// 注：当前 `nsh package --target ios` 真机构建实际由 `build.rs` 静态链接的
+/// `src/ios/qi_healthkit_bridge.m`（C-ABI Objective-C 桥接 `src/healthkit_ios.rs`）驱动，
+/// Swift 侧保留此文件仅供 XcodeGen / 外部参考，遵循以下三项核心原则：
 /// 1. 仅向用户请求 6 项消费级核心指标，绝不暴露 Raw / Aggregate 与 80 项指标开关；
 /// 2. 严格区分 Apple Watch 的 SDNN (`hrv_sdnn_ms`)，绝不与 Garmin/Oura RMSSD 混算；
-/// 3. 原始样本直写 App Group JSONL 文件供 Rust Core 合并，JS 视图层不接触样本。
+/// 3. 原始样本在端侧直写本地 SQLite 金库（`qi_vault.sqlite3`），JS 视图层不接触样本。
 public final class HealthKitSyncBridge {
     public static let appGroupId = "group.eu.org.cluas.qi"
     private let store = HKHealthStore()

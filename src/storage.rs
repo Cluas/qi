@@ -207,6 +207,16 @@ pub struct AppSettings {
     pub active_seal_ink: String,
     #[serde(default = "default_locale")]
     pub locale: String,
+    #[serde(default)]
+    pub healthkit_authorized: bool,
+    #[serde(default = "default_true")]
+    pub healthkit_auto_sync: bool,
+    #[serde(default)]
+    pub healthkit_last_sync_at: String,
+    #[serde(default)]
+    pub healthkit_synced_days: u32,
+    #[serde(default)]
+    pub healthkit_last_summary: String,
 }
 
 macro_rules! string_or {
@@ -215,6 +225,10 @@ macro_rules! string_or {
     };
 }
 pub(crate) use string_or;
+
+fn default_true() -> bool {
+    true
+}
 
 fn default_persona() -> String {
     "urban_overwork".to_owned()
@@ -289,6 +303,11 @@ impl Default for AppSettings {
             bonsai_dew: 0,
             active_seal_ink: default_seal_ink(),
             locale: default_locale(),
+            healthkit_authorized: false,
+            healthkit_auto_sync: true,
+            healthkit_last_sync_at: String::new(),
+            healthkit_synced_days: 0,
+            healthkit_last_summary: String::new(),
         }
     }
 }
@@ -457,6 +476,26 @@ impl VaultDatabase {
             ("bonsai_dew", s.bonsai_dew.to_string()),
             ("active_seal_ink", s.active_seal_ink.clone()),
             ("locale", normalize_locale(&s.locale).to_owned()),
+            (
+                "healthkit_authorized",
+                if s.healthkit_authorized { "1" } else { "0" }.to_owned(),
+            ),
+            (
+                "healthkit_auto_sync",
+                if s.healthkit_auto_sync { "1" } else { "0" }.to_owned(),
+            ),
+            (
+                "healthkit_last_sync_at",
+                s.healthkit_last_sync_at.clone(),
+            ),
+            (
+                "healthkit_synced_days",
+                s.healthkit_synced_days.to_string(),
+            ),
+            (
+                "healthkit_last_summary",
+                s.healthkit_last_summary.clone(),
+            ),
         ];
         for (k, v) in pairs {
             self.conn
@@ -530,6 +569,21 @@ impl VaultDatabase {
         if let Some(v) = map.get("locale") {
             s.locale = normalize_locale(v).to_owned();
         }
+        if let Some(v) = map.get("healthkit_authorized") {
+            s.healthkit_authorized = v == "1";
+        }
+        if let Some(v) = map.get("healthkit_auto_sync") {
+            s.healthkit_auto_sync = v == "1";
+        }
+        if let Some(v) = map.get("healthkit_last_sync_at") {
+            s.healthkit_last_sync_at = v.clone();
+        }
+        if let Some(v) = map.get("healthkit_synced_days") {
+            s.healthkit_synced_days = v.parse().unwrap_or(0);
+        }
+        if let Some(v) = map.get("healthkit_last_summary") {
+            s.healthkit_last_summary = v.clone();
+        }
         Ok(s)
     }
 
@@ -543,6 +597,49 @@ impl VaultDatabase {
             )
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub fn upsert_workout(
+        &self,
+        workout_id: &str,
+        date: &str,
+        activity_type: &str,
+        duration_minutes: f64,
+        calories_kcal: Option<f64>,
+        source: &str,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO workouts (workout_id, date, activity_type, duration_minutes, calories_kcal, source)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(workout_id) DO UPDATE SET
+                   date = excluded.date,
+                   activity_type = excluded.activity_type,
+                   duration_minutes = excluded.duration_minutes,
+                   calories_kcal = excluded.calories_kcal,
+                   source = excluded.source",
+                params![workout_id, date, activity_type, duration_minutes, calories_kcal, source],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// 首次接入真实 Apple HealthKit 数据前，清除内置演示画像留下的合成生理指标与训练记录（保留饮食日记、化验单与灵宠）。
+    pub fn purge_demo_metrics_if_synthetic_persona(&self, active_persona: &str) -> Result<bool, String> {
+        let is_demo_persona = matches!(
+            active_persona,
+            "urban_overwork" | "endurance_runner" | "family_caregiver" | "tier_b_band" | "tier_c_phone"
+        );
+        if !is_demo_persona {
+            return Ok(false);
+        }
+        self.conn
+            .execute_batch(
+                "DELETE FROM daily_metrics_by_source WHERE source != 'apple_health';
+                 DELETE FROM workouts WHERE source != 'apple_health';",
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(true)
     }
 
     pub fn insert_workout(
@@ -1692,6 +1789,11 @@ impl VaultDatabase {
         s.bonsai_dew = 0;
         s.weather_mood = "sunny_crisp".to_owned();
         s.active_seal_ink = "cinnabar".to_owned();
+        s.active_persona = default_persona();
+        s.healthkit_authorized = false;
+        s.healthkit_last_sync_at.clear();
+        s.healthkit_synced_days = 0;
+        s.healthkit_last_summary.clear();
         s.last_sync_summary = if is_en_locale(&s.locale) {
             "Local vault and session credentials cleared".to_owned()
         } else {

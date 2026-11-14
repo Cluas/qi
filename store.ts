@@ -237,6 +237,11 @@ export interface AppSettings {
   bonsai_dew: number;
   active_seal_ink: string;
   locale: string;
+  healthkit_authorized: boolean;
+  healthkit_auto_sync: boolean;
+  healthkit_last_sync_at: string;
+  healthkit_synced_days: number;
+  healthkit_last_summary: string;
 }
 
 export interface BriefingResult {
@@ -715,6 +720,7 @@ const restoreStatusMessage = signal<string>("");
 const hearthGiftCount = signal<number>(initialPayload.settings?.guardian_sponsor ? 1 : 0);
 const parentsPeaceLetterResult = signal<ParentsPeaceLetter | null>(null);
 const hidePosterNumbers = signal<boolean>(false);
+const syncingHealthkit = signal<boolean>(false);
 const recentAppleTransactions: StoreKitTransactionInput[] = [];
 let pendingZdrCallback: (() => void) | null = null;
 
@@ -808,6 +814,14 @@ export const getHearthGiftCount = () => hearthGiftCount();
 export const getParentsPeaceLetterResult = () => parentsPeaceLetterResult();
 export const getHidePosterNumbers = () => hidePosterNumbers();
 export const setHidePosterNumbers = (hide: boolean) => hidePosterNumbers.set(hide);
+export const isSyncingHealthkit = () => syncingHealthkit();
+export function isHealthkitSupported(): boolean {
+  try {
+    return engine.isHealthkitAvailable();
+  } catch {
+    return false;
+  }
+}
 export const getNoticeText = () => QiMeta.noticeText();
 export const getDisclaimerText = () => QiMeta.disclaimerForLocale(getLocale());
 
@@ -1086,6 +1100,36 @@ export function importExternalHealthData(format: string, rawContent: string) {
     notify(tr("toast.wearable_imported"));
   } catch (err) {
     notify(tr("toast.wearable_failed", { error: errorMessage(err) }));
+  }
+}
+
+export async function syncAppleHealthkit(days = 35, silent = false): Promise<boolean> {
+  if (syncingHealthkit()) return false;
+  syncingHealthkit.set(true);
+  try {
+    const raw = await engine.syncAppleHealthkit(days);
+    applyJson(raw);
+    if (!silent) {
+      const summary = uiState().settings.healthkit_last_summary;
+      notify(summary || tr("toast.healthkit_synced"));
+    }
+    return true;
+  } catch (err) {
+    if (!silent) {
+      notify(tr("toast.healthkit_failed", { error: errorMessage(err) }));
+    }
+    return false;
+  } finally {
+    syncingHealthkit.set(false);
+  }
+}
+
+export function setHealthkitAutoSync(enabled: boolean) {
+  try {
+    applyJson(engine.setHealthkitAutoSync(enabled));
+    notify(enabled ? tr("toast.healthkit_auto_on") : tr("toast.healthkit_auto_off"));
+  } catch (err) {
+    notify(tr("toast.healthkit_failed", { error: errorMessage(err) }));
   }
 }
 
@@ -1972,4 +2016,16 @@ export async function pickCustomPetPhotoDataUrl(): Promise<string | null> {
     notify(errorMessage(err));
     return null;
   }
+}
+
+// 在支持原生 HealthKit 的 iOS 真机上，已授权且开启自动同步时于冷启动 700ms 后静默增量刷新近 7 天数据
+if (
+  isHealthkitSupported() &&
+  initialPayload.settings?.onboarding_done &&
+  initialPayload.settings?.healthkit_authorized &&
+  initialPayload.settings?.healthkit_auto_sync
+) {
+  setTimeout(() => {
+    void syncAppleHealthkit(7, true);
+  }, 700);
 }

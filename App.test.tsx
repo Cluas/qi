@@ -414,3 +414,61 @@ test("知气 v5.5 iOS 竖屏 (393x852 Dynamic Island) 拇指底栏速记抽屉�
   await app.press("确认彻底清空本机数据");
   await app.waitFor("欢迎来到知气");
 }, 90000);
+
+test("知气 v5.6 Apple HealthKit 原生直连卡片与炉火金库双语入口测试", async () => {
+  const app = await open("./App.tsx", { locale: "en-US" });
+
+  await app.waitFor("欢迎来到知气");
+  await app.scroll("欢迎来到知气", 500);
+  await app.press("推开窗扉");
+  await app.waitFor("窗台已铺设好，开始安安静静记第一天吧");
+  await app.press("关闭");
+
+  // 1. 中文模式下校验 我的 › 隐私与金库 与 记录 › 炉火金库 的 HealthKit 卡片
+  await app.press("我的");
+  await app.press("隐私与金库");
+  await app.waitFor("界面与习惯");
+  await scrollIntoView(app, "界面与习惯", 300);
+  await app.waitFor("Apple 健康 (HealthKit)");
+  expect(app.shows("本机只读")).toBe(true);
+  assertCleanCopy(app.texts());
+
+  await app.press("记录");
+  await app.press("炉火金库");
+  await app.waitFor("Apple 健康 (HealthKit) 一键直连");
+  expect(app.shows("本机只读")).toBe(true);
+  assertCleanCopy(app.texts());
+
+  // 2. 切换至英文校验 Me › Vault & Privacy 与 Log › Hearth vault
+  await app.press("我的");
+  await app.press("隐私与金库");
+  await app.waitFor("界面与习惯");
+  await app.press("English");
+  await app.waitFor("Appearance & language");
+  if (app.shows("Close")) await app.press("Close");
+  await scrollIntoView(app, "Appearance & language", 300);
+  await app.waitFor("Apple HealthKit");
+  expect(app.shows("Read-only")).toBe(true);
+  assertCleanCopy(app.texts());
+
+  await app.press("Log");
+  await app.press("Hearth vault");
+  await app.waitFor("Apple Health direct sync");
+  expect(app.shows("Read-only")).toBe(true);
+  assertCleanCopy(app.texts());
+
+  // 3. 切回简体中文并清空本机手账数据回归初始态
+  await app.press("Me");
+  await app.press("Vault & Privacy");
+  await app.waitFor("Appearance & language");
+  await app.press("简体中文");
+  await app.waitFor("界面与习惯");
+  if (app.shows("关闭")) await app.press("关闭");
+  await scrollIntoView(app, "本地安全金库", 900);
+  await scrollIntoView(app, "清空本机手账数据…", 700);
+  await app.waitFor("清空本机手账数据…");
+  await app.press("清空本机手账数据…");
+  await app.waitFor("真的要清空本机手账金库吗？");
+  await app.press("确认彻底清空本机数据");
+  await app.waitFor("欢迎来到知气");
+}, 90000);

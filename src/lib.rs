@@ -6,6 +6,7 @@ pub mod apple_native;
 pub mod crypto_sync;
 pub mod entitlements;
 pub mod experiments;
+pub mod healthkit_ios;
 pub mod importers;
 pub mod nutrition_db;
 pub mod personas;
@@ -42,6 +43,10 @@ use crate::entitlements::{
 use crate::experiments::{
     EXPERIMENT_TEMPLATES, ExperimentEvaluation, ExperimentTemplate, PeriodComparison,
     compute_period_comparison, evaluate_experiments,
+};
+use crate::healthkit_ios::{
+    is_healthkit_available as hk_is_available, parse_and_validate_healthkit_payload,
+    request_and_query_healthkit_json,
 };
 use crate::importers::{parse_apple_health_xml_snippet, parse_csv_metrics};
 use crate::nutrition_db::{FoodSearchHit, parse_natural_intake_text, search_foods};
@@ -644,6 +649,107 @@ impl QiEngine {
         if snapshot.state == "recovery_priority" {
             let _ = self.db.ensure_daily_recovery_dew(&snapshot.target_date);
         }
+    }
+
+    pub(crate) fn ingest_healthkit_sync_json(
+        &mut self,
+        raw_json: &str,
+        requested_days: u32,
+    ) -> Result<String, String> {
+        let batch = parse_and_validate_healthkit_payload(raw_json)?;
+        let mut s = self.db.load_settings()?;
+        let en = is_en_locale(&s.locale);
+        let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+
+        if batch.metrics.is_empty() && batch.workouts.is_empty() {
+            s.healthkit_authorized = batch.authorized;
+            s.healthkit_last_sync_at = now_str;
+            s.healthkit_synced_days = 0;
+            s.healthkit_last_summary = if en {
+                format!(
+                    "Connected Apple Health, but found no records in the past {requested_days} days. Please check Settings › Health › Data Access & Devices › Qi."
+                )
+            } else {
+                format!(
+                    "已完成 Apple 健康连接，但近 {requested_days} 天暂未读到记录。请确认「系统设置 › 健康 › 数据访问与设备 › 知气」已开启睡眠、心率变异性与步数读取开关。"
+                )
+            };
+            self.db.save_settings(&s)?;
+            return self.build_payload();
+        }
+
+        if self
+            .db
+            .purge_demo_metrics_if_synthetic_persona(&s.active_persona)?
+        {
+            s.active_persona = "real_healthkit".to_owned();
+        }
+
+        for row in &batch.metrics {
+            self.db.upsert_daily_metric(row)?;
+        }
+        for w in &batch.workouts {
+            self.db.upsert_workout(
+                &w.workout_id,
+                &w.date,
+                &w.activity_type,
+                w.duration_minutes,
+                w.calories_kcal,
+                &w.source,
+            )?;
+        }
+
+        let all_metrics = self.db.load_metrics()?;
+        let has_hrv_or_stages = all_metrics.iter().any(|m| {
+            matches!(
+                m.metric.as_str(),
+                "hrv_sdnn_ms" | "hrv_rmssd_ms" | "sleep_deep_minutes" | "sleep_rem_minutes"
+            )
+        });
+        let has_sleep_or_rhr = all_metrics.iter().any(|m| {
+            matches!(
+                m.metric.as_str(),
+                "sleep_minutes" | "resting_heart_rate_bpm"
+            )
+        });
+        s.hardware_tier = if has_hrv_or_stages {
+            "tier_a".to_owned()
+        } else if has_sleep_or_rhr {
+            "tier_b".to_owned()
+        } else {
+            batch.recommended_tier.to_owned()
+        };
+
+        s.healthkit_authorized = true;
+        s.healthkit_last_sync_at = now_str;
+        s.healthkit_synced_days = batch.distinct_days as u32;
+        s.healthkit_last_summary = if en {
+            format!(
+                "Synced {} days from Apple Health ({} metrics · {} workouts)",
+                batch.distinct_days,
+                batch.metrics.len(),
+                batch.workouts.len()
+            )
+        } else {
+            format!(
+                "已从 Apple 健康同步 {} 天（{} 项生理指标 · {} 次训练）",
+                batch.distinct_days,
+                batch.metrics.len(),
+                batch.workouts.len()
+            )
+        };
+        self.live_briefing_override = None;
+        self.db.save_settings(&s)?;
+
+        let snap = compute_snapshot(
+            &all_metrics,
+            &self.db.load_workouts()?,
+            &self.db.load_intakes()?,
+            HardwareTier::from_str(&s.hardware_tier),
+            s.morning_feeling,
+        );
+        self.award_recovery_dew_if_needed(&snap);
+        self.build_payload()
     }
 
     fn build_payload(&self) -> Result<String, String> {
@@ -2776,6 +2882,41 @@ impl QiEngine {
         };
         serde_json::to_string(&report).map_err(|e| e.to_string())
     }
+
+    /// 检查当前运行环境是否可唤起原生 Apple HealthKit 授权与直连查询。
+    pub fn is_healthkit_available(&self) -> bool {
+        hk_is_available()
+    }
+
+    /// 切换打开「知气」时是否自动从 Apple 健康增量同步近 7 天最新记录。
+    pub fn set_healthkit_auto_sync(&mut self, enabled: bool) -> Result<String, String> {
+        let mut s = self.db.load_settings()?;
+        s.healthkit_auto_sync = enabled;
+        self.db.save_settings(&s)?;
+        self.build_payload()
+    }
+
+    /// 在后台 OS 线程请求 Apple HealthKit 读取授权并导入近 `days` 天生理与运动记录，不阻塞 UI 主线程。
+    pub async fn sync_apple_healthkit(this: Instance<Self>, days: u32) -> Result<String, String> {
+        let clamped = days.clamp(1, 180);
+        let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+        std::thread::spawn(move || {
+            let res = request_and_query_healthkit_json(clamped);
+            let _ = tx.send(res);
+        });
+        let raw_json = loop {
+            match rx.try_recv() {
+                Ok(res) => break res?,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    timer(std::time::Duration::from_millis(40)).await;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    return Err("Apple HealthKit 同步线程意外中断".to_owned());
+                }
+            }
+        };
+        this.with_mut(|engine| engine.ingest_healthkit_sync_json(&raw_json, clamped))
+    }
 }
 
 #[cfg(test)]
@@ -2990,5 +3131,139 @@ mod e2e_tests {
         assert!(!settings.locale.is_empty());
         assert!(fallback_db.exists());
         let _ = std::fs::remove_dir_all(&fallback_dir);
+    }
+
+    #[test]
+    fn healthkit_import_clears_demo_persona_preserves_user_logs_and_keeps_sdnn_isolated() {
+        let mut engine = QiEngine::new(Some(":memory:".to_owned())).unwrap();
+        engine
+            .log_quick_intake(
+                "drink".into(),
+                "自录测试手冲咖啡".into(),
+                "午后".into(),
+                "测试保留".into(),
+                Some(5.0),
+            )
+            .unwrap();
+        engine
+            .import_lab_report("2026-11-10".into(), "尿酸 (UA): 390 umol/L (参考 155-357)".into())
+            .unwrap();
+
+        let mut hk_metrics = Vec::new();
+        for day_idx in 1..=10 {
+            let date = format!("2026-11-{day_idx:02}");
+            let late_cafe = day_idx % 3 == 0;
+            if late_cafe {
+                hk_metrics.push(serde_json::json!({
+                    "date": date,
+                    "metric": "sleep_deep_minutes",
+                    "source": "apple_health",
+                    "value": 62.0,
+                    "unit": "min"
+                }));
+                hk_metrics.push(serde_json::json!({
+                    "date": date,
+                    "metric": "hrv_sdnn_ms",
+                    "source": "apple_health",
+                    "value": 34.0,
+                    "unit": "ms"
+                }));
+            } else {
+                hk_metrics.push(serde_json::json!({
+                    "date": date,
+                    "metric": "sleep_deep_minutes",
+                    "value": 92.0,
+                    "unit": "min"
+                }));
+                hk_metrics.push(serde_json::json!({
+                    "date": date,
+                    "metric": "hrv_sdnn_ms",
+                    "value": 52.0,
+                    "unit": "ms"
+                }));
+            }
+            hk_metrics.push(serde_json::json!({
+                "date": date,
+                "metric": "sleep_minutes",
+                "value": 445.0,
+                "unit": "min"
+            }));
+            hk_metrics.push(serde_json::json!({
+                "date": date,
+                "metric": "resting_heart_rate_bpm",
+                "value": 59.0,
+                "unit": "bpm"
+            }));
+            hk_metrics.push(serde_json::json!({
+                "date": date,
+                "metric": "steps",
+                "value": 7800.0,
+                "unit": "步"
+            }));
+        }
+
+        let hk_payload = serde_json::json!({
+            "ok": true,
+            "available": true,
+            "authorized": true,
+            "metrics": hk_metrics,
+            "workouts": [{
+                "workout_id": "HK-TEST-W1",
+                "date": "2026-11-10",
+                "activity_type": "跑步",
+                "duration_minutes": 32.0,
+                "calories_kcal": 265.0
+            }]
+        })
+        .to_string();
+
+        let state_raw = engine.ingest_healthkit_sync_json(&hk_payload, 35).unwrap();
+        let st: serde_json::Value = serde_json::from_str(&state_raw).unwrap();
+        assert_eq!(st["settings"]["active_persona"], "real_healthkit");
+        assert_eq!(st["settings"]["healthkit_authorized"], true);
+        assert_eq!(st["settings"]["healthkit_synced_days"], 10);
+        assert_eq!(st["settings"]["hardware_tier"], "tier_a");
+        assert!(st["snapshot"]["metrics"].get("hrv_rmssd_ms").is_none());
+        assert_eq!(st["snapshot"]["metrics"]["hrv_sdnn_ms"]["source"], "apple_health");
+        assert!(
+            st["intakes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|x| x["item_name"] == "自录测试手冲咖啡")
+        );
+        assert!(!st["labs"].as_array().unwrap().is_empty());
+
+        let audit: serde_json::Value =
+            serde_json::from_str(&engine.run_data_integrity_audit().unwrap()).unwrap();
+        assert_eq!(audit["passed"], true);
+        assert_eq!(audit["rmssd_sdnn_isolated"], true);
+    }
+
+    #[test]
+    fn healthkit_empty_import_preserves_existing_data_with_guidance() {
+        let mut engine = QiEngine::new(Some(":memory:".to_owned())).unwrap();
+        let before: serde_json::Value = serde_json::from_str(&engine.state_json().unwrap()).unwrap();
+        let before_date = before["snapshot"]["target_date"].as_str().unwrap().to_owned();
+
+        let empty_payload = serde_json::json!({
+            "ok": true,
+            "available": true,
+            "authorized": true,
+            "metrics": [],
+            "workouts": []
+        })
+        .to_string();
+
+        let after_raw = engine.ingest_healthkit_sync_json(&empty_payload, 35).unwrap();
+        let after: serde_json::Value = serde_json::from_str(&after_raw).unwrap();
+        assert_eq!(after["snapshot"]["target_date"], before_date);
+        assert_eq!(after["settings"]["healthkit_synced_days"], 0);
+        assert!(
+            after["settings"]["healthkit_last_summary"]
+                .as_str()
+                .unwrap()
+                .contains("系统设置")
+        );
     }
 }

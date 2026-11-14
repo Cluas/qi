@@ -494,8 +494,17 @@ pub fn compute_lagged_impacts(
         }
     }
 
+    // 严格隔离 RMSSD 与 Apple Watch SDNN：仅当数据集中完全不含 RMSSD 时才以独立 SDNN 序列归因
+    let has_rmssd = canonical
+        .values()
+        .any(|day_map| day_map.contains_key("hrv_rmssd_ms"));
+    let hrv_spec = if has_rmssd {
+        ("hrv_rmssd_ms", "次日夜间 HRV", "ms", true)
+    } else {
+        ("hrv_sdnn_ms", "次日 HRV (SDNN)", "ms", true)
+    };
     let outcome_specs = [
-        ("hrv_rmssd_ms", "次日夜间 HRV", "ms", true),
+        hrv_spec,
         ("resting_heart_rate_bpm", "次日静息心率", "bpm", false),
         ("sleep_deep_minutes", "当晚深睡时长", "min", true),
     ];

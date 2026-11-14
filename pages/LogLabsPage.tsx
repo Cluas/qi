@@ -9,6 +9,8 @@ import {
   getState,
   importExternalHealthData,
   importLabReport,
+  isHealthkitSupported,
+  isSyncingHealthkit,
   type LogSubTab,
   logNaturalIntake,
   logQuickIntake,
@@ -19,6 +21,7 @@ import {
   setLogSubTab,
   setShowAtelierModal,
   setTab,
+  syncAppleHealthkit,
 } from "../store";
 import { StickerCameraMatPanel, type StickerFrameStyle } from "../ui/atelier";
 import {
@@ -739,6 +742,66 @@ export function LogLabsPage() {
       {/* Subview 3: Hearth Vault & Wearable Sources */}
       <If when={getLogSubTab() === "vault"}>
         <View class="gap-4">
+          <Card>
+            <SectionHeader
+              title={tr("log.healthkit_card_title")}
+              subtitle={tr("log.healthkit_card_sub")}
+              right={
+                <VitalBadge
+                  tone={state().settings.healthkit_authorized ? "prime_ready" : "neutral"}
+                  label={
+                    state().settings.healthkit_authorized
+                      ? tr("me.healthkit_badge_connected")
+                      : tr("me.healthkit_badge_local")
+                  }
+                />
+              }
+            />
+
+            <If when={isHealthkitSupported()}>
+              <View class="gap-2.5">
+                <View class="flex-row flex-wrap gap-2">
+                  <ActionButton
+                    title={
+                      isSyncingHealthkit()
+                        ? tr("me.healthkit_syncing_btn")
+                        : state().settings.healthkit_authorized
+                          ? tr("me.healthkit_sync_35d_btn")
+                          : tr("me.healthkit_connect_btn")
+                    }
+                    icon="heart_pulse"
+                    disabled={isSyncingHealthkit()}
+                    onPress={() => void syncAppleHealthkit(35, false)}
+                    class="flex-1"
+                  />
+                  <ActionButton
+                    title={tr("me.healthkit_sync_90d_btn")}
+                    icon="refresh"
+                    variant="outline"
+                    disabled={isSyncingHealthkit()}
+                    onPress={() => void syncAppleHealthkit(90, false)}
+                  />
+                </View>
+
+                <If when={Boolean(state().settings.healthkit_last_summary)}>
+                  <SunkenBox>
+                    <Text class="text-xs leading-relaxed text-foreground">
+                      {state().settings.healthkit_last_summary}
+                    </Text>
+                  </SunkenBox>
+                </If>
+              </View>
+            </If>
+
+            <If when={!isHealthkitSupported()}>
+              <SunkenBox>
+                <Text class="text-xs leading-relaxed text-muted-foreground">
+                  {tr("me.healthkit_desktop_hint")}
+                </Text>
+              </SunkenBox>
+            </If>
+          </Card>
+
           <Card>
             <SectionHeader
               title={tr("log.wearable_title")}

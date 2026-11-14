@@ -4,10 +4,12 @@ import {
   getAppLocale,
   getState,
   getVisualTheme,
+  isHealthkitSupported,
   setVisualTheme,
+  syncAppleHealthkit,
   toggleAppLocale,
 } from "../store";
-import { ActionButton, Card, ChoiceCard, ModalSurface, SunkenBox, VitalBadge } from "../ui/components";
+import { ActionButton, Card, ChoiceCard, ModalSurface, SunkenBox, SwitchRow, VitalBadge } from "../ui/components";
 import { QiIcon, type QiIconName } from "../ui/icons";
 import { tr } from "../ui/i18n";
 import { ThemeSwitcherStrip } from "../ui/sanctuary";
@@ -15,6 +17,7 @@ import { ThemeSwitcherStrip } from "../ui/sanctuary";
 export function OnboardingModal() {
   const goal = signal("energy_sleep");
   const tier = signal("tier_a");
+  const connectHealthkit = signal(true);
   const isOpen = () => !getState().settings.onboarding_done;
 
   const goals = (): { id: string; title: string; subtitle: string; icon: QiIconName }[] => [
@@ -159,11 +162,27 @@ export function OnboardingModal() {
           />
         </Card>
 
+        <If when={isHealthkitSupported()}>
+          <Card>
+            <SwitchRow
+              title={tr("onboarding.healthkit_opt_title")}
+              subtitle={tr("onboarding.healthkit_opt_sub")}
+              checked={connectHealthkit()}
+              onChange={(v) => connectHealthkit.set(v)}
+            />
+          </Card>
+        </If>
+
         <ActionButton
           title={tr("onboarding.begin_btn")}
           icon="sparkles"
           size="lg"
-          onPress={() => completeOnboarding(goal(), tier())}
+          onPress={() => {
+            completeOnboarding(goal(), tier());
+            if (isHealthkitSupported() && connectHealthkit()) {
+              void syncAppleHealthkit(35, false);
+            }
+          }}
         />
       </Scroll>
     </ModalSurface>
