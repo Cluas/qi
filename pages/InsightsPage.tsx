@@ -84,7 +84,8 @@ export function InsightsPage() {
       {/* Subview 1: Rhythm Curves & N-of-1 Experiments */}
       <If when={getInsightsSubTab() === "curves"}>
         <View class="gap-4">
-          <Card>
+          {/* 无框流光节律画报头部：三枚釉面瓷贴直接呼吸排列在宣纸底上，告别巨型白框套娃 */}
+          <View class="gap-3 px-0.5">
             <SectionHeader
               title={tr("insights.period_title")}
               subtitle={tr("insights.period_subtitle", {
@@ -138,10 +139,10 @@ export function InsightsPage() {
               />
             </View>
 
-            <SunkenBox>
+            <View class="rounded-2xl border border-border/65 bg-card/80 px-3.5 py-2.5">
               <Text class="text-xs leading-relaxed text-foreground">{period().summary}</Text>
-            </SunkenBox>
-          </Card>
+            </View>
+          </View>
 
           <Card>
             <SectionHeader title={tr("insights.rhythm_trend_title")} />

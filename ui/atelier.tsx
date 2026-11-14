@@ -656,12 +656,12 @@ export function SeasonalPassPanel(props: {
         subtitle={props.solarSubtitle ?? tr("atelier.seasonal.panel_subtitle")}
         right={
           <View class="flex-row items-center gap-1 rounded-full bg-dew-soft px-3 py-1">
-            <QiIcon name="droplet" size={13} color={token("dew-accent")} />
+            <QiIcon name="droplet" size={11} color={token("dew-accent")} />
             <Text
               class="text-xs font-bold text-dew-accent"
               style={{ fontVariant: ["tabular-nums"] }}
             >
-              {`${props.dewBalance} 💧`}
+              {`${props.dewBalance}`}
             </Text>
           </View>
         }
@@ -677,12 +677,15 @@ export function SeasonalPassPanel(props: {
                 <View class="min-w-40 flex-1 gap-1.5 rounded-xl border border-border/70 bg-bento-sage/60 p-3">
                   <View class="flex-row items-center justify-between gap-1">
                     <Text class="text-xs font-bold text-foreground">{node().title}</Text>
-                    <Text
-                      class="text-[11px] font-semibold text-dew-accent"
-                      style={{ fontVariant: ["tabular-nums"] }}
-                    >
-                      {`${node().dewCost} 💧`}
-                    </Text>
+                    <View class="flex-row items-center gap-1">
+                      <QiIcon name="droplet" size={11} color={token("dew-accent")} />
+                      <Text
+                        class="text-[11px] font-semibold text-dew-accent"
+                        style={{ fontVariant: ["tabular-nums"] }}
+                      >
+                        {`${node().dewCost}`}
+                      </Text>
+                    </View>
                   </View>
                   <If when={Boolean(node().description)}>
                     <Text class="text-[11px] text-muted-foreground">{node().description}</Text>
@@ -729,12 +732,15 @@ export function SeasonalPassPanel(props: {
                 >
                   <View class="flex-row items-center justify-between gap-1">
                     <Text class="text-xs font-bold text-foreground">{node().title}</Text>
-                    <Text
-                      class="text-[11px] font-semibold text-atelier-accent"
-                      style={{ fontVariant: ["tabular-nums"] }}
-                    >
-                      {`${node().dewCost} 💧`}
-                    </Text>
+                    <View class="flex-row items-center gap-1">
+                      <QiIcon name="droplet" size={11} color={token("dew-accent")} />
+                      <Text
+                        class="text-[11px] font-semibold text-atelier-accent"
+                        style={{ fontVariant: ["tabular-nums"] }}
+                      >
+                        {`${node().dewCost}`}
+                      </Text>
+                    </View>
                   </View>
                   <If when={Boolean(node().description)}>
                     <Text class="text-[11px] text-muted-foreground">{node().description}</Text>

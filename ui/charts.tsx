@@ -145,7 +145,111 @@ export function VitalityDialCanvas(props: { score: number; state: string; badge:
 /** 兼容既有页面导入别名 */
 export const VitalityRingCanvas = VitalityDialCanvas;
 
-/** 交互式近 14 天元气节律图（顶部选中日读数栏 + nsh/base/plot 原生平滑面积曲线） */
+/** 《胃之书》式热敏/和纸手账小票锯齿撕纸边缘（连续三角齿 + 细微裁切虚线墨痕） */
+export function SerratedReceiptBanner(props: { position: "top" | "bottom" }) {
+  return (
+    <Canvas
+      class="w-full"
+      style={{ height: 14 }}
+      draw={(cx, size) => {
+        const w = Math.max(160, size.width);
+        const h = size.height;
+        const toothW = 10;
+        const count = Math.ceil(w / toothW);
+        const paperFill = readToken("card");
+        const borderStroke = readToken("border");
+        const subtleInk = readToken("ink-subtle");
+
+        cx.clearRect(0, 0, w, h);
+
+        cx.save();
+        cx.fillStyle = paperFill;
+        cx.strokeStyle = borderStroke;
+        cx.lineWidth = 1;
+        cx.lineJoin = "round";
+
+        if (props.position === "top") {
+          const baseY = h;
+          const valleyY = h - 2;
+          const peakY = 2;
+
+          cx.beginPath();
+          cx.moveTo(0, baseY);
+          cx.lineTo(0, valleyY);
+          for (let i = 0; i < count; i++) {
+            const xPeak = i * toothW + toothW * 0.5;
+            const xNext = Math.min(w, (i + 1) * toothW);
+            cx.lineTo(xPeak, peakY);
+            cx.lineTo(xNext, valleyY);
+          }
+          cx.lineTo(w, baseY);
+          cx.closePath();
+          cx.fill();
+
+          // 描边锯齿外沿
+          cx.beginPath();
+          cx.moveTo(0, valleyY);
+          for (let i = 0; i < count; i++) {
+            const xPeak = i * toothW + toothW * 0.5;
+            const xNext = Math.min(w, (i + 1) * toothW);
+            cx.lineTo(xPeak, peakY);
+            cx.lineTo(xNext, valleyY);
+          }
+          cx.stroke();
+
+          // 压痕裁切虚线
+          cx.strokeStyle = subtleInk;
+          cx.globalAlpha = 0.38;
+          cx.setLineDash([3, 3]);
+          cx.beginPath();
+          cx.moveTo(10, h - 1);
+          cx.lineTo(w - 10, h - 1);
+          cx.stroke();
+        } else {
+          const baseY = 0;
+          const valleyY = 2;
+          const peakY = h - 2;
+
+          cx.beginPath();
+          cx.moveTo(0, baseY);
+          cx.lineTo(0, valleyY);
+          for (let i = 0; i < count; i++) {
+            const xPeak = i * toothW + toothW * 0.5;
+            const xNext = Math.min(w, (i + 1) * toothW);
+            cx.lineTo(xPeak, peakY);
+            cx.lineTo(xNext, valleyY);
+          }
+          cx.lineTo(w, baseY);
+          cx.closePath();
+          cx.fill();
+
+          // 描边锯齿外沿
+          cx.beginPath();
+          cx.moveTo(0, valleyY);
+          for (let i = 0; i < count; i++) {
+            const xPeak = i * toothW + toothW * 0.5;
+            const xNext = Math.min(w, (i + 1) * toothW);
+            cx.lineTo(xPeak, peakY);
+            cx.lineTo(xNext, valleyY);
+          }
+          cx.stroke();
+
+          // 压痕裁切虚线
+          cx.strokeStyle = subtleInk;
+          cx.globalAlpha = 0.38;
+          cx.setLineDash([3, 3]);
+          cx.beginPath();
+          cx.moveTo(10, 1);
+          cx.lineTo(w - 10, 1);
+          cx.stroke();
+        }
+        cx.restore();
+      }}
+    />
+  );
+}
+
+/** 交互式近 14 天元气节律图（顶部选中日读数栏 + 流光双色有机节律丝带 Canvas + nsh/base/plot 原生平滑面积曲线） */
 export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
   const hoveredIdx = signal<number | null>(null);
 
@@ -199,7 +303,176 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
           )}
         </If>
 
-        <View class="pb-5 pl-7 pr-2 pt-2">
+        {/* Gentler Streak / StressWatch 风格流光双色有机节律丝带（30日常模舒适带 + 平滑贝塞尔气韵丝带 + 发光极值点） */}
+        <Canvas
+          class="w-full"
+          style={{ height: 84 }}
+          draw={(cx, size) => {
+            const pts = props.points;
+            const w = Math.max(220, size.width);
+            const h = size.height;
+            const padL = 28;
+            const padR = 14;
+            const padT = 10;
+            const padB = 10;
+            const plotW = Math.max(40, w - padL - padR);
+            const plotH = Math.max(30, h - padT - padB);
+
+            cx.clearRect(0, 0, w, h);
+            if (pts.length === 0) return;
+
+            const xFor = (i: number) =>
+              pts.length === 1 ? padL + plotW / 2 : padL + (plotW * i) / (pts.length - 1);
+            const yFor = (score: number) => {
+              const clamped = Math.max(0, Math.min(100, Number.isFinite(score) ? score : 50));
+              return padT + plotH * (1 - clamped / 100);
+            };
+
+            // 1) 30 日常模舒适带 (62 - 86 分柔和呼吸走廊)
+            const bandTop = yFor(86);
+            const bandBottom = yFor(62);
+            const bandH = Math.max(8, bandBottom - bandTop);
+            cx.save();
+            cx.fillStyle = readToken("vital-prime-soft");
+            cx.globalAlpha = 0.62;
+            cx.beginPath();
+            cx.roundRect(padL, bandTop, plotW, bandH, 8);
+            cx.fill();
+
+            cx.strokeStyle = readToken("vital-prime");
+            cx.globalAlpha = 0.32;
+            cx.lineWidth = 1;
+            cx.setLineDash([4, 4]);
+            cx.beginPath();
+            cx.moveTo(padL, bandTop);
+            cx.lineTo(padL + plotW, bandTop);
+            cx.moveTo(padL, bandBottom);
+            cx.lineTo(padL + plotW, bandBottom);
+            cx.stroke();
+            cx.restore();
+
+            const coords = pts.map((p, idx) => ({
+              x: xFor(idx),
+              y: yFor(p.qi_score),
+              score: p.qi_score,
+            }));
+
+            // 2) 有机丝带柔和体积层（上下包络贝塞尔丝带）
+            if (coords.length > 1) {
+              cx.save();
+              cx.fillStyle = readToken("vital-prime");
+              cx.globalAlpha = 0.16;
+              cx.beginPath();
+              cx.moveTo(coords[0].x, coords[0].y - 5);
+              for (let i = 0; i < coords.length - 1; i++) {
+                const curr = coords[i];
+                const next = coords[i + 1];
+                const midX = (curr.x + next.x) * 0.5;
+                cx.bezierCurveTo(midX, curr.y - 6, midX, next.y - 6, next.x, next.y - 5);
+              }
+              for (let i = coords.length - 1; i > 0; i--) {
+                const curr = coords[i];
+                const prev = coords[i - 1];
+                const midX = (curr.x + prev.x) * 0.5;
+                cx.bezierCurveTo(midX, curr.y + 6, midX, prev.y + 6, prev.x, prev.y + 5);
+              }
+              cx.closePath();
+              cx.fill();
+              cx.restore();
+
+              // 次谐波琥珀余韵曲线
+              cx.save();
+              cx.strokeStyle = readToken("vital-steady");
+              cx.globalAlpha = 0.45;
+              cx.lineWidth = 1.8;
+              cx.lineCap = "round";
+              cx.beginPath();
+              cx.moveTo(coords[0].x, coords[0].y + 4);
+              for (let i = 0; i < coords.length - 1; i++) {
+                const curr = coords[i];
+                const next = coords[i + 1];
+                const midX = (curr.x + next.x) * 0.5;
+                cx.bezierCurveTo(midX, curr.y + 4, midX, next.y + 4, next.x, next.y + 4);
+              }
+              cx.stroke();
+              cx.restore();
+
+              // 主气韵流光贝塞尔曲线
+              cx.save();
+              cx.strokeStyle = readToken("vital-prime");
+              cx.lineWidth = 2.8;
+              cx.lineCap = "round";
+              cx.lineJoin = "round";
+              cx.beginPath();
+              cx.moveTo(coords[0].x, coords[0].y);
+              for (let i = 0; i < coords.length - 1; i++) {
+                const curr = coords[i];
+                const next = coords[i + 1];
+                const midX = (curr.x + next.x) * 0.5;
+                cx.bezierCurveTo(midX, curr.y, midX, next.y, next.x, next.y);
+              }
+              cx.stroke();
+              cx.restore();
+            }
+
+            // 3) 发光极值点（最高峰、最低谷）与当前游标点
+            let maxIdx = 0;
+            let minIdx = 0;
+            coords.forEach((c, idx) => {
+              if (c.score > coords[maxIdx].score) maxIdx = idx;
+              if (c.score < coords[minIdx].score) minIdx = idx;
+            });
+            const activeIdx =
+              hoveredIdx() !== null && hoveredIdx()! >= 0 && hoveredIdx()! < coords.length
+                ? hoveredIdx()!
+                : coords.length - 1;
+
+            // 当前游标垂直流光准星
+            const focusPt = coords[activeIdx];
+            cx.save();
+            cx.strokeStyle = readToken("primary");
+            cx.globalAlpha = 0.28;
+            cx.lineWidth = 1.2;
+            cx.beginPath();
+            cx.moveTo(focusPt.x, padT);
+            cx.lineTo(focusPt.x, padT + plotH);
+            cx.stroke();
+            cx.restore();
+
+            const highlightIndices = Array.from(new Set([minIdx, maxIdx, activeIdx]));
+            for (const idx of highlightIndices) {
+              const pt = coords[idx];
+              const isFocus = idx === activeIdx;
+              const isPeak = idx === maxIdx;
+              const dotTone = isFocus
+                ? readToken("primary")
+                : isPeak
+                  ? readToken("vital-prime")
+                  : readToken("vital-steady");
+
+              cx.save();
+              cx.fillStyle = dotTone;
+              cx.globalAlpha = isFocus ? 0.24 : 0.16;
+              cx.beginPath();
+              cx.arc(pt.x, pt.y, isFocus ? 8.5 : 6.5, 0, Math.PI * 2);
+              cx.fill();
+
+              cx.globalAlpha = 1;
+              cx.fillStyle = readToken("card");
+              cx.beginPath();
+              cx.arc(pt.x, pt.y, isFocus ? 5.2 : 4.2, 0, Math.PI * 2);
+              cx.fill();
+
+              cx.fillStyle = dotTone;
+              cx.beginPath();
+              cx.arc(pt.x, pt.y, isFocus ? 3.6 : 2.8, 0, Math.PI * 2);
+              cx.fill();
+              cx.restore();
+            }
+          }}
+        />
+
+        <View class="pb-5 pl-7 pr-2 pt-1">
           <Plot<RhythmPoint>
             data={props.points}
             x={(_d, index) => index}
@@ -207,7 +480,7 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
             xScale={{ type: "point" }}
             yScale={{ type: "linear", domain: [0, 100] }}
             interactive={true}
-            class="h-32 w-full"
+            class="h-28 w-full"
             crossLineClass="w-px bg-primary/45"
             dotClass="size-2.5 rounded-full border-2 border-card bg-primary"
             onHoverChange={(event) => {

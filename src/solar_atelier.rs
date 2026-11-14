@@ -1,6 +1,6 @@
 //! 「知气雅集」情感化节律引擎：
 //! 1. 24 节气 × 月相 × 窗外天色心境
-//! 2. 岁时风物双轨季票（清欢轨 + 雅集轨）与晨露账本（含静养日免费 +3 💧）
+//! 2. 岁时风物双轨季票（清欢轨 + 雅集轨）与晨露账本（含静养日免费 +3 滴晨露）
 //! 3. 食光拍立得贴纸与月历餐垫（免费每月 5 张，雅集无限 + 嘌呤/钠轻提示）
 //! 4. 伴侣周日夜话慢递 & 自家灵宠第一人称周信 & 节气藏书票
 //! 5. 隐私优先双人同窗（1 字节心情枚举 + 窗台岁时金桂盆栽）
@@ -1455,17 +1455,17 @@ pub fn build_co_sanctuary_state_localized(
             vec![
                 CoSanctuaryActionSpec {
                     id: "warm_tea".into(),
-                    label: "递热茶 +1 💧".into(),
+                    label: "递热茶 +1 滴晨露".into(),
                     dew_reward: 1,
                 },
                 CoSanctuaryActionSpec {
                     id: "tuck_blanket".into(),
-                    label: "盖薄被 +1 💧".into(),
+                    label: "盖薄被 +1 滴晨露".into(),
                     dew_reward: 1,
                 },
                 CoSanctuaryActionSpec {
                     id: "paw_stamp".into(),
-                    label: "按爪印 +1 💧".into(),
+                    label: "按爪印 +1 滴晨露".into(),
                     dew_reward: 1,
                 },
             ]

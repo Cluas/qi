@@ -46,6 +46,8 @@ import { QiIcon } from "../ui/icons";
 import { tr } from "../ui/i18n";
 import {
   BentoMetricCard,
+  BreathWaveCanvas,
+  LiquidQiVesselCanvas,
   SanctuaryStage,
   type SealInkId,
   StampCheckinCard,
@@ -218,22 +220,25 @@ export function TodayPage() {
 
   return (
     <View class="gap-4">
-      {/* Greeting row & calm world switcher */}
-      <View class="gap-2.5 px-0.5">
-        <View class="flex-row items-end justify-between gap-3">
-          <View class="flex-1 gap-0.5">
-            <Text role="header" class="text-xl font-bold text-foreground">
+      {/* 雅致手账题签栏：紧凑整合今日手账问候、日期印记与三境屏风切换 */}
+      <View class="flex-row flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-border/60 bg-card/75 px-3.5 py-2.5">
+        <View class="gap-0.5">
+          <View class="flex-row items-center gap-2">
+            <Text role="header" class="text-lg font-bold text-foreground">
               {tr("today.kicker")}
             </Text>
-            <Text class="text-xs text-muted-foreground">
-              {tr("today.greeting_sub", { goal: goalLabel() })}
-            </Text>
+            <View class="rounded-full border border-border/65 bg-surface-sunken px-2.5 py-0.5">
+              <Text
+                class="text-[11px] font-medium text-muted-foreground"
+                style={{ fontVariant: ["tabular-nums"] }}
+              >
+                {snap().target_date}
+              </Text>
+            </View>
           </View>
-          <View class="rounded-full border border-border/70 bg-card px-3 py-1">
-            <Text class="text-xs font-medium text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
-              {snap().target_date}
-            </Text>
-          </View>
+          <Text class="text-xs text-muted-foreground">
+            {tr("today.greeting_sub", { goal: goalLabel() })}
+          </Text>
         </View>
 
         <ThemeSwitcherStrip
@@ -268,8 +273,8 @@ export function TodayPage() {
         onOpenPetStudio={() => openPetStudio()}
       />
 
-      {/* 2. Single Today Focus Card (compact metrics whisper + seal-stamp micro action) */}
-      <Card>
+      {/* 2. 无外框宣纸直排：今日关注与一念落印（2×2 非对称釉面瓷贴便当 + 液态/呼吸波纹联动） */}
+      <View class="gap-3 px-0.5">
         <SectionHeader
           title={tr("today.focus_card_title")}
           subtitle={solar().solar_term.whisper}
@@ -281,7 +286,7 @@ export function TodayPage() {
           }
         />
 
-        <View class="flex-row gap-2">
+        <View class="flex-row items-stretch gap-2.5">
           <BentoMetricCard
             icon="heart_pulse"
             label={tr("today.metric_recovery")}
@@ -290,26 +295,50 @@ export function TodayPage() {
             toneSurface="sage"
             accentColor={token("vital-prime")}
             class="flex-1"
-          />
-          <BentoMetricCard
-            icon="moon"
-            label={tr("today.metric_sleep")}
-            value={sleepTile().value}
-            sublabel={sleepTile().sublabel}
-            toneSurface="lavender"
-            accentColor={token("sleep-rem")}
-            class="flex-1"
-          />
-        </View>
+          >
+            <View class="items-center py-0.5">
+              <LiquidQiVesselCanvas score={snap().qi_score} state={snap().state} />
+            </View>
+          </BentoMetricCard>
 
-        <BentoMetricCard
-          icon="flame"
-          label={tr("today.metric_activity")}
-          value={loadTile().value}
-          sublabel={loadTile().sublabel}
-          toneSurface="amber"
-          accentColor={token("vital-steady")}
-        />
+          <View class="flex-1 gap-2.5">
+            <BentoMetricCard
+              icon="moon"
+              label={tr("today.metric_sleep")}
+              value={sleepTile().value}
+              sublabel={sleepTile().sublabel}
+              toneSurface="lavender"
+              accentColor={token("sleep-rem")}
+            >
+              <If when={Boolean(snap().sleep_stages_last_night)}>
+                <SleepArchitectureBar
+                  deepMin={snap().sleep_stages_last_night!.deep_min}
+                  coreMin={snap().sleep_stages_last_night!.core_min}
+                  remMin={snap().sleep_stages_last_night!.rem_min}
+                  awakeMin={snap().sleep_stages_last_night!.awake_min}
+                />
+              </If>
+            </BentoMetricCard>
+
+            <BentoMetricCard
+              icon="flame"
+              label={tr("today.metric_activity")}
+              value={loadTile().value}
+              sublabel={loadTile().sublabel}
+              toneSurface="amber"
+              accentColor={token("vital-steady")}
+            >
+              <BreathWaveCanvas
+                state={snap().state}
+                activeValue={
+                  snap().metrics.hrv_rmssd_ms?.value ??
+                  snap().metrics.hrv_sdnn_ms?.value ??
+                  snap().acwr
+                }
+              />
+            </BentoMetricCard>
+          </View>
+        </View>
 
         <If when={settings().hardware_tier === "tier_c"}>
           <SunkenBox>
@@ -358,13 +387,11 @@ export function TodayPage() {
           onGoLog={() => setTab("log")}
           onOpenPoster={() => setShowDailyPoster(true)}
         />
-      </Card>
 
-      {/* 3. Single Progressive Disclosure Drawer Trigger */}
-      <Card>
-        <View class="flex-row items-center justify-between gap-3">
+        {/* 3. 渐进展开手账折页条（告别独立巨型白框，融于手账脉络底部） */}
+        <View class="flex-row items-center justify-between gap-3 rounded-2xl border border-border/70 bg-surface-sunken/90 px-3.5 py-3">
           <View class="flex-1 flex-row items-center gap-2.5">
-            <View class="size-9 items-center justify-center rounded-xl bg-accent">
+            <View class="size-9 items-center justify-center rounded-xl border border-border/55 bg-card">
               <QiIcon name="record" size={17} color={token("primary")} />
             </View>
             <View class="flex-1 gap-0.5">
@@ -383,7 +410,7 @@ export function TodayPage() {
             onPress={() => drawerOpen.set(true)}
           />
         </View>
-      </Card>
+      </View>
 
       <DrawerSheet
         open={drawerOpen()}

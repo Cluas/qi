@@ -1,4 +1,4 @@
-import { mount, Scroll, signal, Text, token, View, windowSize } from "nsh";
+import { colorScheme, mount, Scroll, signal, Text, token, View, windowSize } from "nsh";
 import { InsightsPage } from "./pages/InsightsPage";
 import { LogLabsPage } from "./pages/LogLabsPage";
 import { MeVaultPage } from "./pages/MeVaultPage";
@@ -130,61 +130,68 @@ function App() {
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
-      {/* Decluttered sanctuary header: brand, quiet privacy status, compact locale toggle & utilities */}
-      <View
-        ios={{ backdropMaterial: "ultraThin" }}
-        class="flex-row items-center justify-between gap-2 border-b border-border/80 bg-card/90 px-4 py-2"
-      >
-        <View class="flex-1 flex-row items-center gap-2.5">
-          <Text role="header" class="text-lg font-bold text-foreground">
-            {tr("app.name")}
-          </Text>
-          <View class="flex-row items-center gap-1 rounded-full border border-vital-prime/25 bg-vital-prime-soft px-2 py-0.5">
-            <QiIcon name="user_shield" size={11} color={token("vital-prime")} />
-            <Text class="text-[11px] font-semibold text-vital-prime">
-              {settings().sync_mode === "local_only"
-                ? tr("status.local_sealed")
-                : tr("status.synced")}
+      {/* Floating Dynamic-Island-aware translucent glass pill top bar */}
+      <View class="px-3 pt-1.5 pb-0.5">
+        <View
+          ios={{ backdropMaterial: "chrome" }}
+          style={{
+            backdropFilter: "blur(20px)",
+            glassEffect: colorScheme() === "dark" ? "none" : "regular",
+            glassTintColor: token("card"),
+          }}
+          class="flex-row items-center justify-between gap-1.5 rounded-full border border-border/65 bg-card/80 px-3 py-1.5 shadow-sm"
+        >
+          <View class="min-w-0 flex-1 flex-row items-center gap-2">
+            <Text role="header" class="text-lg font-bold text-foreground">
+              {tr("app.name")}
             </Text>
+            <View class="shrink-0 flex-row items-center gap-1 rounded-full border border-vital-prime/25 bg-vital-prime-soft px-2 py-0.5">
+              <QiIcon name="user_shield" size={10} color={token("vital-prime")} />
+              <Text class="text-[10px] font-semibold text-vital-prime">
+                {settings().sync_mode === "local_only"
+                  ? tr("status.local_sealed")
+                  : tr("status.synced")}
+              </Text>
+            </View>
+            <If when={isDesktop()}>
+              <Text class="text-xs text-muted-foreground">{syncSummary()}</Text>
+            </If>
           </View>
-          <If when={isDesktop()}>
-            <Text class="text-xs text-muted-foreground">{syncSummary()}</Text>
-          </If>
-        </View>
 
-        <View class="flex-row items-center gap-1">
-          <ActionButton
-            title={tr("common.lang_toggle_compact")}
-            icon="globe"
-            variant="ghost"
-            size="sm"
-            shape="pill"
-            accessibilityLabel={`${tr("common.language")} (${getAppLocale()})`}
-            onPress={() => toggleAppLocale()}
-          />
-          <IconButton
-            icon={appearanceIcon()}
-            size="sm"
-            variant="ghost"
-            accessibilityLabel={tr("common.appearance")}
-            onPress={() => cycleAppearance()}
-          />
-          <If when={isDesktop()}>
-            <IconButton
-              icon="plus"
+          <View class="shrink-0 flex-row items-center gap-0.5">
+            <ActionButton
+              title={tr("common.lang_toggle_compact")}
+              icon="globe"
+              variant="ghost"
               size="sm"
-              variant="secondary"
-              accessibilityLabel={tr("nav.quick_capture")}
-              onPress={() => setShowQuickCaptureModal(true)}
+              shape="pill"
+              accessibilityLabel={`${tr("common.language")} (${getAppLocale()})`}
+              onPress={() => toggleAppLocale()}
             />
-          </If>
-          <IconButton
-            icon="sliders"
-            size="sm"
-            variant="ghost"
-            accessibilityLabel={tr("me.qa_studio_btn")}
-            onPress={() => setShowQaStudio(true)}
-          />
+            <IconButton
+              icon={appearanceIcon()}
+              size="sm"
+              variant="ghost"
+              accessibilityLabel={tr("common.appearance")}
+              onPress={() => cycleAppearance()}
+            />
+            <If when={isDesktop()}>
+              <IconButton
+                icon="plus"
+                size="sm"
+                variant="secondary"
+                accessibilityLabel={tr("nav.quick_capture")}
+                onPress={() => setShowQuickCaptureModal(true)}
+              />
+            </If>
+            <IconButton
+              icon="sliders"
+              size="sm"
+              variant="ghost"
+              accessibilityLabel={tr("me.qa_studio_btn")}
+              onPress={() => setShowQaStudio(true)}
+            />
+          </View>
         </View>
       </View>
 
@@ -463,7 +470,7 @@ function App() {
         closeOnSwipe={true}
         onClose={() => setShowQuickCaptureModal(false)}
       >
-        <Card>
+        <View class="gap-3.5 py-0.5">
           <Text class="text-xs font-semibold text-muted-foreground">
             {tr("log.quick_chips_label")}
           </Text>
@@ -502,7 +509,7 @@ function App() {
             icon="check"
             onPress={submitGlobalQuickCapture}
           />
-        </Card>
+        </View>
       </DrawerSheet>
 
       <ModalSurface

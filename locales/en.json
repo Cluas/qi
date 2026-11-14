@@ -211,7 +211,7 @@
     "mode_recovery": "Rest mode",
     "mode_starlight": "Starlight vigil",
     "rhythm_note_prefix": "Daily note",
-    "dew_plus_two": "+2 dew 💧",
+    "dew_plus_two": "+2 Dew",
     "stamp_zero_pressure_hint": "Zero streak pressure · Stamp whenever ready",
     "stamp_pending_short": "Unstamped",
     "stamped_done_btn": "Stamped",
@@ -278,7 +278,7 @@
     "state_resting": "Rest gently",
     "state_clear": "Steady & clear",
     "poetic_footer_hidden": "Numbers tucked away · Atmosphere only",
-    "metrics_summary": "Sleep %{sleep} · %{dew} dew 💧",
+    "metrics_summary": "Sleep %{sleep} · Dew %{dew}",
     "micro_action_line": "Gentle cue: %{action}",
     "footer_attribution": "%{companion} · %{appName}",
     "stamp_fallback": "%{appName}",
@@ -286,7 +286,7 @@
     "sleep_easy": "easy rest",
     "sleep_light_record": "logging lightly",
     "caption_hidden": "%{header} (%{date}) · %{badge}, %{sleepMood}. %{headline} — %{action} · %{appName}",
-    "caption_full": "%{header} (%{date}) · Vitality %{score} · %{badge} · Sleep %{sleepText} · %{dew} dew 💧. %{headline} — %{action} · %{appName}"
+    "caption_full": "%{header} (%{date}) · Vitality %{score} · %{badge} · Sleep %{sleepText} · %{dew} dew. %{headline} — %{action} · %{appName}"
   },
   "today": {
     "kicker": "Today",
@@ -932,7 +932,7 @@
     "scroll": {
       "title": "Four Seasons keepsake scroll",
       "close_btn": "Roll up scroll",
-      "season_stats": "Avg vitality %{score} · Dew %{dew} 💧",
+      "season_stats": "Avg vitality %{score} · Dew %{dew}",
       "badges_title": "Celadon seals & milestones",
       "badges_subtitle": "Marks moments of quiet self-awareness and calm observation"
     },
@@ -1002,8 +1002,8 @@
     "switch_locale_btn": "Switch language (ZH / EN)",
     "viewport_title": "Viewport & Thumb-Zone Preview",
     "viewport_subtitle": "Desktop opens centered as iPhone portrait by default; toggle wide canvas anytime",
-    "viewport_ios_btn": "📱 iPhone Portrait (402×874)",
-    "viewport_desktop_btn": "🖥 Desktop Wide (1200×820)",
+    "viewport_ios_btn": "iPhone Portrait (402×874)",
+    "viewport_desktop_btn": "Desktop Wide (1200×820)",
     "audit_counts": "%{metrics} metrics · %{days} days · %{intakes} meals · %{labs} labs · %{exps} trials",
     "audit_ok": "Audit passed",
     "audit_run_btn": "Run local data integrity audit",

@@ -1204,7 +1204,7 @@ impl VaultDatabase {
         self.add_dew_entry(
             crate::solar_atelier::RECOVERY_PRIORITY_DEW_BONUS,
             &source_key,
-            "安心静养 · 睡饱双倍露 +3 💧（永久免费）",
+            "安心静养 · 睡饱双倍露 +3 滴晨露（永久免费）",
             "",
         )?;
         Ok(true)

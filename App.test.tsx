@@ -334,7 +334,7 @@ test("知气 v5.5 iOS 竖屏 (393x852 Dynamic Island) 拇指底栏速记抽屉�
   // 2. 验证 QA 视口切换器按钮可呈现
   await app.press("打开体验调试台");
   await app.waitFor("视口形态与拇指热区预览");
-  await app.waitFor("📱 iPhone 竖屏 (402×874)");
+  await app.waitFor("iPhone 竖屏 (402×874)");
   await app.press("完成");
   if (app.shows("关闭")) await app.press("关闭");
 

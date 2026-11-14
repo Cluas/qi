@@ -1,4 +1,4 @@
-import { effect, type JSX, Keyboard, platform, Scroll, signal, Text, token, View, windowSize } from "nsh";
+import { colorScheme, effect, type JSX, Keyboard, platform, Scroll, signal, Text, token, View, windowSize } from "nsh";
 import { Button, Collapsible, Dialog, Input, Progress, Sheet, Switch, Tab, Tabs } from "nsh/base";
 import { isAvailable as isDesktopHost, Window } from "nsh/desktop";
 import { hapticSelection, hapticStampImpact, hapticSuccess } from "./haptics";
@@ -711,7 +711,7 @@ export function NavRail<T extends string>(props: {
   );
 }
 
-/** 移动端拇指弧区 5 槽底部导航栏（居中 + 速记主按钮 + ultraThin 毛玻璃 + 原生弹簧滑移） */
+/** 移动端拇指弧区 5 槽悬浮液态毛玻璃圆胶囊底栏（iOS 26 Liquid Glass + 朱砂圆印纽 + 原生弹簧滑移） */
 export function BottomTabBar<T extends string>(props: {
   items: { id: T; label: string; icon: QiIconName; sfSymbol?: string }[];
   activeId: T;
@@ -724,83 +724,92 @@ export function BottomTabBar<T extends string>(props: {
 
   return (
     <View
-      ios={{ backdropMaterial: "ultraThin" }}
-      class="border-t border-border/80 bg-card/90"
+      class="px-3 pt-1"
       style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 6px)" }}
     >
-      <Tabs
-        class="flex-row items-center gap-1 px-2.5 pt-2"
-        indicatorClass="inset-y-0 rounded-2xl bg-accent"
+      <View
+        ios={{ backdropMaterial: "chrome" }}
+        style={{
+          backdropFilter: "blur(22px)",
+          glassEffect: colorScheme() === "dark" ? "none" : "regular",
+          glassTintColor: token("card"),
+        }}
+        class="rounded-full border border-border/75 bg-card/88 px-2 py-1 shadow-md"
       >
-        <Each of={leftItems()} key={(t) => `bottom-${t.id}`}>
-          {(tab) => (
-            <Tab
-              selected={props.activeId === tab().id}
+        <Tabs
+          class="flex-row items-center gap-1"
+          indicatorClass="inset-y-0.5 rounded-full bg-accent"
+        >
+          <Each of={leftItems()} key={(t) => `bottom-${t.id}`}>
+            {(tab) => (
+              <Tab
+                selected={props.activeId === tab().id}
+                onPress={() => {
+                  hapticSelection();
+                  props.onSelect(tab().id);
+                }}
+                class="min-h-12 flex-1 items-center justify-center gap-0.5 rounded-full px-0.5 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              >
+                <QiIcon
+                  name={tab().icon}
+                  size={18}
+                  color={props.activeId === tab().id ? token("primary") : token("muted-foreground")}
+                />
+                <Text
+                  class={`text-[11px] font-semibold ${
+                    props.activeId === tab().id ? "text-primary" : "text-muted-foreground"
+                  }`}
+                >
+                  {tab().label}
+                </Text>
+              </Tab>
+            )}
+          </Each>
+
+          <If when={Boolean(props.onQuickCapture)}>
+            <Button
+              hitSlop={6}
+              accessibilityLabel={props.quickCaptureLabel ?? tr("nav.quick_capture")}
               onPress={() => {
                 hapticSelection();
-                props.onSelect(tab().id);
+                props.onQuickCapture?.();
               }}
-              class="min-h-12 flex-1 items-center justify-center gap-0.5 rounded-2xl px-0.5 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              class="mx-1 min-h-12 min-w-14 items-center justify-center gap-0.5 rounded-full bg-stamp-ink px-3.5 py-1.5 shadow-sm transition duration-150 active:scale-[0.94] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:active:scale-100"
             >
-              <QiIcon
-                name={tab().icon}
-                size={18}
-                color={props.activeId === tab().id ? token("primary") : token("muted-foreground")}
-              />
-              <Text
-                class={`text-[11px] font-semibold ${
-                  props.activeId === tab().id ? "text-primary" : "text-muted-foreground"
-                }`}
-              >
-                {tab().label}
+              <QiIcon name="stamp_seal" size={16} color={token("primary-foreground")} />
+              <Text class="text-[10px] font-bold text-primary-foreground">
+                {tr("nav.quick_short")}
               </Text>
-            </Tab>
-          )}
-        </Each>
+            </Button>
+          </If>
 
-        <If when={Boolean(props.onQuickCapture)}>
-          <Button
-            hitSlop={6}
-            accessibilityLabel={props.quickCaptureLabel ?? tr("nav.quick_capture")}
-            onPress={() => {
-              hapticSelection();
-              props.onQuickCapture?.();
-            }}
-            class="mx-1 min-h-12 min-w-14 items-center justify-center gap-0.5 rounded-2xl bg-primary px-3 py-1.5 shadow-sm transition duration-150 active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-          >
-            <QiIcon name="plus" size={18} color={token("primary-foreground")} />
-            <Text class="text-[10px] font-bold text-primary-foreground">
-              {tr("nav.quick_short")}
-            </Text>
-          </Button>
-        </If>
-
-        <Each of={rightItems()} key={(t) => `bottom-${t.id}`}>
-          {(tab) => (
-            <Tab
-              selected={props.activeId === tab().id}
-              onPress={() => {
-                hapticSelection();
-                props.onSelect(tab().id);
-              }}
-              class="min-h-12 flex-1 items-center justify-center gap-0.5 rounded-2xl px-0.5 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-            >
-              <QiIcon
-                name={tab().icon}
-                size={18}
-                color={props.activeId === tab().id ? token("primary") : token("muted-foreground")}
-              />
-              <Text
-                class={`text-[11px] font-semibold ${
-                  props.activeId === tab().id ? "text-primary" : "text-muted-foreground"
-                }`}
+          <Each of={rightItems()} key={(t) => `bottom-${t.id}`}>
+            {(tab) => (
+              <Tab
+                selected={props.activeId === tab().id}
+                onPress={() => {
+                  hapticSelection();
+                  props.onSelect(tab().id);
+                }}
+                class="min-h-12 flex-1 items-center justify-center gap-0.5 rounded-full px-0.5 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               >
-                {tab().label}
-              </Text>
-            </Tab>
-          )}
-        </Each>
-      </Tabs>
+                <QiIcon
+                  name={tab().icon}
+                  size={18}
+                  color={props.activeId === tab().id ? token("primary") : token("muted-foreground")}
+                />
+                <Text
+                  class={`text-[11px] font-semibold ${
+                    props.activeId === tab().id ? "text-primary" : "text-muted-foreground"
+                  }`}
+                >
+                  {tab().label}
+                </Text>
+              </Tab>
+            )}
+          </Each>
+        </Tabs>
+      </View>
     </View>
   );
 }

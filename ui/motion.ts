@@ -74,7 +74,7 @@ export const MOTION_TOKENS = {
   },
 } as const;
 
-/** Diagonal spring drizzle, multi-depth rain streaks, and gentle misty glass sheen. */
+/** Diagonal spring drizzle, multi-depth rain streaks, glass droplet trails, and misty refraction sheen. */
 export const RAIN_GLASS_WGSL = `
 struct Uniforms {
   intensity: f32,
@@ -96,41 +96,55 @@ fn shade(uv: vec2f) -> vec4f {
   let wind = clamp(uniforms.wind, -1.0, 1.0);
   let p = vec2f(uv.x * aspect, uv.y);
 
-  let slope = 0.14 + wind * 0.12;
+  let slope = 0.15 + wind * 0.13;
   let slanted = vec2f(p.x + p.y * slope, p.y);
 
   var rain_acc = 0.0;
   for (var layer: i32 = 0; layer < 3; layer = layer + 1) {
     let fl = f32(layer);
-    let cols = 20.0 + fl * 11.0;
-    let rows = 1.6 + fl * 0.65;
-    let speed = 0.85 + fl * 0.35;
+    let cols = 19.0 + fl * 10.5;
+    let rows = 1.55 + fl * 0.65;
+    let speed = 0.90 + fl * 0.38;
     let cell = vec2f(slanted.x * cols, slanted.y * rows - nsh.time * speed - fl * 0.37);
     let id = floor(cell);
     let f = fract(cell);
     let rnd = qi_hash21(id + vec2f(uniforms.seed * 7.13 + fl * 19.3, fl * 11.7));
-    if (rnd > 0.42) {
-      let x_pos = 0.25 + 0.5 * fract(rnd * 13.7);
+    if (rnd > 0.36) {
+      let x_pos = 0.22 + 0.56 * fract(rnd * 13.7);
       let dx = abs(f.x - x_pos);
-      let streak_w = 0.055 - fl * 0.01;
-      let horiz = 1.0 - smoothstep(0.0, max(streak_w, 0.015), dx);
-      let vert = smoothstep(0.04, 0.35, f.y) * (1.0 - smoothstep(0.55, 0.96, f.y));
-      let layer_gain = 1.0 - fl * 0.24;
-      rain_acc = rain_acc + horiz * vert * layer_gain * (0.45 + 0.55 * rnd);
+      let streak_w = 0.062 - fl * 0.011;
+      let horiz = 1.0 - smoothstep(0.0, max(streak_w, 0.016), dx);
+      let vert = smoothstep(0.03, 0.32, f.y) * (1.0 - smoothstep(0.52, 0.96, f.y));
+      let layer_gain = 1.0 - fl * 0.22;
+      rain_acc = rain_acc + horiz * vert * layer_gain * (0.52 + 0.48 * rnd);
     }
   }
 
-  let ripple = 0.5 + 0.5 * sin(p.x * 4.5 + p.y * 2.2 + nsh.time * 0.45 + uniforms.seed);
-  let window_mist = (1.0 - smoothstep(0.0, 0.72, uv.y)) * (0.04 + 0.03 * ripple);
-  let cool_tint = vec3f(0.76, 0.86, 0.91);
-  let warm_tint = vec3f(0.92, 0.90, 0.84);
+  var droplet_acc = 0.0;
+  for (var k: i32 = 0; k < 4; k = k + 1) {
+    let fk = f32(k);
+    let col_x = fract(0.18 + fk * 0.23 + uniforms.seed * 0.17) * aspect;
+    let slide_y = fract(nsh.time * (0.14 + fk * 0.03) + fk * 0.31 + uniforms.seed * 0.29);
+    let wobble = sin(uv.y * 18.0 + fk * 2.4) * 0.008;
+    let bead_pos = vec2f(col_x + wobble, slide_y);
+    let d_bead = length(vec2f(p.x - bead_pos.x, (p.y - bead_pos.y) * 0.85));
+    let bead = exp(-d_bead * d_bead * 1500.0);
+    let trail_mask = smoothstep(bead_pos.y - 0.18, bead_pos.y, p.y) * (1.0 - smoothstep(bead_pos.y, bead_pos.y + 0.015, p.y));
+    let trail = (1.0 - smoothstep(0.0, 0.012, abs(p.x - bead_pos.x))) * trail_mask * 0.45;
+    droplet_acc = droplet_acc + bead + trail;
+  }
+
+  let ripple = 0.5 + 0.5 * sin(p.x * 4.8 + p.y * 2.4 + nsh.time * 0.52 + uniforms.seed);
+  let window_mist = (1.0 - smoothstep(0.0, 0.78, uv.y)) * (0.07 + 0.05 * ripple);
+  let cool_tint = vec3f(0.78, 0.88, 0.94);
+  let warm_tint = vec3f(0.94, 0.91, 0.85);
   let col = mix(cool_tint, warm_tint, warmth);
-  let alpha = clamp((rain_acc * 0.14 + window_mist) * inten, 0.0, 0.24);
+  let alpha = clamp((rain_acc * 0.22 + droplet_acc * 0.16 + window_mist) * inten, 0.0, 0.42);
   return vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), alpha);
 }
 `;
 
-/** Warm charcoal stove ember pulse paired with rising curling tea steam ribbons. */
+/** Warm charcoal stove ember pulse paired with rising curling celadon tea steam ribbons. */
 export const HEARTH_STEAM_WGSL = `
 struct Uniforms {
   intensity: f32,
@@ -146,32 +160,32 @@ fn shade(uv: vec2f) -> vec4f {
   let wind = clamp(uniforms.wind, -1.0, 1.0);
   let t = nsh.time;
 
-  let ember_center = vec2f(0.46 + wind * 0.06, 0.98);
-  let d_ember = length(vec2f((uv.x - ember_center.x) * aspect * 0.55, (uv.y - ember_center.y) * 1.45));
-  let pulse = 0.74 + 0.26 * sin(t * 1.15 + uniforms.seed * 6.28318);
-  let ember = exp(-d_ember * d_ember * 4.2) * pulse;
+  let ember_center = vec2f(0.46 + wind * 0.06, 0.96);
+  let d_ember = length(vec2f((uv.x - ember_center.x) * aspect * 0.52, (uv.y - ember_center.y) * 1.32));
+  let pulse = 0.76 + 0.24 * sin(t * 1.25 + uniforms.seed * 6.28318);
+  let ember = exp(-d_ember * d_ember * 3.6) * pulse;
 
-  let rise_h = max(0.86 - uv.y, 0.0);
-  let rise_mask = smoothstep(0.14, 0.38, uv.y) * (1.0 - smoothstep(0.72, 0.90, uv.y));
-  let sway_1 = sin(uv.y * 10.5 + t * 0.75 + uniforms.seed * 3.14) * (0.016 + rise_h * 0.026) + wind * 0.03 * rise_h;
-  let sway_2 = cos(uv.y * 8.2 + t * 0.58 + uniforms.seed * 5.21) * (0.014 + rise_h * 0.022) + wind * 0.024 * rise_h;
+  let rise_h = max(0.88 - uv.y, 0.0);
+  let rise_mask = smoothstep(0.10, 0.36, uv.y) * (1.0 - smoothstep(0.74, 0.92, uv.y));
+  let sway_1 = sin(uv.y * 10.8 + t * 0.82 + uniforms.seed * 3.14) * (0.018 + rise_h * 0.030) + wind * 0.032 * rise_h;
+  let sway_2 = cos(uv.y * 8.4 + t * 0.64 + uniforms.seed * 5.21) * (0.016 + rise_h * 0.026) + wind * 0.026 * rise_h;
 
-  let w_1 = 0.024 + rise_h * 0.044;
-  let w_2 = 0.020 + rise_h * 0.038;
-  let s_1 = 1.0 - smoothstep(0.0, w_1, abs((uv.x - (0.61 + sway_1)) * aspect));
+  let w_1 = 0.028 + rise_h * 0.048;
+  let w_2 = 0.024 + rise_h * 0.042;
+  let s_1 = 1.0 - smoothstep(0.0, w_1, abs((uv.x - (0.60 + sway_1)) * aspect));
   let s_2 = 1.0 - smoothstep(0.0, w_2, abs((uv.x - (0.67 + sway_2)) * aspect));
-  let steam = (s_1 * 0.65 + s_2 * 0.45) * rise_mask;
+  let steam = (s_1 * 0.72 + s_2 * 0.56) * rise_mask;
 
-  let ember_col = mix(vec3f(0.74, 0.82, 0.94), vec3f(0.98, 0.58, 0.26), warmth);
-  let steam_col = vec3f(0.96, 0.94, 0.90);
-  let w_sum = ember * 0.17 + steam * 0.13 + 0.0001;
-  let rgb = (ember_col * (ember * 0.17) + steam_col * (steam * 0.13)) / w_sum;
-  let alpha = clamp((ember * 0.17 + steam * 0.13) * inten, 0.0, 0.26);
+  let ember_col = mix(vec3f(0.76, 0.84, 0.95), vec3f(0.99, 0.56, 0.24), warmth);
+  let steam_col = vec3f(0.97, 0.95, 0.91);
+  let w_sum = ember * 0.26 + steam * 0.22 + 0.0001;
+  let rgb = (ember_col * (ember * 0.26) + steam_col * (steam * 0.22)) / w_sum;
+  let alpha = clamp((ember * 0.26 + steam * 0.22) * inten, 0.0, 0.42);
   return vec4f(clamp(rgb, vec3f(0.0), vec3f(1.0)), alpha);
 }
 `;
 
-/** Drifting sunlight dust motes & evening fireflies (doubles as Starlight Memorial pet aura when warmth is cool). */
+/** Diagonal Tyndall morning god-rays & drifting golden osmanthus motes / evening fireflies. */
 export const SUN_MOTES_WGSL = `
 struct Uniforms {
   intensity: f32,
@@ -187,23 +201,25 @@ fn shade(uv: vec2f) -> vec4f {
   let wind = clamp(uniforms.wind, -1.0, 1.0);
   let t = nsh.time;
 
-  let diag = clamp(1.0 - (uv.x * 0.58 + uv.y * 0.76), 0.0, 1.0);
-  let ray_wave = 0.78 + 0.22 * sin((uv.x - uv.y * 0.65) * 10.0 + t * 0.22 + uniforms.seed);
-  let beam = pow(diag, 1.85) * ray_wave * (0.06 + 0.07 * warmth);
+  let diag = clamp(1.0 - (uv.x * 0.54 + uv.y * 0.72), 0.0, 1.0);
+  let ray_1 = 0.5 + 0.5 * sin((uv.x - uv.y * 0.62) * 11.0 + t * 0.26 + uniforms.seed);
+  let ray_2 = 0.5 + 0.5 * cos((uv.x * 0.85 - uv.y * 0.48) * 17.0 - t * 0.18 + uniforms.seed * 2.1);
+  let ray_wave = 0.62 + 0.24 * ray_1 + 0.14 * ray_2;
+  let beam = pow(diag, 1.65) * ray_wave * (0.11 + 0.12 * warmth);
 
   var mote_acc = 0.0;
   var gold_acc = 0.0;
-  for (var i: i32 = 0; i < 10; i = i + 1) {
+  for (var i: i32 = 0; i < 12; i = i + 1) {
     let fi = f32(i);
-    let bx = fract(0.17 + fi * 0.6180339 + uniforms.seed * 0.13);
-    let by = 0.12 + 0.70 * fract(0.31 + fi * 0.381966 + uniforms.seed * 0.09);
-    let drift_x = sin(t * (0.19 + 0.025 * fi) + fi * 1.7 + uniforms.seed * 4.0) * 0.032 + wind * sin(t * 0.14 + fi) * 0.02;
-    let drift_y = cos(t * (0.16 + 0.022 * fi) + fi * 2.3) * 0.028;
-    let pos = vec2f(clamp(bx + drift_x, 0.06, 0.94), clamp(by + drift_y, 0.08, 0.88));
+    let bx = fract(0.15 + fi * 0.6180339 + uniforms.seed * 0.13);
+    let by = 0.10 + 0.74 * fract(0.31 + fi * 0.381966 + uniforms.seed * 0.09);
+    let drift_x = sin(t * (0.21 + 0.025 * fi) + fi * 1.7 + uniforms.seed * 4.0) * 0.036 + wind * sin(t * 0.15 + fi) * 0.022;
+    let drift_y = cos(t * (0.17 + 0.022 * fi) + fi * 2.3) * 0.032;
+    let pos = vec2f(clamp(bx + drift_x, 0.05, 0.95), clamp(by + drift_y, 0.07, 0.90));
     let d = length(vec2f((uv.x - pos.x) * aspect, uv.y - pos.y));
-    let twinkle = 0.52 + 0.48 * sin(t * (0.95 + 0.21 * fi) + fi * 2.17 + uniforms.seed * 5.0);
-    let core = exp(-d * d * 2400.0);
-    let halo = exp(-d * d * 360.0) * 0.36;
+    let twinkle = 0.56 + 0.44 * sin(t * (1.05 + 0.22 * fi) + fi * 2.17 + uniforms.seed * 5.0);
+    let core = exp(-d * d * 2100.0);
+    let halo = exp(-d * d * 310.0) * 0.44;
     let energy = (core + halo) * twinkle;
     mote_acc = mote_acc + energy;
     if (i % 3 == 0) {
@@ -211,17 +227,17 @@ fn shade(uv: vec2f) -> vec4f {
     }
   }
 
-  let warm_mote = vec3f(0.99, 0.89, 0.64);
-  let star_cool = vec3f(0.84, 0.90, 0.99);
-  let star_gold = vec3f(0.98, 0.86, 0.56);
+  let warm_mote = vec3f(0.99, 0.89, 0.62);
+  let star_cool = vec3f(0.84, 0.91, 0.99);
+  let star_gold = vec3f(0.99, 0.86, 0.54);
   let star_ratio = clamp(gold_acc / max(mote_acc, 0.0001), 0.0, 1.0);
   let star_mix = mix(star_cool, star_gold, star_ratio);
   let mote_col = mix(star_mix, warm_mote, warmth);
-  let beam_col = mix(vec3f(0.76, 0.84, 0.97), vec3f(0.99, 0.91, 0.72), warmth);
+  let beam_col = mix(vec3f(0.78, 0.86, 0.98), vec3f(0.99, 0.92, 0.74), warmth);
 
-  let total_w = beam + mote_acc * 0.26 + 0.0001;
-  let rgb = (beam_col * beam + mote_col * (mote_acc * 0.26)) / total_w;
-  let alpha = clamp((beam + mote_acc * 0.26) * inten, 0.0, 0.28);
+  let total_w = beam + mote_acc * 0.36 + 0.0001;
+  let rgb = (beam_col * beam + mote_col * (mote_acc * 0.36)) / total_w;
+  let alpha = clamp((beam + mote_acc * 0.36) * inten, 0.0, 0.45);
   return vec4f(clamp(rgb, vec3f(0.0), vec3f(1.0)), alpha);
 }
 `;
@@ -290,10 +306,10 @@ export function resolveSceneShaderUniforms(
     return { intensity: 0, warmth: 0.5, wind: 0, seed: 1 };
   }
   const defaults: Record<Exclude<SceneMoodShaderKind, "none">, SceneShaderUniforms> = {
-    rain: { intensity: 0.85, warmth: 0.35, wind: 0.22, seed: 1.7 },
-    hearth_steam: { intensity: 0.92, warmth: 0.88, wind: 0.12, seed: 2.4 },
-    sun_motes: { intensity: 0.88, warmth: 0.86, wind: 0.18, seed: 3.1 },
-    starlight: { intensity: 0.95, warmth: 0.18, wind: 0.1, seed: 4.6 },
+    rain: { intensity: 1.0, warmth: 0.35, wind: 0.22, seed: 1.7 },
+    hearth_steam: { intensity: 1.0, warmth: 0.88, wind: 0.12, seed: 2.4 },
+    sun_motes: { intensity: 1.0, warmth: 0.86, wind: 0.18, seed: 3.1 },
+    starlight: { intensity: 1.0, warmth: 0.18, wind: 0.1, seed: 4.6 },
   };
   const base = defaults[mode];
   return {

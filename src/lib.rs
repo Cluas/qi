@@ -1415,7 +1415,7 @@ impl QiEngine {
                 )
             } else {
                 format!(
-                    "晨露不足：需要 {} 💧，当前拥有 {} 💧",
+                    "晨露不足：需要 {} 滴晨露，当前拥有 {} 滴晨露",
                     node.cost_dew, balance
                 )
             });
@@ -1430,7 +1430,7 @@ impl QiEngine {
         self.build_payload()
     }
 
-    /// 手动领取今日「安心静养 · 睡饱双倍露 (+3 💧)」（仅在静养日触发，永久免费）。
+    /// 手动领取今日「安心静养 · 睡饱双倍露 (+3 滴晨露)」（仅在静养日触发，永久免费）。
     pub fn claim_recovery_dew(&mut self) -> Result<String, String> {
         let s = self.db.load_settings()?;
         let en = is_en_locale(&s.locale);
@@ -1577,7 +1577,7 @@ impl QiEngine {
         self.build_payload()
     }
 
-    /// 添加一张食光拍立得饮食贴纸（免费版每月 5 张，雅集无限；奖励 +1 💧）。
+    /// 添加一张食光拍立得饮食贴纸（免费版每月 5 张，雅集无限；奖励 +1 滴晨露）。
     pub fn add_food_sticker(
         &mut self,
         date: String,
@@ -1651,7 +1651,7 @@ impl QiEngine {
         self.build_payload()
     }
 
-    /// 隐私优先双人同窗互动（`warm_tea` / `tuck_blanket` / `paw_stamp`，奖励 +1 💧 并浇灌窗台金桂）。
+    /// 隐私优先双人同窗互动（`warm_tea` / `tuck_blanket` / `paw_stamp`，奖励 +1 滴晨露并浇灌窗台金桂）。
     pub fn cosanctuary_action(
         &mut self,
         action: String,
@@ -1676,17 +1676,17 @@ impl QiEngine {
             "warm_tea" => Some(if en {
                 "Co-window visit: shared a cup of warm tea +1 dew"
             } else {
-                "同窗串门：给好友递上一盏热茶 +1 💧"
+                "同窗串门：给好友递上一盏热茶 +1 滴晨露"
             }),
             "tuck_blanket" => Some(if en {
                 "Co-window visit: tucked in a cozy blanket +1 dew"
             } else {
-                "同窗串门：替好友盖好薄被 +1 💧"
+                "同窗串门：替好友盖好薄被 +1 滴晨露"
             }),
             "paw_stamp" => Some(if en {
                 "Co-window visit: pressed a gentle paw tap +1 dew"
             } else {
-                "同窗串门：在窗台按下暖心爪印 +1 💧"
+                "同窗串门：在窗台按下暖心爪印 +1 滴晨露"
             }),
             _ => None,
         };

@@ -1,5 +1,6 @@
 import { Image, signal, Text, token, View } from "nsh";
 import {
+  claimSeasonalReward,
   clearEntitlementToken,
   connectCloudSession,
   copyToClipboard,
@@ -30,11 +31,14 @@ import {
   sendMorningTestNotification,
   setActiveCustomPet,
   setMeSubTab,
+  setSealInk,
   setShowAtelierModal,
   setShowCompanionLetterModal,
   setShowQaStudio,
   setVisualTheme,
+  setWeatherMood,
   setWidgetPrivacyMode,
+  toggleEquippedKeepsake,
   toggleMorningPush,
   updateAiConfig,
   updateCloudUrlAndHandle,
@@ -60,8 +64,8 @@ import {
 } from "../ui/components";
 import { QiIcon } from "../ui/icons";
 import { tr } from "../ui/i18n";
-import { WristWidgetPreviewCard } from "../ui/atelier";
-import { ThemeSwitcherStrip } from "../ui/sanctuary";
+import { SeasonalPassPanel, WristWidgetPreviewCard } from "../ui/atelier";
+import { type SealInkId, ThemeSwitcherStrip, type WeatherMood } from "../ui/sanctuary";
 
 export function MeVaultPage() {
   // Recovery / export / legal / wipe modals
@@ -256,7 +260,12 @@ export function MeVaultPage() {
             <SectionHeader
               title={tr("me.theme_section")}
               subtitle={tr("themes.switcher_subtitle")}
-              right={<VitalBadge tone="prime_ready" label={`${getDewSummary().points} 💧`} />}
+              right={
+                <View class="flex-row items-center gap-1.5">
+                  <QiIcon name="droplet" size={13} color={token("vital-prime")} />
+                  <VitalBadge tone="prime_ready" label={`${getDewSummary().points}`} />
+                </View>
+              }
             />
             <ThemeSwitcherStrip
               activeId={getVisualTheme()}
@@ -756,6 +765,52 @@ export function MeVaultPage() {
             mode={getState().solar_atelier.widget_preview.privacy_mode === "metrics" ? "numeric" : "poetic"}
             onChangeMode={(m) => setWidgetPrivacyMode(m === "numeric" ? "metrics" : "metaphor")}
           />
+
+          <SeasonalPassPanel
+            solarTerm={solar().solar_term.term_name}
+            solarSubtitle={solar().solar_term.whisper}
+            dewBalance={solar().dew_balance}
+            atelierUnlocked={entitlements().is_atelier_unlocked}
+            nodes={solar().seasonal_pass.map((n) => ({
+              id: n.id,
+              title: n.title,
+              track: n.track === "atelier" ? "atelier" : "free",
+              dewCost: n.cost_dew,
+              claimed: n.claimed,
+              description: n.evergreen_term
+                ? tr("today.seasonal_evergreen_tag", { term: n.evergreen_term })
+                : undefined,
+            }))}
+            archiveItems={solar()
+              .seasonal_pass.filter((n) => n.evergreen_term)
+              .map((n) => ({
+                solarTerm: n.evergreen_term,
+                title: n.title,
+                badge:
+                  n.track === "free"
+                    ? tr("today.seasonal_free_badge")
+                    : tr("today.seasonal_pro_badge"),
+                unlocked: n.unlocked_by_tier || n.claimed,
+              }))}
+            outfits={solar().keepsake_catalog.outfits.map((o) => ({
+              id: o.id,
+              label: o.name,
+              atelierOnly: o.track === "atelier",
+            }))}
+            activeSealInk={solar().keepsake_catalog.active_seal_ink as SealInkId}
+            onSelectSealInk={(ink) => setSealInk(ink)}
+            weatherMood={solar().solar_term.weather_mood as WeatherMood}
+            onSelectWeatherMood={(mood) => setWeatherMood(mood)}
+            equippedKeepsakes={solar().keepsake_catalog.equipped_ids}
+            availableKeepsakes={solar().keepsake_catalog.items.map((k) => ({
+              id: k.id,
+              name: k.name,
+              unlocked: k.unlocked,
+            }))}
+            onToggleEquipKeepsake={(id) => toggleEquippedKeepsake(id)}
+            onClaim={(id) => claimSeasonalReward(id)}
+            onOpenAtelier={() => setShowAtelierModal(true)}
+          />
         </View>
       </If>
 
@@ -1143,13 +1198,13 @@ export function MeVaultPage() {
         </View>
       </If>
 
-      {/* Modals shared by MeVaultPage */}
+      {/* Modals shared by MeVaultPage (去套娃 Card 外壳，消除双重 32pt 内边距) */}
       <SheetDialog
         open={showRestoreSheet()}
         title={tr("me.restore_sheet_title")}
         onClose={() => showRestoreSheet.set(false)}
       >
-        <Card>
+        <View class="gap-3.5">
           <Text class="text-xs leading-relaxed text-muted-foreground">
             {tr("me.restore_sheet_desc")}
           </Text>
@@ -1196,7 +1251,7 @@ export function MeVaultPage() {
               if (ok) showRestoreSheet.set(false);
             }}
           />
-        </Card>
+        </View>
       </SheetDialog>
 
       <SheetDialog
@@ -1204,7 +1259,7 @@ export function MeVaultPage() {
         title={tr("me.privacy_sheet_title")}
         onClose={() => showPrivacySheet.set(false)}
       >
-        <Card>
+        <View class="gap-3">
           <Text class="text-sm font-semibold text-foreground">{tr("me.privacy_p1_title")}</Text>
           <Text class="text-xs leading-relaxed text-muted-foreground">
             {tr("me.privacy_p1_body")}
@@ -1215,7 +1270,7 @@ export function MeVaultPage() {
           </Text>
           <Text class="text-sm font-semibold text-foreground">{tr("me.privacy_p3_title")}</Text>
           <Text class="text-xs leading-relaxed text-muted-foreground">{getDisclaimerText()}</Text>
-        </Card>
+        </View>
       </SheetDialog>
 
       <SheetDialog
@@ -1223,9 +1278,9 @@ export function MeVaultPage() {
         title={tr("me.notice_btn")}
         onClose={() => showNoticeSheet.set(false)}
       >
-        <Card>
+        <View class="gap-3">
           <Text class="text-sm leading-relaxed text-foreground">{getNoticeText()}</Text>
-        </Card>
+        </View>
       </SheetDialog>
 
       <SheetDialog
@@ -1234,7 +1289,7 @@ export function MeVaultPage() {
         title={tr("me.wipe_confirm_title")}
         onClose={() => showWipeConfirm.set(false)}
       >
-        <Card>
+        <View class="gap-3.5">
           <Text class="text-sm leading-relaxed text-foreground">{tr("me.wipe_confirm_body")}</Text>
           <View class="flex-row gap-2">
             <ActionButton
@@ -1253,7 +1308,7 @@ export function MeVaultPage() {
               class="flex-1"
             />
           </View>
-        </Card>
+        </View>
       </SheetDialog>
     </View>
   );

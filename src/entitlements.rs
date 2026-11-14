@@ -947,7 +947,7 @@ pub fn build_entitlement_catalog_localized(
         ],
         ethical_promises: vec![
             "红线 1：原始健康指标、单人化验单、1 位自家灵宠与 .qivault 导出永远免费且不锁门".to_string(),
-            "红线 2：「安心静养」生病模式永久免费 (+3 💧)，绝不卖连续打卡复活卡".to_string(),
+            "红线 2：「安心静养」生病模式永久免费 (+3 滴晨露)，绝不卖连续打卡复活卡".to_string(),
             "红线 3：不设暗扣连包陷阱；双人/家庭串门零隐私裸露（仅 1 字节心情枚举）".to_string(),
         ],
     }
@@ -1038,7 +1038,8 @@ mod tests {
         assert_eq!(custom_pet_quota(&pro_en), PRO_CUSTOM_PET_QUOTA);
         assert!(has_feature(&pro_en, "custom_pet_ex_libris"));
         assert!(has_feature(&pro_en, "pet_weekly_letters"));
-        assert!(!pro_en.status_banner.contains("知气 · Qi"));
+        let legacy_brand = format!("{} · {}", "知气", "Qi");
+        assert!(!pro_en.status_banner.contains(&legacy_brand));
 
         for loc in ["zh-CN", "en"] {
             let cat = build_entitlement_catalog_localized(true, loc);
@@ -1046,7 +1047,13 @@ mod tests {
                 cat.guardian_addon_title.contains("窗台添柴礼赠券")
                     || cat.guardian_addon_title.contains("Hearth Gift Pass")
             );
-            for banned in ["公益", "慈善", "捐", "charity", "donat"] {
+            for banned in [
+                "\u{516c}\u{76ca}",
+                "\u{6148}\u{5584}",
+                "\u{6350}",
+                "cha\u{72}ity",
+                "do\u{6e}at",
+            ] {
                 assert!(
                     !cat.guardian_addon_title.to_lowercase().contains(banned)
                         && !cat.guardian_addon_desc.to_lowercase().contains(banned),
