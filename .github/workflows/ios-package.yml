@@ -139,16 +139,15 @@ jobs:
 
           # 通过免证书 Ad-hoc codesign 注入最小 CSSLOT_ENTITLEMENTS（仅开启 Apple HealthKit），
           # 供本地 xtool install 解析并自动通过 App Store Connect API 开通 HEALTHKIT Capability 后重签。
-          cat <<'EOF' > "${STAGE_DIR}/Qi.entitlements"
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>com.apple.developer.healthkit</key>
-  <true/>
-</dict>
-</plist>
-EOF
+          printf '%s\n' \
+            '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+            '<plist version="1.0">' \
+            '<dict>' \
+            '  <key>com.apple.developer.healthkit</key>' \
+            '  <true/>' \
+            '</dict>' \
+            '</plist>' > "${STAGE_DIR}/Qi.entitlements"
           /usr/bin/codesign --force --sign - --entitlements "${STAGE_DIR}/Qi.entitlements" "${STAGE_DIR}/Payload/Qi.app"
           /usr/bin/codesign -dvvv --entitlements :- "${STAGE_DIR}/Payload/Qi.app"
 
