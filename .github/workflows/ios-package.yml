@@ -27,6 +27,10 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 20
 
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -39,7 +43,8 @@ jobs:
       - name: Cache Cargo and target artifacts
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
-          shared-key: "qi-ios-aarch64"
+          shared-key: "qi-ios-aarch64-ios15"
+          cache-all-crates: true
           cache-on-failure: false
 
       - name: Cache NSH CLI and iOS runtime
@@ -96,7 +101,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APP_BUNDLE="$(find .nsh/out -maxdepth 1 -type d -name '*.app' | head -n 1)"
+          ls -la .nsh/out
+          APP_BUNDLE="$(find .nsh/out -maxdepth 3 -type d -name '*.app' | head -n 1)"
           if [ -z "${APP_BUNDLE}" ] || [ ! -d "${APP_BUNDLE}" ]; then
             echo "未找到 nsh package 生成的 .app 产物" >&2
             exit 1
@@ -127,10 +133,12 @@ jobs:
           trap 'rm -rf "${STAGE_DIR}"' EXIT
           mkdir -p "${STAGE_DIR}/Payload"
           cp -R "${APP_BUNDLE}" "${STAGE_DIR}/Payload/$(basename "${APP_BUNDLE}")"
+          xattr -cr "${STAGE_DIR}/Payload"
 
           IPA_PATH="${GITHUB_WORKSPACE}/.nsh/out/qi-ios-unsigned.ipa"
-          (cd "${STAGE_DIR}" && ditto -c -k --sequesterRsrc --keepParent Payload "${IPA_PATH}")
+          (cd "${STAGE_DIR}" && zip -qry "${IPA_PATH}" Payload)
           ls -lh "${IPA_PATH}"
+          unzip -l "${IPA_PATH}" | head -n 20 || test "${PIPESTATUS[0]}" -eq 141
 
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
