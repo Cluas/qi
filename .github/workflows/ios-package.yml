@@ -1,0 +1,129 @@
+name: iOS Package (Unsigned IPA)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "iOS 构建号 (CFBundleVersion)，留空则默认使用 github.run_number"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: ios-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-ios:
+    name: Build Unsigned iOS IPA
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain (aarch64-apple-ios)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Cache Cargo and target artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "qi-ios-aarch64"
+          cache-on-failure: true
+
+      - name: Cache NSH CLI and iOS runtime
+        id: nsh-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nsh
+          key: nsh-v0.5.0-macos-arm64-ios
+
+      - name: Install NSH CLI v0.5.0 and iOS component
+        shell: bash
+        run: |
+          set -euo pipefail
+          NSH_HOME="${HOME}/.nsh"
+          if [ ! -x "${NSH_HOME}/bin/nsh" ]; then
+            TMP_DIR="$(mktemp -d)"
+            trap 'rm -rf "${TMP_DIR}"' EXIT
+            ASSET="nsh-macos-arm64.tar.gz"
+            BASE_URL="https://github.com/longbridge/nsh/releases/download/v0.5.0"
+            curl -fsSL "${BASE_URL}/${ASSET}" -o "${TMP_DIR}/${ASSET}"
+            curl -fsSL "${BASE_URL}/${ASSET}.sha256" -o "${TMP_DIR}/${ASSET}.sha256"
+            (cd "${TMP_DIR}" && shasum -a 256 -c "${ASSET}.sha256")
+            tar -xzf "${TMP_DIR}/${ASSET}" -C "${TMP_DIR}"
+            test -x "${TMP_DIR}/nsh/bin/nsh"
+            rm -rf "${NSH_HOME}"
+            mv "${TMP_DIR}/nsh" "${NSH_HOME}"
+          fi
+          echo "${NSH_HOME}/bin" >> "${GITHUB_PATH}"
+          export PATH="${NSH_HOME}/bin:${PATH}"
+          nsh --version
+          if [ ! -d "${NSH_HOME}/runtime/ios" ]; then
+            nsh component add ios
+          fi
+
+      - name: Build TSX bytecode and verify bundle diagnostics
+        run: nsh build
+
+      - name: Package unsigned iOS .app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .nsh/out/*.app .nsh/out/*.ipa
+          BUILD_NUM="${{ inputs.build_number }}"
+          if [ -z "${BUILD_NUM}" ]; then
+            BUILD_NUM="${{ github.run_number }}"
+          fi
+          nsh package --target ios -o .nsh/out --build "${BUILD_NUM}"
+
+      - name: Inject iOS privacy keys and assemble unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_BUNDLE="$(find .nsh/out -maxdepth 1 -type d -name '*.app' | head -n 1)"
+          if [ -z "${APP_BUNDLE}" ] || [ ! -d "${APP_BUNDLE}" ]; then
+            echo "未找到 nsh package 生成的 .app 产物" >&2
+            exit 1
+          fi
+
+          if [ -f "hosts/ios/PrivacyInfo.xcprivacy" ]; then
+            cp "hosts/ios/PrivacyInfo.xcprivacy" "${APP_BUNDLE}/PrivacyInfo.xcprivacy"
+          fi
+
+          INFO_PLIST="${APP_BUNDLE}/Info.plist"
+          if [ ! -f "${INFO_PLIST}" ]; then
+            echo "缺少 Info.plist: ${INFO_PLIST}" >&2
+            exit 1
+          fi
+
+          set_plist_str() {
+            local key="$1"
+            local val="$2"
+            /usr/libexec/PlistBuddy -c "Set :${key} \"${val}\"" "${INFO_PLIST}" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :${key} string \"${val}\"" "${INFO_PLIST}"
+          }
+
+          set_plist_str "NSHealthShareUsageDescription" "知气仅在手机端本地读取睡眠、心率、HRV 与步数用于计算今日元气电量，官方服务器零留存。"
+          set_plist_str "NSMicrophoneUsageDescription" "知气使用语音听写来帮你 3 秒速记饮食与晨起感受。"
+          set_plist_str "NSSpeechRecognitionUsageDescription" "知气使用系统本地语音识别完成极速记餐，不上传原始音频。"
+
+          STAGE_DIR="$(mktemp -d)"
+          trap 'rm -rf "${STAGE_DIR}"' EXIT
+          mkdir -p "${STAGE_DIR}/Payload"
+          cp -R "${APP_BUNDLE}" "${STAGE_DIR}/Payload/$(basename "${APP_BUNDLE}")"
+
+          IPA_PATH="${GITHUB_WORKSPACE}/.nsh/out/qi-ios-unsigned.ipa"
+          (cd "${STAGE_DIR}" && ditto -c -k --sequesterRsrc --keepParent Payload "${IPA_PATH}")
+          ls -lh "${IPA_PATH}"
+
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qi-ios-unsigned
+          path: .nsh/out/qi-ios-unsigned.ipa
+          retention-days: 1
+          if-no-files-found: error
