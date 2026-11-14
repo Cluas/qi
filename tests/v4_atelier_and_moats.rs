@@ -304,7 +304,7 @@ fn cosanctuary_1byte_mood_bonsai_stages_and_widget_privacy_toggle() {
 #[test]
 fn moat1_multi_profile_uln_90d_reminders_and_parents_peace_letter() {
     let mut engine = QiEngine::new(Some(":empty:".to_owned())).unwrap();
-    // Self, Partner, Parents with same canonical marker but distinct profiles & dates
+    // Self lab marker is permanently free; multi-profile (partner/parents) & peace letter require Pro+
     engine
         .add_profile_lab_marker(
             "self".into(),
@@ -315,6 +315,38 @@ fn moat1_multi_profile_uln_90d_reminders_and_parents_peace_letter() {
             Some(208.0),
             Some(428.0),
         )
+        .unwrap();
+    assert!(
+        engine
+            .add_profile_lab_marker(
+                "partner".into(),
+                "2026-11-01".into(),
+                "尿酸 (UA)".into(),
+                321.0,
+                "umol/L".into(),
+                Some(155.0),
+                Some(357.0),
+            )
+            .is_err()
+    );
+    assert!(
+        engine
+            .add_profile_lab_marker(
+                "parents".into(),
+                "2026-07-10".into(),
+                "空腹血糖 (GLU)".into(),
+                6.71,
+                "mmol/L".into(),
+                Some(3.9),
+                Some(6.1),
+            )
+            .is_err()
+    );
+    assert!(engine.generate_parents_peace_letter("妈妈".into()).is_err());
+
+    // Unlock Pro Annual sandbox pass and verify multi-profile labs + Parents Peace Letter succeed
+    engine
+        .set_entitlement_sandbox("pro_annual".into(), "active".into(), false, 0)
         .unwrap();
     engine
         .add_profile_lab_marker(
@@ -490,7 +522,20 @@ fn moat3_custom_washout_window_and_ceramic_badge_for_disproved_experiment() {
     assert_eq!(evals[0].hrv_delta_ms, Some(0.0));
     assert_eq!(evals[0].outcome_verdict, "neutral");
 
-    // Test via QiEngine end-to-end: custom experiment with neutral result lights up 「证伪小达人」!
+    // Test via QiEngine end-to-end: custom washout > 0 requires Pro; 0-day standard experiment stays free
+    let mut free_exp_engine = QiEngine::new(Some(":empty:".to_owned())).unwrap();
+    assert!(
+        free_exp_engine
+            .start_custom_experiment("0天标准对照".into(), "基础实验免费".into(), 7, 0)
+            .is_ok()
+    );
+    assert!(
+        free_exp_engine
+            .start_custom_experiment("带洗脱实验".into(), "需要会员解锁".into(), 7, 3)
+            .is_err()
+    );
+
+    // Custom experiment with neutral result lights up 「证伪小达人」 once Seasonal/Pro is active!
     let mut engine = QiEngine::new(Some(":empty:".to_owned())).unwrap();
     for i in 0..25_i64 {
         let d = (start + Duration::days(i)).format("%Y-%m-%d").to_string();
@@ -505,6 +550,19 @@ fn moat3_custom_washout_window_and_ceramic_badge_for_disproved_experiment() {
         .to_string();
         engine.import_external_health_data("jsonl".into(), raw).unwrap();
     }
+    assert!(
+        engine
+            .start_custom_experiment(
+                "睡前听白噪音".into(),
+                "检验是否改变深睡/HRV".into(),
+                7,
+                3,
+            )
+            .is_err()
+    );
+    engine
+        .set_entitlement_sandbox("seasonal".into(), "active".into(), false, 0)
+        .unwrap();
     let st_exp = parse_json(
         &engine
             .start_custom_experiment(
@@ -1142,5 +1200,144 @@ fn v5_apple_iap_hearth_gift_pass_commercial_naming_and_restore() {
     assert_eq!(restored["entitlements"]["is_atelier_unlocked"], true);
     assert_eq!(restored["entitlements"]["tier"], "pro_annual");
     assert_eq!(restored["entitlements"]["guardian_sponsor"], true);
+}
+
+#[test]
+fn open_source_release_lockdown_blocks_sandbox_minting_qa_and_unsigned_flags() {
+    use ed25519_dalek::SigningKey;
+    use nsh_app_qi::QiMeta;
+    use nsh_app_qi::entitlements::{
+        DEFAULT_ATELIER_SIGNING_SEED, PRODUCTION_FALLBACK_VERIFYING_PUBKEY_HEX,
+        dev_sandbox_pubkey_hex, mint_sandbox_oset, set_thread_release_lockdown_for_test,
+    };
+
+    struct ReleaseLockdownGuard;
+    impl Drop for ReleaseLockdownGuard {
+        fn drop(&mut self) {
+            set_thread_release_lockdown_for_test(false);
+        }
+    }
+
+    struct TempDbCleanup(std::path::PathBuf);
+    impl Drop for TempDbCleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    // 0. Development pubkey must stay strictly distinct from hardcoded production fallback anchor
+    let dev_key_hex = hex::encode(
+        SigningKey::from_bytes(&DEFAULT_ATELIER_SIGNING_SEED)
+            .verifying_key()
+            .to_bytes(),
+    );
+    assert_eq!(dev_sandbox_pubkey_hex(), dev_key_hex);
+    assert_ne!(dev_key_hex, PRODUCTION_FALLBACK_VERIFYING_PUBKEY_HEX);
+
+    // 1. Forged unsigned SQLite `guardian_sponsor = "1"` without signed OSET must NOT unlock badge/flag
+    let unique_db = std::env::temp_dir().join(format!(
+        "qi_release_lockdown_{}_{}.sqlite3",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    let _db_cleanup = TempDbCleanup(unique_db.clone());
+    let db_path_str = unique_db.to_string_lossy().to_string();
+    {
+        let engine = QiEngine::new(Some(db_path_str.clone())).unwrap();
+        let _ = engine.state_json().unwrap();
+    }
+    {
+        let conn = Connection::open(&unique_db).unwrap();
+        conn.execute(
+            "INSERT INTO app_settings (key, value) VALUES ('guardian_sponsor', '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO app_settings (key, value) VALUES ('entitlement_token', '')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )
+        .unwrap();
+    }
+    {
+        let engine = QiEngine::new(Some(db_path_str)).unwrap();
+        let st = parse_json(&engine.state_json().unwrap());
+        assert_eq!(st["entitlements"]["guardian_sponsor"], false);
+        assert_eq!(st["settings"]["guardian_sponsor"], false);
+        let badge = st["solar_atelier"]["ceramic_badges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["id"] == "hearth_guardian")
+            .unwrap();
+        assert_eq!(badge["earned"], false);
+        assert!(st["multi_lag_radar"].as_array().unwrap().len() <= 2);
+    }
+
+    // 2. Signed (Free, guardian_sponsor=true) OSET validates signature & sponsor without paid unlock
+    let now = chrono::Utc::now().timestamp();
+    let (_, free_guardian_token) =
+        mint_oset_for_tier("usr_free_sponsor", SubscriptionTier::Free, now, true, false).unwrap();
+    let free_guardian_res = verify_oset_with_clock(&free_guardian_token, now, now, None);
+    assert!(free_guardian_res.valid_signature);
+    assert!(free_guardian_res.guardian_sponsor);
+    assert!(!free_guardian_res.is_atelier_unlocked);
+    assert_eq!(free_guardian_res.state, OfflineEntitlementState::FreeLocal);
+
+    let (_, dev_signed_pro_token) =
+        mint_oset_for_tier("usr_attacker", SubscriptionTier::ProAnnual, now, true, true).unwrap();
+    assert!(verify_oset_with_clock(&dev_signed_pro_token, now, now, None).is_atelier_unlocked);
+
+    // 3. Thread-local release lockdown simulates Release build invariants safely in parallel tests
+    set_thread_release_lockdown_for_test(true);
+    let _lockdown_guard = ReleaseLockdownGuard;
+
+    assert!(!QiMeta::qa_studio_enabled());
+    assert!(mint_sandbox_oset("usr_test", "pro_annual", "active", true, 30, now).is_err());
+    assert!(mint_oset_for_tier("usr_test", SubscriptionTier::ProAnnual, now, false, false).is_err());
+
+    let personas = parse_json(&QiMeta::personas_json());
+    let first_persona = personas[0]["id"].as_str().unwrap_or("p1").to_owned();
+
+    let mut locked_engine = QiEngine::new(Some(":memory:".to_owned())).unwrap();
+    assert!(
+        locked_engine
+            .set_entitlement_sandbox("pro_annual".into(), "active".into(), true, 30)
+            .is_err()
+    );
+    assert!(locked_engine.reseed_demo().is_err());
+    assert!(locked_engine.load_persona(first_persona).is_err());
+    assert!(
+        locked_engine
+            .verify_apple_iap_transaction(
+                "com.qi.atelier.pro_annual".into(),
+                "tx_fake_001".into(),
+                "tx_fake_001".into(),
+                "Sandbox".into(),
+                None,
+                None,
+            )
+            .is_err()
+    );
+
+    // Dev-seed signed token must fail verification when release anchor is active
+    let rejected = verify_oset_with_clock(&dev_signed_pro_token, now, now, None);
+    assert!(!rejected.valid_signature);
+    assert!(!rejected.is_atelier_unlocked);
+    assert_eq!(rejected.state, OfflineEntitlementState::FreeLocal);
+    assert!(locked_engine.apply_entitlement_token(dev_signed_pro_token).is_err());
+
+    // Ephemeral-key audit probe ensures vault_non_lockout_verified stays green even under lockdown
+    let audit = parse_json(&locked_engine.run_data_integrity_audit().unwrap());
+    assert_eq!(audit["passed"], true);
+    assert_eq!(audit["vault_non_lockout_verified"], true);
+
+    // Cloud auth proof is deterministic and normalized
+    let p1 = QiMeta::derive_cloud_auth_proof(" Alice@Example.com ".into(), "word1 word2".into());
+    let p2 = QiMeta::derive_cloud_auth_proof("alice@example.com".into(), " word1 word2 ".into());
+    assert_eq!(p1.len(), 64);
+    assert_eq!(p1, p2);
 }
 

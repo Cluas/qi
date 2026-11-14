@@ -92,6 +92,8 @@ func renderSampleLab(to path: String) {
     cg.setFillColor(NSColor.white.cgColor)
     cg.fill(CGRect(x: 0, y: 0, width: w, height: h))
 
+    // Synthetic Test Fixture: 以下字符串为纯虚构合成的 PII 脱敏自检测试向量，
+    // 仅供端侧脱敏单元测试（src/lib.rs）断言校验，非真实公民个人身份或联系方式信息。
     let lines = [
         "某某市第一人民医院体检中心 检验报告单",
         "姓名：陈默 身份证号：31010419920518432X 手机：13912345678",

@@ -64,4 +64,13 @@ nsh package --target macos
 nsh run
 ```
 
-> **开源致谢与免责**：本项目遵循 Apache-2.0 协议并保留 [`NOTICE`](NOTICE) 中对 `PulsHealth` 与 `Native Shell (NSH)` 贡献者的归属声明；全端健康评分与趋势分析仅供个人健康节律参考，不构成医疗诊断。
+---
+
+## 开源协议、双轨授权与致谢
+
+本项目采用**方案 A 强化双轨授权架构**：
+
+- **源代码协议（`GNU AGPL-3.0-only` + 官方商业双许可）**：除下方明确排除的视觉资产与商标外，本仓库全部源代码遵循 [`LICENSE`](LICENSE) 中的 `GNU Affero General Public License v3.0 only`（`AGPL-3.0-only`）。版权所有人（Cluas）基于独占版权及贡献者签署的 CLA，通过 Apple App Store、Google Play 等商业渠道分发的官方二进制版本适用对应商店 EULA 与商业许可；任何第三方如需闭源商用或重分发至应用商店，须联系版权人另行取得商业授权。
+- **视觉资产与商标保留（`All Rights Reserved`）**：`assets/` 下的全部原创插画、节气猫窗图（`assets/scenes/*.jpg`）、应用图标（`assets/icon-1024.png`）、`tests/fixtures/*.png`，以及「知气 / Qi / 知气 · Qi / 小满 / 知气雅集」商标与 Bundle ID `eu.org.cluas.qi` 均**不适用**开源协议，版权与商标权全部保留。详见 [`LICENSE-ASSETS`](LICENSE-ASSETS) 与 [`TRADEMARK.md`](TRADEMARK.md)。
+- **外部贡献须签 CLA**：向本仓库提交 Pull Request 须同意并签署《贡献者许可协议（CLA）》，并在 PR 描述或 Commit Message 中附上 `CLA-Signed-off-by: Name <email>` 声明，详见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+- **开源致谢与免责**：完整保留 [`NOTICE`](NOTICE) 中对 `PulsHealth`（Apache-2.0）、`Native Shell (NSH)`（Apache-2.0）及核心第三方 Rust 依赖的归属声明；全端健康评分与趋势分析仅供个人健康节律参考，不构成医疗诊断。

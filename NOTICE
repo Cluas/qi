@@ -1,13 +1,102 @@
 知气 · Qi
-Copyright 2026 Qi Contributors
+Copyright (c) 2026-present Cluas and Qi Contributors. All rights reserved.
 
-This product includes software and design foundations from the following open-source projects:
+================================================================================
+1. PROJECT DUAL-TRACK LICENSING & BRAND NOTICE
+================================================================================
+
+- Source Code:
+  Licensed under the GNU Affero General Public License, version 3 only
+  ("AGPL-3.0-only"), as detailed in `LICENSE`.
+  Official binaries distributed via the Apple App Store, Google Play, or
+  commercial channels by the copyright holder are governed by the applicable
+  commercial End User License Agreement (EULA) under copyright-holder dual
+  licensing and executed Contributor License Agreements (`CONTRIBUTING.md`).
+
+- Visual Assets & Fixtures (All Rights Reserved):
+  All original artwork, seasonal cat-window scenes (`assets/scenes/*.jpg`),
+  application icon (`assets/icon-1024.png`), and fixture images
+  (`tests/fixtures/*.png`) are Copyright (c) 2026-present Cluas. All Rights
+  Reserved. See `LICENSE-ASSETS` for the strict usage boundaries.
+
+- Trademarks & Brand Identity (All Rights Reserved):
+  "知气", "Qi", "知气 · Qi", "小满", "知气雅集", the bundle identifier
+  `eu.org.cluas.qi`, and associated vermilion seal / cat-window visual marks
+  are protected trademarks and brand identifiers. See `TRADEMARK.md`.
+
+================================================================================
+2. UPSTREAM OPEN-SOURCE ATTRIBUTIONS (APACHE-2.0 SECTION 4(d) NOTICE)
+================================================================================
+
+This product includes software and architectural foundations derived from the
+following upstream Apache-2.0 projects. Pursuant to Section 4(d) of the Apache
+License, Version 2.0, this NOTICE is retained in source distributions and
+displayed within the application's Open Source Licenses & Acknowledgments view.
+Inclusion of these attributions does not imply endorsement by the upstream
+authors or contributors (Apache-2.0 Section 6).
 
 1. PulsHealth (Apache License, Version 2.0)
    Copyright 2026 Sean Wade
    This product includes software developed by the PulsHealth contributors
    (https://github.com/PulsHealth/pulshealth).
+   Modified/refactored integration note: `hosts/ios/Sources/HealthKitSyncBridge.swift`
+   adapts concepts from PulsHealthSync for minimal consumer HealthKit sync
+   with strict SDNN/RMSSD separation and local App Group JSONL staging.
 
 2. Native Shell / NSH (Apache License, Version 2.0)
    Copyright Longbridge
-   (https://github.com/longbridge/nsh).
+   (https://github.com/longbridge/nsh)
+   Provides the cross-platform Rust + TSX hybrid native shell (`nsh-core`,
+   `nsh-base`, QuickJS runtime, and host packaging toolchain).
+
+================================================================================
+3. CORE THIRD-PARTY RUST DEPENDENCIES
+================================================================================
+
+Both the client engine (`Cargo.toml`) and the zero-plaintext control plane
+(`cloud/Cargo.toml`) incorporate the following core open-source Rust crates
+(verified against Cargo.lock; licenses summarized below):
+
+- `rusqlite` (0.32) & SQLite (`libsqlite3-sys` 0.30)
+  License: MIT (`rusqlite`) / Public Domain (embedded SQLite)
+  Local-first encrypted vault storage and control-plane metadata persistence.
+
+- `axum` (0.8)
+  License: MIT
+  HTTP router and stateless ZDR API gateway for `qi-cloud`.
+
+- `ed25519-dalek` (2.2)
+  License: BSD-3-Clause
+  Ed25519 signing and offline verification of OSET entitlement tokens.
+
+- `chacha20poly1305` (0.10)
+  License: Apache-2.0 OR MIT
+  Client-side XChaCha20-Poly1305 authenticated encryption for E2EE sync shards.
+
+- `rustls` (0.23), `ring` (0.17) & `rustls-webpki` (0.103)
+  Licenses:
+  - `rustls`: Apache-2.0 OR ISC OR MIT
+  - `ring`: Apache-2.0 AND ISC (no legacy OpenSSL/SSLeay advertising clause)
+  - `rustls-webpki`: ISC
+  TLS transport security and StoreKit 2 X.509 certificate-chain / ECDSA P-256
+  cryptographic signature verification.
+
+- `chrono` (0.4)
+  License: Apache-2.0 OR MIT
+  Timestamps, solar-term calendar windows, and biometric cycle alignment.
+
+- `serde` (1.0)
+  License: Apache-2.0 OR MIT
+  Structured JSON serialization across native modules, sync envelopes, and cloud APIs.
+
+- `ureq` (2.12)
+  License: Apache-2.0 OR MIT
+  Blocking HTTPS client for ZDR AI gateway and WebDAV/control-plane requests.
+
+================================================================================
+4. WELLNESS & NON-MEDICAL DISCLAIMER
+================================================================================
+
+All readiness scores, rhythm curves, dietary notes, and lab biomarker trends
+provided by 知气 · Qi are for personal wellness reference only and do not
+constitute medical diagnosis or clinical advice.

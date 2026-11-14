@@ -23,6 +23,7 @@ import {
   getRestoreStatusMessage,
   getState,
   getVisualTheme,
+  isQaStudioEnabled,
   type MeSubTab,
   pickCustomPetPhotoDataUrl,
   pullWebdavSync,
@@ -1229,27 +1230,29 @@ export function MeVaultPage() {
             />
           </Card>
 
-          <Card>
-            <View class="flex-row items-center gap-3">
-              <View class="size-10 items-center justify-center rounded-xl bg-accent">
-                <QiIcon name="sliders" size={20} color={token("primary")} />
+          <If when={isQaStudioEnabled()}>
+            <Card>
+              <View class="flex-row items-center gap-3">
+                <View class="size-10 items-center justify-center rounded-xl bg-accent">
+                  <QiIcon name="sliders" size={20} color={token("primary")} />
+                </View>
+                <View class="flex-1 gap-0.5">
+                  <Text role="header" class="text-base font-semibold text-foreground">
+                    {tr("qa.title")}
+                  </Text>
+                  <Text class="text-xs leading-relaxed text-muted-foreground">
+                    {tr("qa.subtitle")}
+                  </Text>
+                </View>
               </View>
-              <View class="flex-1 gap-0.5">
-                <Text role="header" class="text-base font-semibold text-foreground">
-                  {tr("qa.title")}
-                </Text>
-                <Text class="text-xs leading-relaxed text-muted-foreground">
-                  {tr("qa.subtitle")}
-                </Text>
-              </View>
-            </View>
-            <ActionButton
-              title={tr("me.qa_studio_btn")}
-              icon="sliders"
-              variant="outline"
-              onPress={() => setShowQaStudio(true)}
-            />
-          </Card>
+              <ActionButton
+                title={tr("me.qa_studio_btn")}
+                icon="sliders"
+                variant="outline"
+                onPress={() => setShowQaStudio(true)}
+              />
+            </Card>
+          </If>
         </View>
       </If>
 
@@ -1334,7 +1337,9 @@ export function MeVaultPage() {
         onClose={() => showNoticeSheet.set(false)}
       >
         <View class="gap-3">
-          <Text class="text-sm leading-relaxed text-foreground">{getNoticeText()}</Text>
+          <SunkenBox class="gap-2">
+            <Text class="text-xs leading-relaxed text-foreground">{getNoticeText().trim()}</Text>
+          </SunkenBox>
         </View>
       </SheetDialog>
 

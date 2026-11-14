@@ -1,0 +1,182 @@
+# PR 合入前置合规与无签名构建校验流水线
+# - 严格使用标准 pull_request 事件触发，顶层只读权限；
+# - 绝不注入任何签名私钥、生产控制面私钥或应用商店凭据；
+# - 正式签名与发布流程须另行隔离在受 Required Reviewers 保护的 `production-ios` GitHub Environment。
+
+name: PR Compliance and Unsigned Build Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cla-and-license-gate:
+    name: CLA and License Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify required license and governance files
+        shell: bash
+        run: |
+          set -euo pipefail
+          required_files=(
+            "LICENSE"
+            "LICENSE-ASSETS"
+            "TRADEMARK.md"
+            "NOTICE"
+            "CONTRIBUTING.md"
+          )
+          for path in "${required_files[@]}"; do
+            if [ ! -s "${path}" ]; then
+              echo "Missing or empty required governance file: ${path}" >&2
+              exit 1
+            fi
+          done
+          echo "All required license and governance files are present."
+
+      - name: Verify CLA-Signed-off-by declaration for external contributors
+        shell: bash
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+
+          pr_author = os.environ.get("PR_AUTHOR", "").strip()
+          repo_owner = os.environ.get("REPO_OWNER", "").strip()
+
+          if pr_author and repo_owner and pr_author.lower() == repo_owner.lower():
+              print(f"PR author '{pr_author}' matches repository owner; CLA check passed.")
+              sys.exit(0)
+
+          pr_body = ""
+          event_path = os.environ.get("GITHUB_EVENT_PATH", "")
+          if event_path and os.path.exists(event_path):
+              with open(event_path, "r", encoding="utf-8") as f:
+                  event = json.load(f)
+              pr_body = (event.get("pull_request") or {}).get("body") or ""
+
+          base_sha = os.environ.get("BASE_SHA", "").strip()
+          head_sha = os.environ.get("HEAD_SHA", "").strip()
+          commit_msgs = ""
+          if base_sha and head_sha:
+              proc = subprocess.run(
+                  ["git", "log", "--format=%B", f"{base_sha}..{head_sha}"],
+                  capture_output=True,
+                  text=True,
+                  check=False,
+              )
+              if proc.returncode == 0:
+                  commit_msgs = proc.stdout
+
+          if not commit_msgs:
+              proc = subprocess.run(
+                  ["git", "log", "-n", "20", "--format=%B"],
+                  capture_output=True,
+                  text=True,
+                  check=False,
+              )
+              if proc.returncode == 0:
+                  commit_msgs = proc.stdout
+
+          combined = f"{pr_body}\n{commit_msgs}"
+          cla_pattern = re.compile(r"(?im)^[ \t]*CLA-Signed-off-by:[ \t]*\S+.*$")
+          if cla_pattern.search(combined):
+              print("Found valid CLA-Signed-off-by declaration.")
+              sys.exit(0)
+
+          print(
+              "ERROR: External Pull Requests must include a CLA signature declaration.\n"
+              "Please add the following line to your PR description or a commit message:\n"
+              "  CLA-Signed-off-by: Your Name <your-email@example.com>\n"
+              "See CONTRIBUTING.md for the full Contributor License Agreement.\n"
+              "错误：外部贡献者提交 PR 必须在 PR 正文或 Commit Message 中附上 CLA 签署声明：\n"
+              "  CLA-Signed-off-by: Your Name <your-email@example.com>",
+              file=sys.stderr,
+          )
+          sys.exit(1)
+          PY
+
+  verify-unsigned-build:
+    name: Verify Cloud Tests, Release Check and NSH Build (Unsigned)
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - name: Cache Cargo and target artifacts
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: |
+            .
+            cloud
+          shared-key: "qi-pr-unsigned"
+          cache-on-failure: false
+
+      - name: Cache NSH CLI
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.nsh
+          key: nsh-v0.5.0-macos-arm64
+
+      - name: Install NSH CLI v0.5.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          NSH_HOME="${HOME}/.nsh"
+          if [ ! -x "${NSH_HOME}/bin/nsh" ]; then
+            TMP_DIR="$(mktemp -d)"
+            trap 'rm -rf "${TMP_DIR}"' EXIT
+            ASSET="nsh-macos-arm64.tar.gz"
+            BASE_URL="https://github.com/longbridge/nsh/releases/download/v0.5.0"
+            curl -fsSL "${BASE_URL}/${ASSET}" -o "${TMP_DIR}/${ASSET}"
+            curl -fsSL "${BASE_URL}/${ASSET}.sha256" -o "${TMP_DIR}/${ASSET}.sha256"
+            (cd "${TMP_DIR}" && shasum -a 256 -c "${ASSET}.sha256")
+            tar -xzf "${TMP_DIR}/${ASSET}" -C "${TMP_DIR}"
+            test -x "${TMP_DIR}/nsh/bin/nsh"
+            rm -rf "${NSH_HOME}"
+            mv "${TMP_DIR}/nsh" "${NSH_HOME}"
+          fi
+          echo "${NSH_HOME}/bin" >> "${GITHUB_PATH}"
+          export PATH="${NSH_HOME}/bin:${PATH}"
+          nsh --version
+
+      - name: Run cloud control-plane test suite
+        env:
+          QI_ENTITLEMENT_PUBKEY_HEX: ${{ vars.QI_ENTITLEMENT_PUBKEY_HEX }}
+        run: cargo test --manifest-path cloud/Cargo.toml
+
+      - name: Check client release compilation (without qa-studio)
+        env:
+          QI_ENTITLEMENT_PUBKEY_HEX: ${{ vars.QI_ENTITLEMENT_PUBKEY_HEX }}
+        run: cargo check --release --manifest-path Cargo.toml
+
+      - name: Build TSX bytecode and verify bundle diagnostics
+        env:
+          QI_ENTITLEMENT_PUBKEY_HEX: ${{ vars.QI_ENTITLEMENT_PUBKEY_HEX }}
+        run: nsh build

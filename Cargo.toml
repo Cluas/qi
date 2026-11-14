@@ -3,6 +3,11 @@ name = "nsh-app-qi"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "AGPL-3.0-only"
+
+[features]
+default = []
+qa-studio = []
 
 [workspace]
 

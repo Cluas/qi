@@ -1,16 +1,57 @@
+use std::cell::Cell;
+
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Development/sandbox Ed25519 seed used when `QI_ENTITLEMENT_PUBKEY_HEX` is not overridden.
-/// In production cloud deployments, override with `QI_CLOUD_SIGNING_SEED_HEX` + `QI_ENTITLEMENT_PUBKEY_HEX`.
+/// Development/sandbox Ed25519 seed used only in debug/test/`qa-studio` builds when
+/// `QI_ENTITLEMENT_PUBKEY_HEX` is not overridden.
 pub const DEFAULT_ATELIER_SIGNING_SEED: [u8; 32] = [
     0x51, 0x69, 0x41, 0x74, 0x65, 0x6c, 0x69, 0x65,
     0x72, 0x32, 0x30, 0x32, 0x36, 0x5f, 0x45, 0x64,
     0x32, 0x35, 0x35, 0x31, 0x39, 0x5f, 0x4f, 0x53,
     0x45, 0x54, 0x5f, 0x56, 0x34, 0x4b, 0x65, 0x79,
 ];
+
+/// Hardcoded fallback Ed25519 verifying public key for release builds when
+/// compile-time `QI_ENTITLEMENT_PUBKEY_HEX` is unset (corresponding private key is never stored here).
+pub const PRODUCTION_FALLBACK_VERIFYING_PUBKEY_HEX: &str =
+    "b1dcbf15571a8ab2546ec931cfbe27d2a19fa6b48972097b5d05bcb85988580a";
+
+thread_local! {
+    static TLS_FORCE_RELEASE_LOCKDOWN: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Test-only helper to force release lockdown on the current thread without cross-thread races.
+pub fn set_thread_release_lockdown_for_test(enabled: bool) {
+    TLS_FORCE_RELEASE_LOCKDOWN.with(|flag| flag.set(enabled));
+}
+
+/// Returns `true` only in debug/test/`qa-studio` builds when release lockdown is not forced.
+pub fn is_qa_or_debug_build() -> bool {
+    if !cfg!(any(debug_assertions, test, feature = "qa-studio")) {
+        return false;
+    }
+    let env_locked = matches!(
+        std::env::var("QI_FORCE_RELEASE_LOCKDOWN")
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some("1" | "true" | "TRUE")
+    );
+    let tls_locked = TLS_FORCE_RELEASE_LOCKDOWN.with(|flag| flag.get());
+    !env_locked && !tls_locked
+}
+
+/// Returns the public key hex derived from `DEFAULT_ATELIER_SIGNING_SEED`.
+pub fn dev_sandbox_pubkey_hex() -> String {
+    hex::encode(
+        SigningKey::from_bytes(&DEFAULT_ATELIER_SIGNING_SEED)
+            .verifying_key()
+            .to_bytes(),
+    )
+}
 
 pub const OFFLINE_GRACE_SECONDS: i64 = 7 * 86_400;
 pub const CLOCK_SKEW_TOLERANCE_SECONDS: i64 = 300;
@@ -282,13 +323,25 @@ pub struct EntitlementCatalog {
     pub ethical_promises: Vec<String>,
 }
 
+fn parse_verifying_key_hex(raw: &str) -> Option<VerifyingKey> {
+    let bytes = hex::decode(raw.trim()).ok()?;
+    if bytes.len() != 32 {
+        return None;
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    VerifyingKey::from_bytes(&arr).ok()
+}
+
 pub fn default_signing_key() -> SigningKey {
-    if let Ok(hex_seed) = std::env::var("QI_CLOUD_SIGNING_SEED_HEX") {
-        if let Ok(bytes) = hex::decode(hex_seed.trim()) {
-            if bytes.len() == 32 {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&bytes);
-                return SigningKey::from_bytes(&arr);
+    if is_qa_or_debug_build() {
+        if let Ok(hex_seed) = std::env::var("QI_CLOUD_SIGNING_SEED_HEX") {
+            if let Ok(bytes) = hex::decode(hex_seed.trim()) {
+                if bytes.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&bytes);
+                    return SigningKey::from_bytes(&arr);
+                }
             }
         }
     }
@@ -296,15 +349,22 @@ pub fn default_signing_key() -> SigningKey {
 }
 
 pub fn default_verifying_key() -> VerifyingKey {
-    if let Ok(hex_pub) = std::env::var("QI_ENTITLEMENT_PUBKEY_HEX") {
-        if let Ok(bytes) = hex::decode(hex_pub.trim()) {
-            if bytes.len() == 32 {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&bytes);
-                if let Ok(vk) = VerifyingKey::from_bytes(&arr) {
+    if !is_qa_or_debug_build() {
+        let dev_vk = SigningKey::from_bytes(&DEFAULT_ATELIER_SIGNING_SEED).verifying_key();
+        if let Some(compile_hex) = option_env!("QI_ENTITLEMENT_PUBKEY_HEX") {
+            if let Some(vk) = parse_verifying_key_hex(compile_hex) {
+                if vk.to_bytes() != dev_vk.to_bytes() {
                     return vk;
                 }
             }
+        }
+        return parse_verifying_key_hex(PRODUCTION_FALLBACK_VERIFYING_PUBKEY_HEX)
+            .expect("valid production fallback verifying key");
+    }
+
+    if let Ok(hex_pub) = std::env::var("QI_ENTITLEMENT_PUBKEY_HEX") {
+        if let Some(vk) = parse_verifying_key_hex(&hex_pub) {
+            return vk;
         }
     }
     default_signing_key().verifying_key()
@@ -320,6 +380,9 @@ pub fn sign_oset_with_key(claims: &OsetClaims, signing_key: &SigningKey) -> Resu
 }
 
 pub fn sign_oset(claims: &OsetClaims) -> Result<String, String> {
+    if !is_qa_or_debug_build() {
+        return Err("Client-side OSET minting is disabled in release builds.".to_string());
+    }
     sign_oset_with_key(claims, &default_signing_key())
 }
 
@@ -330,6 +393,12 @@ pub fn mint_oset_for_tier(
     guardian_sponsor: bool,
     companion_loyalty_eligible: bool,
 ) -> Result<(OsetClaims, String), String> {
+    if !is_qa_or_debug_build() {
+        return Err("Client-side OSET minting is disabled in release builds.".to_string());
+    }
+    if !tier.is_paid() && !guardian_sponsor {
+        return Err("Cannot mint OSET for free tier without guardian_sponsor.".to_string());
+    }
     let duration = tier.default_duration_seconds();
     let exp_epoch = if tier == SubscriptionTier::Free {
         now_epoch
@@ -375,9 +444,12 @@ pub fn mint_sandbox_oset(
     loyalty_days: i64,
     now_epoch: i64,
 ) -> Result<String, String> {
+    if !is_qa_or_debug_build() {
+        return Err("Client-side OSET minting is disabled in release builds.".to_string());
+    }
     let tier = SubscriptionTier::from_str(tier_raw);
     let loyalty = loyalty_days >= LOYALTY_MIN_CHECKIN_DAYS;
-    if tier == SubscriptionTier::Free {
+    if tier == SubscriptionTier::Free && !guardian_sponsor {
         return Ok(String::new());
     }
     let (mut claims, _) = mint_oset_for_tier(subject, tier, now_epoch, guardian_sponsor, loyalty)?;
@@ -497,7 +569,11 @@ pub fn verify_oset_with_clock_localized(
 
     let tier_enum = SubscriptionTier::from_str(&claims.tier);
     if tier_enum == SubscriptionTier::Free {
-        return free_result("free_tier_claim", false);
+        let mut r = free_result("free_tier_claim", false);
+        r.valid_signature = true;
+        r.guardian_sponsor = claims.guardian_sponsor;
+        r.companion_loyalty_eligible = claims.companion_loyalty_eligible;
+        return r;
     }
 
     let clock_rollback = now_epoch.saturating_add(CLOCK_SKEW_TOLERANCE_SECONDS) < max_seen_epoch;

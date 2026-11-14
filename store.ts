@@ -754,7 +754,13 @@ export const getShowZdrConsentModal = () => showZdrConsentModal();
 export const getShowQuickCaptureModal = () => showQuickCaptureModal();
 export const setShowQuickCaptureModal = (open: boolean) => showQuickCaptureModal.set(open);
 export const getShowQaStudio = () => showQaStudio();
-export const setShowQaStudio = (open: boolean) => showQaStudio.set(open);
+export const isQaStudioEnabled = (): boolean => QiMeta.qaStudioEnabled();
+export const setShowQaStudio = (open: boolean) => {
+  if (open && !isQaStudioEnabled()) {
+    return;
+  }
+  showQaStudio.set(open);
+};
 export const getLastAuditReport = () => lastAuditReport();
 export const getVisualTheme = () => visualTheme();
 export const getPetCount = () => petCount();
@@ -870,6 +876,10 @@ export function getPersonas(): PersonaMeta[] {
 }
 
 export function loadPersona(personaId: string) {
+  if (!isQaStudioEnabled()) {
+    notify(tr("toast.persona_failed", { error: "QA Studio is disabled in release builds." }));
+    return;
+  }
   try {
     applyJson(engine.loadPersona(personaId));
     lastAuditReport.set(null);
@@ -1116,10 +1126,16 @@ export async function connectCloudSession(cloudUrl: string, handle: string) {
   const cleanUrl = cloudUrl.trim().replace(/\/+$/, "");
   const cleanHandle = handle.trim() || "qi-member@example.com";
   try {
+    const s = uiState().settings;
+    const authProofHex = QiMeta.deriveCloudAuthProof(cleanHandle, s.recovery_phrase);
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (s.cloud_token?.trim()) {
+      headers.Authorization = `Bearer ${s.cloud_token.trim()}`;
+    }
     const resp = await fetch(`${cleanUrl}/v1/auth/session`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ handle: cleanHandle }),
+      headers,
+      body: JSON.stringify({ handle: cleanHandle, auth_proof_hex: authProofHex }),
     });
     if (!resp.ok) {
       notify(tr("toast.cloud_http_error", { status: resp.status }));
@@ -1142,6 +1158,10 @@ export async function connectCloudSession(cloudUrl: string, handle: string) {
 }
 
 export async function activateCloudPro(tier = "pro_annual", guardianSponsor = false) {
+  if (!isQaStudioEnabled()) {
+    notify(tr("errors.iap_unavailable"));
+    return;
+  }
   const s = uiState().settings;
   const cleanUrl = s.cloud_url.trim().replace(/\/+$/, "");
   if (!s.cloud_token) {
@@ -1287,6 +1307,10 @@ export function wipeVaultAndReset() {
 }
 
 export function reseedDemoData() {
+  if (!isQaStudioEnabled()) {
+    notify(tr("toast.sandbox_failed", { error: "QA Studio is disabled in release builds." }));
+    return;
+  }
   applyJson(engine.reseedDemo());
   lastAuditReport.set(null);
   notify(tr("toast.demo_reseeded"));
@@ -1346,6 +1370,10 @@ export function setEntitlementSandbox(
   guardianSponsor = false,
   loyaltyDays = 32,
 ) {
+  if (!isQaStudioEnabled()) {
+    notify(tr("toast.sandbox_failed", { error: "QA Studio is disabled in release builds." }));
+    return;
+  }
   try {
     applyJson(engine.setEntitlementSandbox(tier, simulatedState, guardianSponsor, loyaltyDays));
     if (guardianSponsor) {
@@ -1397,7 +1425,8 @@ export function verifyAppleIapTransaction(input: {
   silent?: boolean;
 }): boolean {
   const nowSec = Math.floor(Date.now() / 1000);
-  const txId = input.transactionId?.trim() || `tx_${input.productId}_${nowSec}`;
+  const txId =
+    input.transactionId?.trim() || (isQaStudioEnabled() ? `tx_${input.productId}_${nowSec}` : "");
   const origTxId = input.originalTransactionId?.trim() || txId;
   const env = input.environment?.trim() || "Sandbox";
   const prevGiftCount = hearthGiftCount();
@@ -1435,7 +1464,90 @@ export function verifyAppleIapTransaction(input: {
   }
 }
 
-export function purchaseHearthGiftPass(silent = false): boolean {
+export interface HostStoreKitPurchaseResult extends Partial<StoreKitTransactionInput> {
+  cancelled?: boolean;
+  pending?: boolean;
+  error?: string;
+  productId?: string;
+  transactionId?: string;
+  originalTransactionId?: string;
+  jwsRepresentation?: string | null;
+  jws?: string | null;
+  expiresDateEpoch?: number | null;
+}
+
+interface HostStoreKitBridge {
+  purchaseProduct?: (productId: string) => Promise<string | HostStoreKitPurchaseResult>;
+  restorePurchases?: () => Promise<string | StoreKitTransactionInput[]>;
+  fetchProducts?: (productIds: string[]) => Promise<string | unknown[]>;
+}
+
+function getHostStoreKitBridge(): HostStoreKitBridge | undefined {
+  return (globalThis as { __qiStoreKitBridge?: HostStoreKitBridge }).__qiStoreKitBridge;
+}
+
+async function executeNativeStoreKitPurchase(
+  bridge: HostStoreKitBridge,
+  productId: string,
+  silent = false,
+): Promise<boolean> {
+  if (!bridge.purchaseProduct) {
+    if (!silent) notify(tr("errors.iap_unavailable"));
+    return false;
+  }
+  try {
+    const raw = await bridge.purchaseProduct(productId);
+    const parsed: HostStoreKitPurchaseResult =
+      typeof raw === "string" ? (JSON.parse(raw) as HostStoreKitPurchaseResult) : raw;
+    if (parsed.cancelled) {
+      return false;
+    }
+    if (parsed.pending) {
+      if (!silent) {
+        notify(tr("toast.apple_verify_failed", { error: "StoreKit purchase pending approval" }));
+      }
+      return false;
+    }
+    if (parsed.error) {
+      if (!silent) notify(tr("toast.apple_verify_failed", { error: parsed.error }));
+      return false;
+    }
+    const resolvedProductId = (parsed.product_id ?? parsed.productId ?? productId).trim();
+    const resolvedTxId = (parsed.transaction_id ?? parsed.transactionId ?? "").trim();
+    const resolvedOrigTxId = (
+      parsed.original_transaction_id ??
+      parsed.originalTransactionId ??
+      resolvedTxId
+    ).trim();
+    const resolvedEnv = (parsed.environment ?? "Production").trim();
+    const resolvedJws = parsed.jws_representation ?? parsed.jwsRepresentation ?? parsed.jws ?? null;
+    const resolvedExp = parsed.expires_date_epoch ?? parsed.expiresDateEpoch ?? null;
+    return verifyAppleIapTransaction({
+      productId: resolvedProductId,
+      transactionId: resolvedTxId,
+      originalTransactionId: resolvedOrigTxId,
+      environment: resolvedEnv,
+      jwsRepresentation: resolvedJws,
+      expiresDateEpoch: resolvedExp,
+      silent,
+    });
+  } catch (err) {
+    if (!silent) {
+      notify(tr("toast.apple_verify_failed", { error: errorMessage(err) }));
+    }
+    return false;
+  }
+}
+
+export function purchaseHearthGiftPass(silent = false): boolean | Promise<boolean> {
+  const bridge = getHostStoreKitBridge();
+  if (bridge?.purchaseProduct) {
+    return executeNativeStoreKitPurchase(bridge, HEARTH_GIFT_PASS_PRODUCT_ID, silent);
+  }
+  if (!isQaStudioEnabled()) {
+    if (!silent) notify(tr("errors.iap_unavailable"));
+    return false;
+  }
   return verifyAppleIapTransaction({
     productId: HEARTH_GIFT_PASS_PRODUCT_ID,
     environment: "Sandbox",
@@ -1450,12 +1562,29 @@ export function confirmAtelierApplePurchase(
   if (tier === "free") {
     clearEntitlementToken();
     if (includeHearthGiftPass) {
-      purchaseHearthGiftPass();
+      void purchaseHearthGiftPass();
     }
     return;
   }
 
   const productId = resolveAppleProductIdForTier(tier);
+  const bridge = getHostStoreKitBridge();
+  if (bridge?.purchaseProduct && productId) {
+    void (async () => {
+      const ok = await executeNativeStoreKitPurchase(bridge, productId, false);
+      if (ok && includeHearthGiftPass) {
+        await executeNativeStoreKitPurchase(bridge, HEARTH_GIFT_PASS_PRODUCT_ID, true);
+        notify(tr("toast.gift_pass_done"));
+      }
+    })();
+    return;
+  }
+
+  if (!isQaStudioEnabled()) {
+    notify(tr("errors.iap_unavailable"));
+    return;
+  }
+
   if (productId) {
     const ok = verifyAppleIapTransaction({
       productId,
@@ -1472,21 +1601,16 @@ export function confirmAtelierApplePurchase(
   void activateCloudPro(tier, includeHearthGiftPass);
 }
 
-interface HostStoreKitBridge {
-  restorePurchases?: () => Promise<string | StoreKitTransactionInput[]>;
-}
-
 export async function restoreApplePurchases(explicitTransactionsJson?: string): Promise<boolean> {
   restoringPurchases.set(true);
   try {
     let payloadJson = explicitTransactionsJson;
     if (!payloadJson) {
-      const hostBridge = (globalThis as { __qiStoreKitBridge?: HostStoreKitBridge })
-        .__qiStoreKitBridge;
+      const hostBridge = getHostStoreKitBridge();
       if (hostBridge?.restorePurchases) {
         const res = await hostBridge.restorePurchases();
         payloadJson = typeof res === "string" ? res : JSON.stringify(res);
-      } else {
+      } else if (isQaStudioEnabled()) {
         const fallbackList: StoreKitTransactionInput[] = [...recentAppleTransactions];
         const currentTier = uiState().entitlements.tier;
         const activeProductId = resolveAppleProductIdForTier(currentTier);
@@ -1503,6 +1627,11 @@ export async function restoreApplePurchases(explicitTransactionsJson?: string): 
           });
         }
         payloadJson = JSON.stringify(fallbackList);
+      } else {
+        const msg = tr("errors.iap_unavailable");
+        restoreStatusMessage.set(msg);
+        notify(msg);
+        return false;
       }
     }
 

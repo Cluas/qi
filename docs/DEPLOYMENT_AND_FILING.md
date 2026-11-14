@@ -9,9 +9,9 @@
 
 ## 一、`qi-cloud` 极简控制面部署
 
-`qi-cloud` 是一个独立 Rust 二进制（源码位于 `/Users/cluas/Codes/qi/cloud`），其 SQLite 中**仅存在三张表**：`accounts`、`monthly_quotas`、`e2ee_sync_envelopes`，**严禁存储任何明文健康指标或体检报告**。所有健康状态都在端侧通过 12 词恢复码派生密钥加密（`XChaCha20-Poly1305`）后再行中继。
+`qi-cloud` 是一个独立 Rust 二进制（源码位于 `./cloud`），其 SQLite 中**仅存在四张表**：`accounts`、`monthly_quotas`、`e2ee_sync_envelopes`、`apple_iap_transactions`，**严禁存储任何明文健康指标或体检报告**。所有健康状态都在端侧通过 12 词恢复码派生密钥加密（`XChaCha20-Poly1305`）后再行中继。
 
-### 1.1 核心环境变量（与 `cloud/src/main.rs` 严格一致）
+### 1.1 核心环境变量（与 `cloud/src/main.rs` 及安全配置对齐）
 
 | 变量名 | 默认值 | 说明 |
 |---|---|---|
@@ -20,11 +20,14 @@
 | `QI_ZDR_UPSTREAM_URL` | （未设置则本地安全降级） | 上游 OpenAI 兼容 ZDR 模型网关基地址（如阿里云百炼兼容端点、Zero-Retention 推理节点或自建 vLLM/Ollama 节点） |
 | `QI_ZDR_UPSTREAM_KEY` | `""` | 上游网关 API Key |
 | `QI_ZDR_UPSTREAM_MODEL` | `qwen3:latest` | 默认推理模型 ID |
+| `QI_CLOUD_SIGNING_SEED_HEX` | （生产必填） | 服务端 64 位随机 hex Ed25519 私钥种子，用于签发 OSET 权益令牌（严禁入库或硬编码） |
+| `QI_ENTITLEMENT_PUBKEY_HEX` | （客户端编译期注入） | 与 `QI_CLOUD_SIGNING_SEED_HEX` 配对的 64 位 hex Ed25519 公钥，在客户端编译期注入固化 |
+| `QI_PRODUCTION_MODE` | `0`（生产建议设为 `1`） | 生产安全锁定开关；设为 `QI_PRODUCTION_MODE=1` 时强制要求独立签名私钥、关闭调试计费接口并启用严格 StoreKit 2 验签 |
 
 ### 1.2 Docker 部署
 
 ```bash
-cd /Users/cluas/Codes/qi/cloud
+cd ./cloud
 docker build -t qi-cloud:1.0.0 .
 docker run -d \
   --name qi-cloud \
@@ -44,7 +47,7 @@ docker run -d \
 参考 `cloud/qi-cloud.service` 与 `cloud/Caddyfile.example`：
 
 ```bash
-cd /Users/cluas/Codes/qi/cloud
+cd ./cloud
 cargo build --release
 sudo install -m 0755 target/release/qi-cloud /usr/local/bin/qi-cloud
 sudo install -d /var/lib/qi-cloud
@@ -61,7 +64,7 @@ Caddy 配置 HTTPS（如备案后的大陆节点域名 `api.qi-health.cn`）：
 ### 1.4 数据最小化审计与物理销毁
 
 - 运维可通过 `GET /healthz` 校验 `health_plaintext_retained === false`。
-- 用户在 App 点击「物理清空本机健康数据 (5.1.1(v))」时，若已连接控制面会同时调用 `DELETE /v1/account`，服务端立即在事务内删除 `accounts`、`monthly_quotas` 与 `e2ee_sync_envelopes` 下对应账号的所有行。
+- 用户在 App 点击「物理清空本机健康数据 (5.1.1(v))」时，若已连接控制面会同时调用 `DELETE /v1/account`，服务端立即在事务内删除 `accounts`、`monthly_quotas`、`e2ee_sync_envelopes` 与 `apple_iap_transactions` 下对应账号的所有行（随账号一并物理清除）。
 
 ---
 
@@ -102,3 +105,13 @@ Caddy 配置 HTTPS（如备案后的大陆节点域名 `api.qi-health.cn`）：
 1. **Health Connect 最小权限**：仅声明 `READ_STEPS`、`READ_SLEEP`、`READ_HEART_RATE`、`READ_HEART_RATE_VARIABILITY`、`READ_RESTING_HEART_RATE`、`READ_EXERCISE`；并在商店填写 Health Connect 隐私说明与使用录屏。
 2. **国内市场明文网络**：`nsh.json` 中 `usesCleartextTraffic: true` 仅用于支持家庭局域网用户连入 `http://192.168.x.x:11434` 本地 Ollama，官方控制面强制使用 HTTPS + TLS。
 3. **跨端兼容与 12 词恢复**：Android 端提供 WebDAV（坚果云/NAS）、私有 BYO-Server 与 `.qivault` 单文件三种跨生态同步渠道，与 iOS/macOS 共享相同的 HKDF-SHA256 + XChaCha20-Poly1305 信封格式。
+
+---
+
+## 开源发布前操作提示
+
+- **个人邮箱历史脱敏（可选）**：首次向 GitHub 公开推送仓库前，可执行 `git filter-repo` 将历史提交中的个人邮箱统一改写为 GitHub noreply 地址，并更新本地 `git config user.email`，例如：
+  ```bash
+  git filter-repo --email-callback 'return b"<id>+<username>@users.noreply.github.com"'
+  git config user.email "<id>+<username>@users.noreply.github.com"
+  ```

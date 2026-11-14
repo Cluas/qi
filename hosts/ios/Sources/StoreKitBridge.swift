@@ -3,6 +3,9 @@ import StoreKit
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(WebKit)
+import WebKit
+#endif
 
 /// 知气 / Qi Apple StoreKit 2 商品标识定义（与 QiAtelier.storekit 及云端控制面对齐）
 public enum QiProductID {
@@ -379,3 +382,111 @@ public final class StoreKitBridge {
         )
     }
 }
+
+#if canImport(WebKit) && (os(iOS) || os(macOS))
+/// 将原生 StoreKit 2 购买与恢复购买能力注入 WKWebView (`globalThis.__qiStoreKitBridge`)。
+@available(iOS 15.0, macOS 12.0, *)
+public final class StoreKitWebBridge: NSObject, WKScriptMessageHandlerWithReply {
+    public static let messageHandlerName = "qiStoreKitBridge"
+    public static let shared = StoreKitWebBridge()
+
+    private static let injectionScriptSource = """
+    (function() {
+      if (globalThis.__qiStoreKitBridge) { return; }
+      function postBridge(action, payload) {
+        return window.webkit.messageHandlers.qiStoreKitBridge.postMessage({
+          action: action,
+          payload: payload || {}
+        });
+      }
+      globalThis.__qiStoreKitBridge = {
+        purchaseProduct: function(productId) {
+          return postBridge("purchaseProduct", { productId: productId });
+        },
+        restorePurchases: function() {
+          return postBridge("restorePurchases", {});
+        },
+        fetchProducts: function(productIds) {
+          return postBridge("fetchProducts", { productIds: productIds || [] });
+        }
+      };
+    })();
+    """
+
+    public override init() {
+        super.init()
+    }
+
+    @MainActor
+    public func install(into userContentController: WKUserContentController) {
+        userContentController.removeScriptMessageHandler(forName: Self.messageHandlerName)
+        userContentController.addScriptMessageHandler(
+            self,
+            contentWorld: .page,
+            name: Self.messageHandlerName
+        )
+        let script = WKUserScript(
+            source: Self.injectionScriptSource,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        userContentController.addUserScript(script)
+    }
+
+    public func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage,
+        replyHandler: @escaping (Any?, String?) -> Void
+    ) {
+        guard let body = message.body as? [String: Any],
+              let action = body["action"] as? String else {
+            replyHandler(nil, "Invalid StoreKit bridge message payload")
+            return
+        }
+        let payload = body["payload"] as? [String: Any] ?? [:]
+
+        Task {
+            do {
+                let resultJSON: String
+                switch action {
+                case "purchaseProduct":
+                    guard let productId = (payload["productId"] as? String) ?? (body["productId"] as? String),
+                          !productId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        await MainActor.run { replyHandler(nil, "Missing productId") }
+                        return
+                    }
+                    let outcome = try await StoreKitBridge.shared.purchase(productId: productId)
+                    switch outcome {
+                    case .verified(let tx):
+                        resultJSON = try StoreKitBridge.shared.exportJWSJSON(for: tx)
+                    case .userCancelled:
+                        resultJSON = "{\"cancelled\":true}"
+                    case .pending:
+                        resultJSON = "{\"pending\":true}"
+                    }
+                case "restorePurchases":
+                    let txs = try await StoreKitBridge.shared.restorePurchases()
+                    let data = try JSONEncoder().encode(txs)
+                    resultJSON = String(data: data, encoding: .utf8) ?? "[]"
+                case "fetchProducts":
+                    let requested = payload["productIds"] as? [String] ?? []
+                    let ids = requested.isEmpty ? QiProductID.allProductIDs : requested
+                    resultJSON = try await StoreKitBridge.shared.fetchProductDTOsJSON(productIds: ids)
+                default:
+                    await MainActor.run {
+                        replyHandler(nil, "Unsupported StoreKit bridge action: \(action)")
+                    }
+                    return
+                }
+                await MainActor.run {
+                    replyHandler(resultJSON, nil)
+                }
+            } catch {
+                await MainActor.run {
+                    replyHandler(nil, error.localizedDescription)
+                }
+            }
+        }
+    }
+}
+#endif

@@ -1,0 +1,94 @@
+# Visual Assets License / 视觉与美术资产许可协议
+
+Copyright (c) 2026-present Cluas. All Rights Reserved.
+
+---
+
+## English
+
+### 1. Scope of Protected Assets
+
+All original visual works, illustrations, character designs, icons, photographs,
+seasonal scenes, and image test fixtures contained in this repository are
+proprietary copyrighted works owned exclusively by Cluas ("Excluded Assets"),
+including without limitation:
+
+- `assets/icon-1024.png` (application icon and vermilion seal emblem)
+- `assets/scenes/*.jpg` (all seasonal cat-window, Song-style landscape, and
+  bento sanctuary artwork, including `cat_day.jpg`, `cat_night.jpg`,
+  `four_seasons_handscroll.jpg`, `solar_spring_rain.jpg`,
+  `solar_winter_hearth.jpg`, `playful_day.jpg`, `playful_night.jpg`,
+  `zen_day.jpg`, `zen_night.jpg`, and any subsequently added artwork under `assets/`)
+- `tests/fixtures/*.png` (including `tests/fixtures/sample_lab_report.png`)
+
+### 2. Reservation of Rights & Limited Local Study Permission
+
+These Excluded Assets are **NOT** licensed under the GNU Affero General Public
+License v3.0 (`AGPL-3.0-only`) or any other open-source license. **All rights
+are strictly reserved.**
+
+**Sole Permitted Use:**
+An individual learner may keep and load the Excluded Assets unmodified at
+runtime solely when compiling, debugging, or running automated tests on the
+software locally on their own machine from source code for personal study and
+auditing.
+
+### 3. Strictly Prohibited Uses
+
+Except with explicit prior written authorization from the copyright owner, you
+are strictly prohibited from:
+
+1. **Public Redistribution or Store Submission:** Publishing, hosting,
+   repackaging, or submitting any build containing the Excluded Assets (in whole
+   or in part) to the Apple App Store, TestFlight (public external testing),
+   Google Play, any regional Android app market, or any public software download
+   portal;
+2. **Cloning, Reskinning, or Commercial Promotion:** Using any Excluded Asset in
+   a reskinned clone, competing product, advertisement, marketing material, social
+   media promotion, or commercial distribution;
+3. **Derivative Works:** Modifying, cropping, tracing, vectorizing, remixing, or
+   creating derivative visual works or merchandise based on the Excluded Assets;
+4. **AI / ML Training & Style Extraction:** Scraping, indexing, ingesting into
+   datasets, training, fine-tuning, distilling, or extracting visual styles or
+   LoRAs from the Excluded Assets using any machine learning or generative AI
+   system.
+
+### 4. Requirement for Forks & Public Distributions
+
+If you fork this repository or distribute any modified or unmodified binary
+built from the source code, you **must remove and completely replace** all
+files under `assets/` and `tests/fixtures/*.png` with your own original or
+properly licensed artwork before public distribution, and you must also comply
+with [`TRADEMARK.md`](TRADEMARK.md).
+
+---
+
+## 中文
+
+### 1. 受保护资产范围
+
+本仓库中所有原创视觉作品、插画、角色形象、图标、摄影图像、节气场景画作与图片测试夹具均属于 Cluas 独家享有的专有著作权作品（下称“受保护视觉资产”），包括但不限于：
+
+- `assets/icon-1024.png`（应用图标与朱砂印章视觉标识）；
+- `assets/scenes/*.jpg`（全部节气猫窗图、宋式山水图与手账场景插画，包含 `cat_day.jpg`、`cat_night.jpg`、`four_seasons_handscroll.jpg`、`solar_spring_rain.jpg`、`solar_winter_hearth.jpg`、`playful_day.jpg`、`playful_night.jpg`、`zen_day.jpg`、`zen_night.jpg` 及 `assets/` 下后续新增的全部美术文件）；
+- `tests/fixtures/*.png`（含 `tests/fixtures/sample_lab_report.png`）。
+
+### 2. 权利保留与唯一限定的本地学习许可
+
+上述受保护视觉资产**不适用** `GNU AGPL-3.0-only` 或任何其他开源协议，**版权人保留全部权利（All Rights Reserved）**。
+
+**唯一允许的使用方式：**
+仅允许个人学习者在本地从源码自编译、调试或运行自检测试时，为保证工程可正常构建与验证，在个人设备上原样运行时加载上述资产。
+
+### 3. 严禁行为清单
+
+未经版权人事先书面授权，任何个人、组织或商业实体严禁从事以下任何行为：
+
+1. **公开发布与商店提交**：将包含任何受保护视觉资产（全部或部分）的编译产物、安装包或衍生项目公开发布，或提交至 Apple App Store、公开 TestFlight、Google Play、任何国内/海外安卓应用市场或第三方分发平台；
+2. **换皮克隆与商业宣传**：将受保护视觉资产用于换皮抄袭、竞品 App、广告投放、商业推广、周边衍生品或任何营利性场景；
+3. **二次创作与衍生改编**：对上述插画、图标、角色或界面视觉元素进行修改、描红、矢量化、拼接、混剪或衍生创作；
+4. **AI 模型训练与风格提取**：将上述资产纳入机器学习或生成式人工智能数据集，用于模型训练、微调、LoRA/风格提取或图像生成参考。
+
+### 4. Fork 与公开分发的清理义务
+
+任何第三方若公开分发基于本项目源码编译的产物或衍生 Fork，必须在公开或上架前**彻底移除并替换** `assets/` 及 `tests/fixtures/*.png` 下的全部受保护视觉资产，同时严格遵守 [`TRADEMARK.md`](TRADEMARK.md) 中的品牌与标识隔离规范。

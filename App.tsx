@@ -31,6 +31,7 @@ import {
   getTab,
   getToast,
   getVisualTheme,
+  isQaStudioEnabled,
   logNaturalIntake,
   restoreApplePurchases,
   setHidePosterNumbers,
@@ -187,7 +188,9 @@ function App() {
       </If>
 
       <OnboardingModal />
-      <QaStudioSheet />
+      <If when={isQaStudioEnabled()}>
+        <QaStudioSheet />
+      </If>
 
       <DailyPosterModal
         open={getShowDailyPoster()}

@@ -17,8 +17,10 @@ pub mod sync_engine;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use ed25519_dalek::SigningKey;
 use nsh_core::prelude::*;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::ai_provider::generate_live_briefing_localized;
 use crate::analytics::{
@@ -32,10 +34,10 @@ use crate::apple_native::{
 use crate::crypto_sync::{decrypt_sync_batch, derive_master_key, encrypt_sync_batch};
 use crate::entitlements::{
     EntitlementCatalog, EntitlementVerificationResult, HEARTH_GIFT_PASS_PRODUCT_ID,
-    LOYALTY_MIN_CHECKIN_DAYS, OfflineEntitlementState, SubscriptionTier,
+    LOYALTY_MIN_CHECKIN_DAYS, OfflineEntitlementState, OsetClaims, SubscriptionTier,
     build_entitlement_catalog_localized, custom_pet_quota, has_feature, is_en_locale,
-    mint_sandbox_oset, normalize_locale, tier_from_apple_product_id,
-    verify_oset_with_clock_localized,
+    is_qa_or_debug_build, mint_oset_for_tier, mint_sandbox_oset, normalize_locale,
+    sign_oset_with_key, tier_from_apple_product_id, verify_oset_with_clock_localized,
 };
 use crate::experiments::{
     EXPERIMENT_TEMPLATES, ExperimentEvaluation, ExperimentTemplate, PeriodComparison,
@@ -531,6 +533,20 @@ impl QiMeta {
         serde_json::to_string(&crate::personas::all_personas_meta())
             .unwrap_or_else(|_| "[]".to_owned())
     }
+
+    /// 返回当前构建是否允许启用 QA Studio 与本地沙盒模拟能力（Release 恒为 false）。
+    pub fn qa_studio_enabled() -> bool {
+        is_qa_or_debug_build()
+    }
+
+    /// 根据云端账号与本地 12 词恢复短语派生防顶号凭据摘要（SHA-256 hex）。
+    pub fn derive_cloud_auth_proof(handle: String, recovery_phrase: String) -> String {
+        let norm_handle = handle.trim().to_ascii_lowercase();
+        let norm_phrase = recovery_phrase.trim();
+        let mut hasher = Sha256::new();
+        hasher.update(format!("qi-cloud-auth-v1:{norm_handle}:{norm_phrase}").as_bytes());
+        hex::encode(hasher.finalize())
+    }
 }
 
 /// 端侧唯一可信健康引擎实例：管理 SQLite、统计快照、N-of-1 实验、E2EE 同步与 AI 路由。
@@ -574,15 +590,13 @@ impl QiEngine {
 
     fn evaluate_entitlement(&self, settings: &AppSettings) -> EntitlementVerificationResult {
         let now = Self::current_epoch();
-        let mut res = verify_oset_with_clock_localized(
+        verify_oset_with_clock_localized(
             &settings.entitlement_token,
             now,
             settings.max_seen_epoch,
             None,
             &settings.locale,
-        );
-        res.guardian_sponsor = res.guardian_sponsor || settings.guardian_sponsor;
-        res
+        )
     }
 
     fn award_recovery_dew_if_needed(&self, snapshot: &AnalyticsSnapshot) {
@@ -638,6 +652,11 @@ impl QiEngine {
         };
 
         let entitlements = self.evaluate_entitlement(&settings);
+        // Never allow unsigned SQLite flags to spoof badge/UI state in downstream payload builders.
+        settings.guardian_sponsor = entitlements.guardian_sponsor;
+        if !has_feature(&entitlements, "multi_lag_radar") && multi_lag_radar.len() > 2 {
+            multi_lag_radar.truncate(2);
+        }
         let distinct_metric_days: BTreeSet<&str> = metrics.iter().map(|m| m.date.as_str()).collect();
         let loyalty_eligible = settings.companion_loyalty_days >= LOYALTY_MIN_CHECKIN_DAYS
             || distinct_metric_days.len() as i64 >= LOYALTY_MIN_CHECKIN_DAYS
@@ -1254,6 +1273,9 @@ impl QiEngine {
 
     /// 重新载入 35 天演示数据。
     pub fn reseed_demo(&mut self) -> Result<String, String> {
+        if !is_qa_or_debug_build() {
+            return Err("QA Studio sandbox APIs are disabled in release builds.".to_owned());
+        }
         self.live_briefing_override = None;
         self.db.seed_demo_35d()?;
         self.build_payload()
@@ -1261,6 +1283,9 @@ impl QiEngine {
 
     /// 切换并载入指定纵向测试画像（清空业务表，保留云会话、12词恢复码与同步配置）。
     pub fn load_persona(&mut self, persona_id: String) -> Result<String, String> {
+        if !is_qa_or_debug_build() {
+            return Err("QA Studio sandbox APIs are disabled in release builds.".to_owned());
+        }
         if crate::personas::find_persona_meta(&persona_id).is_none() {
             return Err(format!("未知测试画像 ID: {persona_id}"));
         }
@@ -1308,6 +1333,9 @@ impl QiEngine {
         guardian_sponsor: bool,
         loyalty_days: i64,
     ) -> Result<String, String> {
+        if !is_qa_or_debug_build() {
+            return Err("QA Studio sandbox APIs are disabled in release builds.".to_owned());
+        }
         let mut s = self.db.load_settings()?;
         let now = Self::current_epoch();
         let token = mint_sandbox_oset(
@@ -1320,7 +1348,6 @@ impl QiEngine {
         )?;
         s.sandbox_tier = SubscriptionTier::from_str(&tier).as_str().to_owned();
         s.sandbox_state = simulated_state;
-        s.guardian_sponsor = guardian_sponsor;
         s.companion_loyalty_days = loyalty_days.max(0);
         s.entitlement_token = token;
         let res = verify_oset_with_clock_localized(
@@ -1330,6 +1357,7 @@ impl QiEngine {
             None,
             &s.locale,
         );
+        s.guardian_sponsor = res.guardian_sponsor;
         s.max_seen_epoch = res.new_max_seen_epoch;
         self.db.save_settings(&s)?;
         self.build_payload()
@@ -1721,6 +1749,16 @@ impl QiEngine {
         washout_days: i64,
     ) -> Result<String, String> {
         let s = self.db.load_settings()?;
+        if washout_days > 0 {
+            let ent = self.evaluate_entitlement(&s);
+            if !has_feature(&ent, "custom_washout_n_of_1") {
+                return Err(if is_en_locale(&s.locale) {
+                    "Custom N-of-1 washout windows require a Qi Atelier pass. Standard 0-day experiments stay free.".to_owned()
+                } else {
+                    "自定义对照试验洗脱期属于知气雅集会员权益（0 天标准实验永久免费）".to_owned()
+                });
+            }
+        }
         if title.trim().is_empty() {
             return Err(if is_en_locale(&s.locale) {
                 "Please enter an experiment title.".to_owned()
@@ -1747,6 +1785,14 @@ impl QiEngine {
     /// 生成大字暖心、端侧脱敏《气韵平安家书》JSON。
     pub fn generate_parents_peace_letter(&mut self, recipient_label: String) -> Result<String, String> {
         let s = self.db.load_settings()?;
+        let ent = self.evaluate_entitlement(&s);
+        if !has_feature(&ent, "parents_peace_letter") {
+            return Err(if is_en_locale(&s.locale) {
+                "Family Peace Letter generation requires Qi Atelier (Annual / Family / Lifetime) membership.".to_owned()
+            } else {
+                "生成大字暖心《气韵平安家书》需开通雅集年礼 / 四时家书 / 终身买断席位".to_owned()
+            });
+        }
         let metrics = self.db.load_metrics()?;
         let workouts = self.db.load_workouts()?;
         let intakes = self.db.load_intakes()?;
@@ -1799,6 +1845,16 @@ impl QiEngine {
             "parents" => "parents",
             _ => "self",
         };
+        if pid != "self" {
+            let ent = self.evaluate_entitlement(&s);
+            if !has_feature(&ent, "multi_profile_labs") {
+                return Err(if is_en_locale(&s.locale) {
+                    "Multi-profile partner/parent lab tracking requires Qi Atelier membership. Personal labs stay free.".to_owned()
+                } else {
+                    "伴侣与父母多亲友化验档案需开通知气雅集会员（本人化验与历史档案永久免费）".to_owned()
+                });
+            }
+        }
         let canonical = canonicalize_marker(&marker_name);
         let date_str = if test_date.trim().is_empty() {
             "2026-11-13".to_owned()
@@ -2089,13 +2145,25 @@ impl QiEngine {
 
         let c_base = s.cloud_url.trim().trim_end_matches('/');
         if !c_base.is_empty() && !s.cloud_token.trim().is_empty() {
+            let jws_clean = jws_representation
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(ToOwned::to_owned);
+            if !is_qa_or_debug_build() && jws_clean.is_none() {
+                return Err(if en {
+                    "StoreKit 2 JWS transaction is required for verification in release builds.".to_owned()
+                } else {
+                    "正式发布包需提供 StoreKit 2 签名 JWS 交易凭证".to_owned()
+                });
+            }
             let endpoint = format!("{c_base}/v1/billing/apple/verify");
             let agent = ureq::AgentBuilder::new()
                 .timeout_connect(std::time::Duration::from_secs(3))
                 .timeout_read(std::time::Duration::from_secs(12))
                 .build();
             let req_body = serde_json::json!({
-                "jws_representation": jws_representation.clone().unwrap_or_default(),
+                "jws_representation": jws_clean.unwrap_or_default(),
                 "product_id": clean_pid,
                 "transaction_id": clean_tx,
                 "original_transaction_id": clean_orig_tx,
@@ -2125,31 +2193,53 @@ impl QiEngine {
                     "Apple 交易未能通过核验".to_owned()
                 });
             }
-            if clean_pid == HEARTH_GIFT_PASS_PRODUCT_ID || val["seats_credited"].as_i64().unwrap_or(0) > 0 {
-                s.guardian_sponsor = true;
-            }
-            if let Some(tok) = val["entitlement_token"].as_str()
-                && !tok.trim().is_empty()
-            {
+            let token_candidate = val["entitlement_token"]
+                .as_str()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .or_else(|| {
+                    val["guardian_receipt_token"]
+                        .as_str()
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty())
+                });
+            let mut verified_token_applied = false;
+            if let Some(tok) = token_candidate {
                 let res = verify_oset_with_clock_localized(
-                    tok.trim(),
+                    tok,
                     Self::current_epoch(),
                     s.max_seen_epoch,
                     None,
                     &s.locale,
                 );
                 if res.valid_signature {
-                    s.entitlement_token = tok.trim().to_owned();
+                    s.entitlement_token = tok.to_owned();
                     s.sandbox_tier = res.tier;
-                    s.guardian_sponsor = s.guardian_sponsor || res.guardian_sponsor;
+                    s.guardian_sponsor = res.guardian_sponsor;
                     s.max_seen_epoch = res.new_max_seen_epoch;
+                    verified_token_applied = true;
                 }
+            }
+            if !verified_token_applied && !is_qa_or_debug_build() {
+                return Err(if en {
+                    "Cloud Apple verification did not yield a valid signed entitlement token.".to_owned()
+                } else {
+                    "云端 Apple 校验未返回有效的已签名权益凭据".to_owned()
+                });
             }
             self.db.save_settings(&s)?;
             return self.build_payload();
         }
 
-        // 仅允许 Xcode / Sandbox 本地开发态在未绑定云端会话时执行本地可信沙盒签发；Production 必须经云端或 StoreKit 2 验签
+        // 仅允许 Debug/Test/qa-studio 的 Xcode/Sandbox 本地开发态在未绑定云端会话时执行本地沙盒签发；
+        // Release 正式包严禁任何离线自签发或绕过云端 StoreKit 2 验签
+        if !is_qa_or_debug_build() {
+            return Err(if en {
+                "Sign in to Qi Cloud with a verified StoreKit 2 receipt to verify purchases in release builds.".to_owned()
+            } else {
+                "正式发布包需登录云端账号并提供 StoreKit 2 签名凭证以完成购买核验".to_owned()
+            });
+        }
         let env_lower = env_clean.to_ascii_lowercase();
         if env_lower != "sandbox" && env_lower != "xcode" {
             return Err(if en {
@@ -2160,22 +2250,26 @@ impl QiEngine {
         }
 
         let now = Self::current_epoch();
+        let prev_ent = self.evaluate_entitlement(&s);
         if clean_pid == HEARTH_GIFT_PASS_PRODUCT_ID {
-            s.guardian_sponsor = true;
-            if !s.entitlement_token.trim().is_empty() {
-                let current = self.evaluate_entitlement(&s);
-                if current.is_atelier_unlocked {
-                    let tier_enum = SubscriptionTier::from_str(&current.tier);
-                    let (_c, refreshed) = crate::entitlements::mint_oset_for_tier(
-                        &s.device_id,
-                        tier_enum,
-                        now,
-                        true,
-                        s.companion_loyalty_days >= LOYALTY_MIN_CHECKIN_DAYS,
-                    )?;
-                    s.entitlement_token = refreshed;
-                }
-            }
+            let target_tier = if prev_ent.is_atelier_unlocked {
+                SubscriptionTier::from_str(&prev_ent.tier)
+            } else {
+                SubscriptionTier::Free
+            };
+            let (_c, refreshed) = mint_oset_for_tier(
+                &s.device_id,
+                target_tier,
+                now,
+                true,
+                s.companion_loyalty_days >= LOYALTY_MIN_CHECKIN_DAYS
+                    || prev_ent.companion_loyalty_eligible,
+            )?;
+            let res =
+                verify_oset_with_clock_localized(&refreshed, now, s.max_seen_epoch, None, &s.locale);
+            s.entitlement_token = refreshed;
+            s.guardian_sponsor = res.guardian_sponsor;
+            s.max_seen_epoch = res.new_max_seen_epoch;
             self.db.save_settings(&s)?;
             return self.build_payload();
         }
@@ -2191,7 +2285,7 @@ impl QiEngine {
             &s.device_id,
             tier_enum.as_str(),
             "active",
-            s.guardian_sponsor,
+            prev_ent.guardian_sponsor,
             s.companion_loyalty_days,
             now,
         )?;
@@ -2200,6 +2294,7 @@ impl QiEngine {
         s.entitlement_token = token;
         s.sandbox_tier = tier_enum.as_str().to_owned();
         s.sandbox_state = "active".to_owned();
+        s.guardian_sponsor = res.guardian_sponsor;
         s.max_seen_epoch = res.new_max_seen_epoch;
         self.db.save_settings(&s)?;
         self.build_payload()
@@ -2496,14 +2591,31 @@ impl QiEngine {
         // 6. 实验、滞后归因数值有限性 + 保险箱永不锁死契约校验
         let en = is_en_locale(&settings.locale);
         let current_ent = self.evaluate_entitlement(&settings);
+        let now_audit = Self::current_epoch().max(settings.max_seen_epoch);
+        let probe_signing_key = SigningKey::from_bytes(&[0x5A; 32]);
+        let probe_pubkey_hex = hex::encode(probe_signing_key.verifying_key().to_bytes());
+        let probe_claims = OsetClaims {
+            ver: 1,
+            iss: "qi-audit-probe".to_owned(),
+            sub: "audit_probe".to_owned(),
+            tier: SubscriptionTier::ProMonthly.as_str().to_owned(),
+            issued_at: now_audit.saturating_sub(45 * 86_400),
+            refresh_after: now_audit.saturating_sub(38 * 86_400),
+            exp_epoch: now_audit.saturating_sub(14 * 86_400),
+            grace_until: now_audit.saturating_sub(7 * 86_400),
+            features: SubscriptionTier::ProMonthly.default_features(),
+            seats: SubscriptionTier::ProMonthly.default_seats(),
+            guardian_sponsor: false,
+            companion_loyalty_eligible: false,
+            nonce: "audit01".to_owned(),
+        };
         let expired_probe_token =
-            mint_sandbox_oset("audit_probe", "pro_monthly", "expired", false, 0, Self::current_epoch())
-                .unwrap_or_default();
+            sign_oset_with_key(&probe_claims, &probe_signing_key).unwrap_or_default();
         let expired_probe = verify_oset_with_clock_localized(
             &expired_probe_token,
-            Self::current_epoch(),
+            now_audit,
             settings.max_seen_epoch,
-            None,
+            Some(&probe_pubkey_hex),
             &settings.locale,
         );
         let vault_non_lockout_verified = current_ent.can_read_history_vault
