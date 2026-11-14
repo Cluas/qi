@@ -1,190 +1,330 @@
-import { Scroll, signal, Text, token, View } from "nsh";
+import {
+  Animated,
+  Canvas,
+  createAnimatedValue,
+  Easing,
+  effect,
+  reduceMotion,
+  Scroll,
+  signal,
+  Text,
+  token,
+  View,
+} from "nsh";
 import {
   completeOnboarding,
   getAppLocale,
   getState,
-  getVisualTheme,
   isHealthkitSupported,
-  setVisualTheme,
   syncAppleHealthkit,
   toggleAppLocale,
 } from "../store";
-import { ActionButton, Card, ChoiceCard, ModalSurface, SunkenBox, SwitchRow, VitalBadge } from "../ui/components";
-import { QiIcon, type QiIconName } from "../ui/icons";
+import { ActionButton, Button, HeaderActionPill, VitalBadge } from "../ui/components";
+import { hapticSelection, hapticSuccess } from "../ui/haptics";
+import { QiIcon } from "../ui/icons";
 import { tr } from "../ui/i18n";
-import { ThemeSwitcherStrip } from "../ui/sanctuary";
+import {
+  createOrbRippleMotion,
+  createPreludeEntranceMotion,
+  MOTION_TOKENS,
+  PreludeAuroraShader,
+  SceneCrossfade,
+} from "../ui/motion";
 
-export function OnboardingModal() {
-  const goal = signal("energy_sleep");
-  const tier = signal("tier_a");
-  const connectHealthkit = signal(true);
-  const isOpen = () => !getState().settings.onboarding_done;
+const BREATH_EASE = Easing.bezier(0.37, 0, 0.63, 1);
 
-  const goals = (): { id: string; title: string; subtitle: string; icon: QiIconName }[] => [
-    {
-      id: "energy_sleep",
-      title: tr("onboarding.goal_energy_title"),
-      subtitle: tr("onboarding.goal_energy_sub"),
-      icon: "sun",
-    },
-    {
-      id: "diet_balance",
-      title: tr("onboarding.goal_diet_title"),
-      subtitle: tr("onboarding.goal_diet_sub"),
-      icon: "utensils",
-    },
-    {
-      id: "lab_archive",
-      title: tr("onboarding.goal_lab_title"),
-      subtitle: tr("onboarding.goal_lab_sub"),
-      icon: "file_lab",
-    },
-    {
-      id: "smart_training",
-      title: tr("onboarding.goal_train_title"),
-      subtitle: tr("onboarding.goal_train_sub"),
-      icon: "heart_pulse",
-    },
-  ];
+function PreludeBreathingOrb(props: {
+  active: () => boolean;
+  onTap: () => void;
+}) {
+  const breath = createAnimatedValue(0.45);
+  const orbRipple = createOrbRippleMotion();
 
-  const wearModes = (): { id: string; title: string; subtitle: string; icon: QiIconName }[] => [
-    {
-      id: "tier_a",
-      title: tr("onboarding.tier_a_title"),
-      subtitle: tr("onboarding.tier_a_sub"),
-      icon: "heart_pulse",
-    },
-    {
-      id: "tier_b",
-      title: tr("onboarding.tier_b_title"),
-      subtitle: tr("onboarding.tier_b_sub"),
-      icon: "moon",
-    },
-    {
-      id: "tier_c",
-      title: tr("onboarding.tier_c_title"),
-      subtitle: tr("onboarding.tier_c_sub"),
-      icon: "compass",
-    },
-  ];
+  const outerRadius = breath.interpolate({ inputRange: [0, 1], outputRange: [76, 95] });
+  const midRadius = breath.interpolate({ inputRange: [0, 1], outputRange: [54, 69] });
+  const coreRadius = breath.interpolate({ inputRange: [0, 1], outputRange: [34, 41] });
+  const outerAlpha = breath.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.25] });
+  const midAlpha = breath.interpolate({ inputRange: [0, 1], outputRange: [0.20, 0.36] });
+
+  effect(() => {
+    if (!props.active() || reduceMotion()) {
+      breath.set(0.45);
+      return;
+    }
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breath, { toValue: 1, duration: 2200, easing: BREATH_EASE }),
+        Animated.timing(breath, { toValue: 0, duration: 2200, easing: BREATH_EASE }),
+      ]),
+    );
+    void anim.start();
+    return () => anim.stop();
+  });
 
   return (
-    <ModalSurface open={isOpen()} presentation="pageSheet" closeOnBackdropPress={false}>
-      <Scroll class="flex-1" contentStyle={{ paddingHorizontal: 20, paddingBottom: 24, gap: 16 }}>
-        <View class="flex-row items-center justify-between pt-1">
-          <View class="flex-row items-center gap-2">
-            <View class="size-8 items-center justify-center rounded-xl bg-accent">
-              <QiIcon name="sun" size={18} color={token("primary")} />
-            </View>
-            <VitalBadge tone="prime_ready" label={tr("onboarding.privacy_badge")} />
-          </View>
-          <ActionButton
-            title={tr("common.lang_toggle_compact")}
+    <Button
+      hitSlop={10}
+      accessibilityLabel={tr("onboarding.orb_hint")}
+      onPress={() => {
+        hapticSelection();
+        void orbRipple.ripple();
+        props.onTap();
+      }}
+      class="items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <View
+        style={[{ width: 220, height: 220 }, orbRipple.motion.style]}
+        class="relative items-center justify-center"
+      >
+        <Canvas
+          style={{ width: 220, height: 220 }}
+          accessibilityElementsHidden={true}
+          draw={(cx, size) => {
+            const cxMid = size.width / 2;
+            const cyMid = size.height / 2;
+            const primary = token("primary");
+
+            cx.clearRect(0, 0, size.width, size.height);
+
+            // Delicate outer celestial breath ticks
+            const ticks = 24;
+            for (let i = 0; i < ticks; i++) {
+              const ang = (Math.PI * 2 * i) / ticks;
+              const tx = cxMid + Math.cos(ang) * 98;
+              const ty = cyMid + Math.sin(ang) * 98;
+              cx.save();
+              cx.fillStyle = primary;
+              cx.globalAlpha = i % 3 === 0 ? 0.32 : 0.14;
+              cx.beginPath();
+              cx.arc(tx, ty, i % 3 === 0 ? 1.8 : 1.1, 0, Math.PI * 2);
+              cx.fill();
+              cx.restore();
+            }
+
+            // Outer breathing celadon halo
+            cx.save();
+            cx.fillStyle = primary;
+            cx.globalAlpha = outerAlpha;
+            cx.beginPath();
+            cx.arc(cxMid, cyMid, outerRadius, 0, Math.PI * 2);
+            cx.fill();
+            cx.restore();
+
+            // Mid soothing jade ring
+            cx.save();
+            cx.fillStyle = primary;
+            cx.globalAlpha = midAlpha;
+            cx.beginPath();
+            cx.arc(cxMid, cyMid, midRadius, 0, Math.PI * 2);
+            cx.fill();
+            cx.restore();
+
+            // Inner glowing core circle
+            cx.save();
+            cx.fillStyle = primary;
+            cx.globalAlpha = 0.88;
+            cx.beginPath();
+            cx.arc(cxMid, cyMid, coreRadius, 0, Math.PI * 2);
+            cx.fill();
+            cx.restore();
+          }}
+        />
+
+        <View class="pointer-events-none absolute inset-0 items-center justify-center">
+          <Text class="text-[22px] font-bold tracking-wider text-primary-foreground">
+            {tr("app.name")}
+          </Text>
+        </View>
+      </View>
+    </Button>
+  );
+}
+
+export function OnboardingModal() {
+  const beat = signal(0);
+  const connectHealthkit = signal(true);
+  const entrance = createPreludeEntranceMotion();
+  const isOpen = () => !getState().settings.onboarding_done;
+
+  const beats = () => [
+    {
+      kicker: tr("onboarding.beat1_kicker"),
+      title: tr("onboarding.welcome_subtitle"),
+      body: tr("onboarding.beat1_body"),
+      warmth: 0.62,
+    },
+    {
+      kicker: tr("onboarding.privacy_badge"),
+      title: tr("onboarding.beat2_title"),
+      body: tr("onboarding.beat2_body"),
+      warmth: 0.86,
+    },
+    {
+      kicker: tr("onboarding.privacy_badge"),
+      title: tr("onboarding.beat3_title"),
+      body: tr("onboarding.beat3_body"),
+      warmth: 0.36,
+    },
+  ];
+
+  const currentBeat = () => beats()[beat()] ?? beats()[0];
+
+  effect(() => {
+    if (!isOpen()) return;
+    void entrance.playEntrance();
+    if (reduceMotion()) return;
+    const timer = setInterval(() => {
+      beat.set((beat() + 1) % 3);
+    }, 3800);
+    return () => clearInterval(timer);
+  });
+
+  const handleOpenWindow = () => {
+    hapticSuccess();
+    completeOnboarding("energy_sleep", "tier_a");
+    if (isHealthkitSupported() && connectHealthkit()) {
+      void syncAppleHealthkit(35, false);
+    }
+  };
+
+  return (
+    <View class="relative flex-1 overflow-hidden bg-background">
+      <PreludeAuroraShader
+        intensity={0.95}
+        warmth={currentBeat().warmth}
+        breath={beat() * 0.45}
+        paused={!isOpen()}
+      />
+
+      <View
+        class="flex-1"
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
+        <Scroll
+          class="flex-1"
+          contentStyle={{
+            flexGrow: 1,
+            justifyContent: "space-between",
+            paddingHorizontal: 24,
+            paddingTop: 12,
+            paddingBottom: 28,
+          }}
+        >
+        {/* Top bar: zero-account pill & instant locale switch */}
+        <View class="flex-row items-center justify-between gap-2">
+          <VitalBadge tone="prime_ready" label={tr("onboarding.privacy_badge")} />
+          <HeaderActionPill
+            label={tr("common.lang_toggle_compact")}
             icon="globe"
-            size="sm"
-            variant="ghost"
-            shape="pill"
+            tone="neutral"
             accessibilityLabel={`${tr("common.language")} (${getAppLocale()})`}
             onPress={() => toggleAppLocale()}
           />
         </View>
 
-        <View class="gap-1.5">
-          <Text role="header" class="text-2xl font-bold text-foreground">
-            {tr("onboarding.welcome_title")}
-          </Text>
-          <Text class="text-sm leading-relaxed text-muted-foreground">
-            {tr("onboarding.welcome_subtitle")}
-          </Text>
+        {/* Centerpiece: breathing celadon orb + poetic 3-beat progression */}
+        <View style={entrance.motion.style} class="my-auto items-center gap-6 py-4">
+          <PreludeBreathingOrb
+            active={isOpen}
+            onTap={() => beat.set((beat() + 1) % 3)}
+          />
+
+          <View class="w-full max-w-sm items-center gap-3">
+            <Text role="header" class="text-[28px] font-bold tracking-tight text-foreground">
+              {tr("onboarding.welcome_title")}
+            </Text>
+
+            <SceneCrossfade
+              value={beat()}
+              duration={MOTION_TOKENS.duration.slow}
+              warmth={currentBeat().warmth}
+              class="w-full items-center"
+            >
+              <View class="items-center gap-2 px-2">
+                <Text class="text-center text-lg font-semibold leading-snug text-foreground">
+                  {currentBeat().title}
+                </Text>
+                <Text class="text-center text-sm leading-relaxed text-muted-foreground">
+                  {currentBeat().body}
+                </Text>
+              </View>
+            </SceneCrossfade>
+          </View>
         </View>
 
-        <Card>
-          <Text role="header" class="text-sm font-semibold text-foreground">
-            {tr("onboarding.step_goal_title")}
-          </Text>
-          <View class="gap-2">
-            <Each of={goals()} key={(g) => g.id}>
-              {(g) => (
-                <ChoiceCard
-                  title={g().title}
-                  subtitle={g().subtitle}
-                  icon={g().icon}
-                  selected={goal() === g().id}
-                  onPress={() => goal.set(g().id)}
-                />
-              )}
-            </Each>
-          </View>
-        </Card>
-
-        <Card>
-          <Text role="header" class="text-sm font-semibold text-foreground">
-            {tr("onboarding.step_wear_title")}
-          </Text>
-          <Text class="text-xs leading-relaxed text-muted-foreground">
-            {tr("onboarding.step_wear_subtitle")}
-          </Text>
-          <View class="gap-2">
-            <Each of={wearModes()} key={(m) => m.id}>
-              {(m) => (
-                <ChoiceCard
-                  title={m().title}
-                  subtitle={m().subtitle}
-                  icon={m().icon}
-                  selected={tier() === m().id}
-                  onPress={() => tier.set(m().id)}
-                />
-              )}
-            </Each>
-          </View>
-        </Card>
-
-        <SunkenBox>
+        {/* Bottom dock: interactive beat dots, whisper HealthKit pill & 1-tap CTA */}
+        <View class="w-full max-w-sm items-center gap-3.5 self-center">
           <View class="flex-row items-center gap-2">
-            <QiIcon name="cloud_lock" size={16} color={token("primary")} />
-            <Text class="text-xs font-semibold text-primary">
-              {tr("onboarding.step_privacy_title")}
-            </Text>
+            <Each of={[0, 1, 2]} key={(i) => i}>
+              {(idx) => (
+                <Button
+                  hitSlop={10}
+                  accessibilityLabel={`${idx() + 1} / 3`}
+                  onPress={() => {
+                    hapticSelection();
+                    beat.set(idx());
+                  }}
+                  class={`h-2 rounded-full transition-all duration-200 ${
+                    beat() === idx() ? "w-6 bg-primary" : "w-2 bg-primary/25"
+                  }`}
+                />
+              )}
+            </Each>
           </View>
-          <Text class="text-xs leading-relaxed text-muted-foreground">
-            {tr("onboarding.step_privacy_desc")}
-          </Text>
-        </SunkenBox>
 
-        <Card>
-          <Text role="header" class="text-sm font-semibold text-foreground">
-            {tr("onboarding.step_theme_title")}
+          <Text class="text-center text-xs text-muted-foreground">
+            {tr("onboarding.orb_hint")}
           </Text>
-          <ThemeSwitcherStrip
-            activeId={getVisualTheme()}
-            detailed={true}
-            onSelect={(id) => setVisualTheme(id, true)}
+
+          <If when={isHealthkitSupported()}>
+            <Button
+              hitSlop={6}
+              accessibilityLabel={
+                connectHealthkit()
+                  ? tr("onboarding.healthkit_pill_on")
+                  : tr("onboarding.healthkit_pill_off")
+              }
+              onPress={() => {
+                hapticSelection();
+                connectHealthkit.update((v) => !v);
+              }}
+              class={`min-h-9 flex-row items-center gap-1.5 rounded-full border px-3.5 py-1.5 transition-colors duration-150 active:scale-[0.97] motion-reduce:transition-none ${
+                connectHealthkit()
+                  ? "border-primary/35 bg-accent/80"
+                  : "border-border/55 bg-card/80"
+              }`}
+            >
+              <QiIcon
+                name={connectHealthkit() ? "heart_pulse" : "cloud_lock"}
+                size={13}
+                color={connectHealthkit() ? token("primary") : token("muted-foreground")}
+              />
+              <Text
+                class={`text-xs font-medium ${
+                  connectHealthkit() ? "text-primary" : "text-muted-foreground"
+                }`}
+              >
+                {connectHealthkit()
+                  ? tr("onboarding.healthkit_pill_on")
+                  : tr("onboarding.healthkit_pill_off")}
+              </Text>
+            </Button>
+          </If>
+
+          <ActionButton
+            title={tr("onboarding.begin_btn")}
+            icon="sparkles"
+            size="lg"
+            shape="pill"
+            onPress={handleOpenWindow}
+            class="w-full"
           />
-        </Card>
-
-        <If when={isHealthkitSupported()}>
-          <Card>
-            <SwitchRow
-              title={tr("onboarding.healthkit_opt_title")}
-              subtitle={tr("onboarding.healthkit_opt_sub")}
-              checked={connectHealthkit()}
-              onChange={(v) => connectHealthkit.set(v)}
-            />
-          </Card>
-        </If>
-
-        <ActionButton
-          title={tr("onboarding.begin_btn")}
-          icon="sparkles"
-          size="lg"
-          onPress={() => {
-            completeOnboarding(goal(), tier());
-            if (isHealthkitSupported() && connectHealthkit()) {
-              void syncAppleHealthkit(35, false);
-            }
-          }}
-        />
-      </Scroll>
-    </ModalSurface>
+        </View>
+        </Scroll>
+      </View>
+    </View>
   );
 }

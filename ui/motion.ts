@@ -543,6 +543,158 @@ export function createPolaroidTiltMotion(): {
   };
 }
 
+/** Organic celadon-mist aurora, radial dawn halo, and soft bokeh breath motes for the first-launch Prelude. */
+export const QI_PRELUDE_AURORA_WGSL = `
+struct Uniforms {
+  intensity: f32,
+  warmth: f32,
+  breath: f32,
+  seed: f32,
+}
+
+fn shade(uv: vec2f) -> vec4f {
+  let aspect = nsh.size.x / max(nsh.size.y, 1.0);
+  let inten = clamp(uniforms.intensity, 0.0, 1.0);
+  let warmth = clamp(uniforms.warmth, 0.0, 1.0);
+  let t = nsh.time;
+
+  let center = vec2f(0.5 * aspect, 0.38);
+  let p = vec2f(uv.x * aspect, uv.y);
+
+  let warp_x = sin(uv.y * 4.2 + t * 0.42 + uniforms.seed) * 0.08 + cos(uv.y * 2.5 - t * 0.28) * 0.05;
+  let warp_y = cos(uv.x * 3.6 - t * 0.34 + uniforms.seed * 1.3) * 0.06;
+  let q = p + vec2f(warp_x, warp_y);
+
+  let ribbon_1 = 0.5 + 0.5 * sin(q.x * 3.1 + q.y * 2.2 - t * 0.38);
+  let ribbon_2 = 0.5 + 0.5 * cos(q.x * 2.3 - q.y * 3.4 + t * 0.30 + 1.4);
+  let silk = pow(clamp(ribbon_1 * 0.55 + ribbon_2 * 0.45, 0.0, 1.0), 1.4);
+
+  let dist_core = length(p - center);
+  let pulse = 0.85 + 0.15 * (0.5 + 0.5 * sin(t * 1.42 + uniforms.breath * 3.14159));
+  let halo = exp(-dist_core * dist_core * 4.2) * pulse;
+  let outer_aura = exp(-dist_core * dist_core * 1.45) * 0.65;
+
+  var mote_acc = 0.0;
+  for (var i: i32 = 0; i < 8; i = i + 1) {
+    let fi = f32(i);
+    let mx = fract(0.14 + fi * 0.6180339 + uniforms.seed * 0.11) * aspect;
+    let base_y = fract(0.18 + fi * 0.381966 + uniforms.seed * 0.07);
+    let drift_x = sin(t * (0.24 + fi * 0.03) + fi * 1.9) * 0.045;
+    let drift_y = cos(t * (0.19 + fi * 0.025) + fi * 2.3) * 0.04;
+    let mp = vec2f(mx + drift_x, clamp(0.12 + base_y * 0.72 + drift_y, 0.06, 0.90));
+    let d = length(p - mp);
+    let twinkle = 0.5 + 0.5 * sin(t * (0.85 + fi * 0.16) + fi * 1.7);
+    mote_acc = mote_acc + exp(-d * d * 240.0) * 0.24 * twinkle;
+  }
+
+  let jade = vec3f(0.24, 0.72, 0.59);
+  let mist = vec3f(0.56, 0.84, 0.76);
+  let dawn = vec3f(0.95, 0.82, 0.62);
+  let base_col = mix(jade, mist, silk * 0.68);
+  let col = mix(base_col, dawn, clamp(halo * 0.48 * warmth + mote_acc * 0.35, 0.0, 0.65));
+
+  let raw_alpha = (silk * 0.16 + outer_aura * 0.15 + halo * 0.18 + mote_acc * 0.18) * inten;
+  let alpha = clamp(raw_alpha, 0.0, 0.34);
+  return vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), alpha);
+}
+`;
+
+/** GPU ambient aurora shader layer behind the first-launch animated Prelude. */
+export function PreludeAuroraShader(props: {
+  intensity?: number;
+  warmth?: number;
+  breath?: number;
+  seed?: number;
+  paused?: boolean;
+  class?: string;
+}): JSX.Element {
+  return If({
+    get when() {
+      return shadersAvailable();
+    },
+    get children() {
+      return Shader({
+        source: QI_PRELUDE_AURORA_WGSL,
+        get uniforms() {
+          return {
+            intensity: props.intensity ?? 0.95,
+            warmth: props.warmth ?? 0.62,
+            breath: props.breath ?? 0.35,
+            seed: props.seed ?? 1.8,
+          } as unknown as Record<string, number>;
+        },
+        get paused() {
+          return Boolean(props.paused || reduceMotion());
+        },
+        get class() {
+          return props.class ?? "pointer-events-none absolute inset-0";
+        },
+        style: { pointerEvents: "none" as const },
+        accessibilityElementsHidden: true,
+      });
+    },
+  });
+}
+
+/** Smooth vertical entrance motion (12pt rise + fade-in over 360ms soft settle). */
+export function createPreludeEntranceMotion(): {
+  motion: Motion;
+  playEntrance: () => Promise<{ finished: boolean }>;
+} {
+  const motion = createMotion();
+  if (!reduceMotion()) {
+    motion.opacity.set(0);
+    motion.translateY.set(12);
+  }
+
+  const playEntrance = () => {
+    if (reduceMotion()) {
+      motion.opacity.set(1);
+      motion.translateY.set(0);
+      return Promise.resolve({ finished: true });
+    }
+    return Animated.parallel([
+      Animated.timing(motion.opacity, {
+        toValue: 1,
+        duration: MOTION_TOKENS.duration.slow,
+        easing: MOTION_TOKENS.easing.softSettle,
+      }),
+      Animated.timing(motion.translateY, {
+        toValue: 0,
+        duration: MOTION_TOKENS.duration.slow,
+        easing: MOTION_TOKENS.easing.softSettle,
+      }),
+    ]).start();
+  };
+
+  return { motion, playEntrance };
+}
+
+/** Tactile spring ripple controller for the breathing Prelude halo orb. */
+export function createOrbRippleMotion(): {
+  motion: Motion;
+  ripple: () => Promise<{ finished: boolean }>;
+} {
+  const motion = createMotion();
+
+  const ripple = () => {
+    if (reduceMotion()) {
+      motion.scale.set(1);
+      return Promise.resolve({ finished: true });
+    }
+    motion.stop();
+    const pressCfg = { stiffness: 320, damping: 20, mass: 0.9 };
+    const settleCfg = { stiffness: 200, damping: 14, mass: 0.95 };
+    return Animated.sequence([
+      Animated.spring(motion.scale, { toValue: 0.94, ...pressCfg }),
+      Animated.spring(motion.scale, { toValue: 1.05, ...settleCfg }),
+      Animated.spring(motion.scale, { toValue: 1, ...settleCfg }),
+    ]).start();
+  };
+
+  return { motion, ripple };
+}
+
 /** Native layout transition guard for Spatial Scene Dock drawers and accordion panels. */
 export function runDrawerLayoutTransition(preset: "easeInEaseOut" | "spring" = "easeInEaseOut"): void {
   if (reduceMotion()) return;

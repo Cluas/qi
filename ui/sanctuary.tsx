@@ -6,12 +6,10 @@ import {
   Image,
   type JSX,
   reduceMotion,
-  Scroll,
   signal,
   Text,
   token,
   View,
-  windowSize,
 } from "nsh";
 import { Button } from "nsh/base";
 import { hapticSelection, hapticSoftImpact, hapticSuccess } from "./haptics";
@@ -230,18 +228,18 @@ function companionSpeech(
   return tr("sanctuary.dialogue_steady_cat");
 }
 
-function bentoBgClass(tone: BentoSurfaceTone): string {
+function bentoIconBadgeBgClass(tone: BentoSurfaceTone): string {
   switch (tone) {
     case "sage":
-      return "bg-bento-sage";
+      return "bg-vital-prime-soft";
     case "amber":
-      return "bg-bento-amber";
+      return "bg-vital-steady-soft";
     case "lavender":
       return "bg-bento-lavender";
     case "peach":
-      return "bg-bento-peach";
+      return "bg-stamp-soft";
     default:
-      return "bg-surface-sunken";
+      return "bg-secondary/75";
   }
 }
 
@@ -257,7 +255,7 @@ function petSpeciesIcon(species?: string): QiIconName {
   }
 }
 
-/** 三境主题切换胶囊条：支持精简顶栏胶囊与详尽设置卡两种排布 */
+/** 三境主题切换胶囊条：支持精简胶囊与详尽设置行两种排布 */
 export function ThemeSwitcherStrip(props: {
   activeId: VisualThemeId;
   onSelect: (id: VisualThemeId) => void;
@@ -278,13 +276,13 @@ export function ThemeSwitcherStrip(props: {
               }}
               class={`min-h-12 flex-row items-center gap-3 rounded-2xl border px-3.5 py-2.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
                 isSelected()
-                  ? "border-primary bg-accent"
-                  : "border-border/70 bg-surface-sunken hover:border-primary/45"
+                  ? "border-primary/55 bg-accent/55"
+                  : "border-border/45 bg-card hover:bg-surface-sunken"
               }`}
             >
               <View
-                class={`size-9 items-center justify-center rounded-xl border ${
-                  isSelected() ? "border-primary bg-primary" : "border-border/70 bg-card"
+                class={`size-7 items-center justify-center rounded-[8px] ${
+                  isSelected() ? "bg-primary" : "bg-secondary"
                 }`}
               >
                 <QiIcon
@@ -295,13 +293,14 @@ export function ThemeSwitcherStrip(props: {
                         ? "sparkles"
                         : "paw"
                   }
-                  size={16}
+                  size={15}
                   color={isSelected() ? token("primary-foreground") : token("foreground")}
                 />
               </View>
               <View class="flex-1 gap-0.5">
                 <View class="flex-row items-center gap-1.5">
-                  <Text class="text-sm font-semibold text-foreground">{item().title}</Text>
+                  <Text class="text-sm font-semibold text-foreground">{item().shortLabel}</Text>
+                  <Text class="text-xs text-muted-foreground">{item().companionName}</Text>
                   <If when={Boolean(item().recommended)}>
                     <View class="rounded-full bg-stamp-soft px-2 py-0.5">
                       <Text class="text-[10px] font-semibold text-stamp-ink">
@@ -327,10 +326,10 @@ export function ThemeSwitcherStrip(props: {
               hapticSelection();
               props.onSelect(item().id);
             }}
-            class={`min-h-8 flex-row items-center gap-1 rounded-full border px-2 py-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+            class={`min-h-11 flex-row items-center gap-1.5 rounded-full border px-3.5 py-2 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
               isSelected()
                 ? "border-primary bg-primary"
-                : "border-border/80 bg-card hover:border-primary/45"
+                : "border-border/45 bg-card hover:bg-surface-sunken"
             }`}
           >
             <QiIcon
@@ -341,11 +340,11 @@ export function ThemeSwitcherStrip(props: {
                     ? "sparkles"
                     : "paw"
               }
-              size={12}
+              size={13}
               color={isSelected() ? token("primary-foreground") : token("muted-foreground")}
             />
             <Text
-              class={`text-[11px] font-semibold ${
+              class={`text-xs font-semibold ${
                 isSelected() ? "text-primary-foreground" : "text-foreground"
               }`}
             >
@@ -361,7 +360,7 @@ export function ThemeSwitcherStrip(props: {
     return <View class="gap-2">{renderItems()}</View>;
   }
 
-  return <View class="flex-row flex-wrap items-center gap-1.5">{renderItems()}</View>;
+  return <View class="flex-row flex-wrap items-center gap-2">{renderItems()}</View>;
 }
 
 function resolveVitalToneColor(state: string): string {
@@ -934,11 +933,10 @@ export function BreathWaveCanvas(props: { state: string; activeValue?: number | 
   );
 }
 
-/** 灵境沉浸式 0pt 全出血窗台剧场（h-[350px] sm:h-80，左上微倾手帐和纸便签 + 右上节气日签签条 + 零遮脸画芯 + 底缘木质器物托盘） */
+/** 灵境静谧窗台主舞台：干净无遮挡画芯 + 左上节气微囊 + 底部柔和暗角私语与轻抚胶囊 + 紧贴底缘极简功能条 */
 export function SanctuaryStage(props: SanctuaryStageProps) {
   const petBounce = createPetBounceMotion();
   const meta = () => getVisualThemeMeta(props.themeId);
-  const isDesktopStage = () => windowSize().width >= 920;
   const hourNow = new Date().getHours();
   const isEvening = hourNow >= 19 || hourNow < 6;
   const isNightMode = () =>
@@ -965,7 +963,7 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
 
   const petFrameRoundedClass = () =>
     props.customPet?.die_cut_frame === "polaroid" || props.customPet?.die_cut_frame === "celadon"
-      ? "rounded-2xl"
+      ? "rounded-xl"
       : "rounded-full";
 
   const handlePet = () => {
@@ -986,11 +984,18 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
     }
   };
 
-  const dockItems = () => [
+  const topPillText = () => {
+    const parts = [props.solarTerm?.trim(), props.lunarPhase?.trim()].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : meta().shortLabel;
+  };
+
+  const stripItems = () => [
     {
       id: "meals" as const,
       icon: "utensils" as QiIconName,
       label: tr("sanctuary.dock_meals"),
+      a11y: tr("sanctuary.dock_meals"),
+      unreadCount: 0,
       hasDot: false,
       onPress: props.onOpenMeals,
     },
@@ -998,6 +1003,8 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
       id: "letters" as const,
       icon: "envelope" as QiIconName,
       label: tr("sanctuary.dock_letters"),
+      a11y: tr("sanctuary.dock_letters"),
+      unreadCount: props.unreadLettersCount ?? 0,
       hasDot: (props.unreadLettersCount ?? 0) > 0,
       onPress: props.onOpenLetters,
     },
@@ -1005,6 +1012,8 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
       id: "co_window" as const,
       icon: "co_sanctuary" as QiIconName,
       label: tr("sanctuary.dock_cowindow"),
+      a11y: tr("sanctuary.dock_cowindow"),
+      unreadCount: 0,
       hasDot: Boolean(props.partnerMoodBadge),
       onPress: props.onOpenCoWindow,
     },
@@ -1012,22 +1021,28 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
       id: "pet" as const,
       icon: (isStarlightMemorial() ? "starlight" : "custom_pet") as QiIconName,
       label: props.customPet?.name?.trim() || tr("sanctuary.dock_pet"),
+      a11y: props.customPet?.name?.trim() || tr("sanctuary.dock_pet"),
+      unreadCount: 0,
       hasDot: isStarlightMemorial(),
       onPress: props.onOpenPetStudio,
+    },
+    {
+      id: "poster" as const,
+      icon: "postcard" as QiIconName,
+      label: tr("today.open_poster"),
+      a11y: tr("today.open_poster"),
+      unreadCount: 0,
+      hasDot: false,
+      onPress: props.onOpenPoster,
     },
   ];
 
   return (
     <View
-      class={`overflow-hidden rounded-b-3xl border-b border-border/70 bg-card shadow-xs sm:rounded-3xl sm:border ${props.class ?? ""}`}
+      class={`overflow-hidden rounded-3xl border border-border/45 bg-card shadow-xs ${props.class ?? ""}`}
     >
-      {/* 1. 沉浸式插画主舞台（h-[338px] sm:h-80，背景 0pt 全出血，内部安全区顶栏承载左上微倾和纸便签与右上日签签条） */}
-      <View
-        class="relative h-[338px] overflow-hidden bg-surface-sunken px-3 pb-3 sm:h-80"
-        style={{
-          paddingTop: isDesktopStage() ? 14 : "calc(env(safe-area-inset-top) + 10px)",
-        }}
-      >
+      {/* 1. 干净沉浸式插画舞台（192px 移动端克制画幅，首屏同时容下元气状态与体感栏） */}
+      <View class="relative h-48 overflow-hidden bg-surface-sunken sm:h-56">
         <SceneCrossfade
           value={transitionKey()}
           warmth={shaderConfig().warmth}
@@ -1058,198 +1073,65 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
           stampTrigger={props.checkedAction ? 1 : 0}
         />
 
-        {/* 顶部无遮脸双角手帐浮层：左上微倾和纸胶带便签 + 右上节气/日签轻签条 */}
+        {/* 底部柔和暗角渐晕层：确保白色陪伴名与私语在昼夜插画上皆可清晰阅读 */}
+        <Canvas
+          class="pointer-events-none absolute inset-0"
+          style={{ pointerEvents: "none" }}
+          draw={(cx, size) => {
+            const w = Math.max(200, size.width);
+            const h = Math.max(140, size.height);
+            cx.clearRect(0, 0, w, h);
+            const grad = cx.createLinearGradient(0, h * 0.34, 0, h);
+            grad.addColorStop(0, "transparent");
+            grad.addColorStop(0.62, token("stage-scrim"));
+            grad.addColorStop(1, token("stage-scrim"));
+            cx.save();
+            cx.fillStyle = grad;
+            cx.globalAlpha = 0.9;
+            cx.fillRect(0, 0, w, h);
+            cx.restore();
+          }}
+        />
+
+        {/* 左上角：唯一轻柔节气与月相磨砂微囊 */}
         <View
-          class="z-10 flex-row items-start justify-between gap-2"
-          style={{ pointerEvents: "box-none" }}
+          ios={{ backdropMaterial: "ultraThin" }}
+          style={{ backdropFilter: "blur(14px)" }}
+          class="absolute left-3 top-3 z-10 flex-row items-center gap-1.5 rounded-full border border-stage-ink/20 bg-stage-scrim/75 px-3 py-1"
         >
-          {/* 左上角：微倾手帐和纸便签（承接宠物对白与轻抚互动，彻底解放下方小满全脸与茶席画芯） */}
-          <View
-            style={{
-              transform: [{ rotate: "-1.5deg" }],
-              pointerEvents: "auto",
-            }}
-            class="relative max-w-[220px] pt-1 sm:max-w-[252px]"
+          <If
+            when={isStarlightMemorial()}
+            else={
+              <View
+                class="size-1.5 rounded-full"
+                style={{ backgroundColor: stateToneDotColor() }}
+              />
+            }
           >
-            {/* 模拟手帐和纸胶带丝 */}
-            <View
-              style={{
-                transform: [{ rotate: "2.5deg" }],
-                pointerEvents: "none",
-              }}
-              class="absolute left-5 top-0 z-10 h-2.5 w-11 rounded-sm border border-atelier-accent/30 bg-bento-amber/90"
-            />
-
-            <View
-              ios={{ backdropMaterial: "ultraThin" }}
-              style={{
-                backdropFilter: "blur(14px)",
-                glassEffect: colorScheme() === "dark" ? "none" : "regular",
-                glassTintColor: token("card"),
-              }}
-              class="gap-0.5 rounded-2xl border border-border/80 bg-card/90 px-2.5 pb-1.5 pt-2 shadow-sm"
-            >
-              <View class="flex-row flex-wrap items-center justify-between gap-1">
-                <View class="flex-row items-center gap-1">
-                  <If
-                    when={isStarlightMemorial()}
-                    else={
-                      <View
-                        class="size-2 rounded-full"
-                        style={{ backgroundColor: stateToneDotColor() }}
-                      />
-                    }
-                  >
-                    <QiIcon name="starlight" size={11} color={token("ink-gold")} />
-                  </If>
-                  <Text class="text-[11px] font-bold text-primary">
-                    {props.customPet?.name?.trim() || meta().companionName}
-                  </Text>
-                  <If when={Boolean(props.atelierUnlocked)}>
-                    <View class="rounded-full bg-atelier-soft px-1.5 py-0.5">
-                      <Text class="text-[9px] font-semibold text-atelier-accent">
-                        {tr("sanctuary.atelier_tag")}
-                      </Text>
-                    </View>
-                  </If>
-                </View>
-
-                <Text
-                  class="text-[10px] font-semibold text-muted-foreground"
-                  style={{ fontVariant: ["tabular-nums"] }}
-                >
-                  {`${formatNumber(Math.round(props.score))} · ${props.stateBadge}`}
-                </Text>
-              </View>
-
-              <Text class="line-clamp-3 text-[11px] leading-snug text-foreground">
-                {companionSpeech(
-                  props.themeId,
-                  props.state,
-                  props.petCount,
-                  props.checkedAction,
-                  isNightMode(),
-                  props.customPet,
-                )}
-              </Text>
-
-              <View class="flex-row items-center justify-between gap-1.5 pt-0.5">
-                <Button
-                  hitSlop={6}
-                  accessibilityLabel={companionActionLabel(props.themeId, props.customPet)}
-                  onPress={handlePet}
-                  class="min-h-7 flex-row items-center gap-1 rounded-full border border-primary/25 bg-accent/85 px-2.5 py-0.5 transition duration-150 hover:bg-accent active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-                >
-                  <View style={petBounce.motion.style}>
-                    <QiIcon
-                      name={
-                        isStarlightMemorial()
-                          ? "starlight"
-                          : props.themeId === "zen_garden"
-                            ? "flower_branch"
-                            : props.themeId === "playful_bento"
-                              ? "sparkles"
-                              : "paw"
-                      }
-                      size={11}
-                      color={isStarlightMemorial() ? token("ink-gold") : token("primary")}
-                    />
-                  </View>
-                  <Text class="text-[10px] font-bold text-primary">
-                    {companionActionLabel(props.themeId, props.customPet)}
-                  </Text>
-                </Button>
-
-                <Text class="line-clamp-1 text-[9px] text-muted-foreground">
-                  {isStarlightMemorial()
-                    ? tr("sanctuary.mode_starlight")
-                    : props.state === "recovery_priority"
-                      ? tr("sanctuary.mode_recovery")
-                      : props.lunarPhase ||
-                        (isNightMode() ? tr("sanctuary.mode_night") : tr("sanctuary.mode_day"))}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* 右上角：轻盈节气与晨露日签签条（保留“生成日签”可点击按钮） */}
-          <View
-            ios={{ backdropMaterial: "ultraThin" }}
-            style={{
-              backdropFilter: "blur(14px)",
-              glassEffect: colorScheme() === "dark" ? "none" : "regular",
-              glassTintColor: token("card"),
-              pointerEvents: "auto",
-            }}
-            class="mt-1 shrink-0 overflow-hidden rounded-2xl border border-border/75 bg-card/86 shadow-xs"
-          >
-            <Button
-              hitSlop={6}
-              accessibilityLabel={tr("today.open_poster")}
-              onPress={() => {
-                hapticSelection();
-                props.onOpenPoster();
-              }}
-              class="min-h-11 items-end justify-center gap-0.5 px-2.5 py-1.5 transition-opacity duration-150 hover:opacity-90 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-            >
-              <View class="flex-row items-center gap-1">
-                <QiIcon name="droplet" size={10} color={token("dew-accent")} />
-                <Text
-                  class="text-[10px] font-bold text-dew-accent"
-                  style={{ fontVariant: ["tabular-nums"] }}
-                >
-                  {formatNumber(props.dewSummary.points)}
-                </Text>
-                <If when={Boolean(props.solarTerm)}>
-                  <Text class="text-[10px] font-medium text-muted-foreground">
-                    {`· ${props.solarTerm}`}
-                  </Text>
-                </If>
-              </View>
-              <View class="flex-row items-center gap-1">
-                <QiIcon name="postcard" size={11} color={token("primary")} />
-                <Text class="text-[11px] font-semibold text-foreground">
-                  {tr("today.open_poster")}
-                </Text>
-              </View>
-            </Button>
-          </View>
+            <QiIcon name="starlight" size={10} color={token("ink-gold")} />
+          </If>
+          <Text class="text-[11px] font-medium text-stage-ink">{topPillText()}</Text>
         </View>
 
-        {/* 窗台中央轻抚无形热区 / 自定爱宠模切框（零文字遮挡，小满与茶盏完整呈现） */}
-        <If
-          when={Boolean(props.customPet)}
-          else={
-            <Button
-              accessibilityLabel={companionActionLabel(props.themeId, null)}
-              onPress={handlePet}
-              class="absolute inset-x-8 bottom-3 h-36 rounded-2xl focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <View class="flex-1" />
-            </Button>
-          }
+        {/* 底部渐变承托层：左侧伙伴/灵境名与一句私语 + 右侧半透轻抚胶囊 */}
+        <View
+          class="absolute inset-x-0 bottom-0 z-10 flex-row items-end justify-between gap-2.5 px-3.5 pb-3 pt-4"
+          style={{ pointerEvents: "box-none" }}
         >
-          <View class="absolute bottom-3 right-3">
-            <Button
-              hitSlop={6}
-              accessibilityLabel={companionActionLabel(props.themeId, props.customPet)}
-              onPress={handlePet}
-              class="focus-visible:ring-2 focus-visible:ring-ring"
-            >
+          <View class="min-w-0 flex-1 flex-row items-center gap-2.5">
+            <If when={Boolean(props.customPet)}>
               <View
                 style={petBounce.motion.style}
-                class={`relative size-16 items-center justify-center overflow-hidden border-2 bg-card p-0.5 shadow-sm ${petFrameRoundedClass()} ${
-                  isStarlightMemorial() ? "border-ink-gold/80" : "border-card"
-                }`}
+                class={`size-10 shrink-0 items-center justify-center overflow-hidden border border-stage-ink/35 bg-card/90 p-0.5 shadow-xs ${petFrameRoundedClass()}`}
               >
                 <If
                   when={petPhotoUri().length > 0}
                   else={
-                    <View class="size-full items-center justify-center rounded-full bg-bento-peach">
+                    <View class="size-full items-center justify-center rounded-full bg-surface-sunken">
                       <QiIcon
                         name={petSpeciesIcon(props.customPet?.species)}
-                        size={26}
-                        color={isStarlightMemorial() ? token("ink-gold") : token("stamp-ink")}
+                        size={18}
+                        color={isStarlightMemorial() ? token("ink-gold") : token("primary")}
                       />
                     </View>
                   }
@@ -1260,49 +1142,97 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
                     accessibilityLabel={props.customPet?.name ?? ""}
                   />
                 </If>
-                <If when={isStarlightMemorial()}>
-                  <View class="absolute right-0.5 top-0.5 rounded-full bg-stage-scrim/85 p-0.5">
-                    <QiIcon name="starlight" size={10} color={token("ink-gold")} />
+              </View>
+            </If>
+
+            <View class="min-w-0 flex-1 gap-0.5">
+              <View class="flex-row flex-wrap items-center gap-1.5">
+                <Text class="line-clamp-1 text-[13px] font-bold text-stage-ink">
+                  {props.customPet?.name?.trim() || meta().companionName}
+                </Text>
+                <If when={Boolean(props.atelierUnlocked)}>
+                  <View class="rounded-full bg-stage-ink/15 px-1.5 py-0.5">
+                    <Text class="text-[9px] font-semibold text-stage-ink">
+                      {tr("sanctuary.atelier_tag")}
+                    </Text>
                   </View>
                 </If>
               </View>
-            </Button>
+              <Text class="line-clamp-3 text-xs leading-snug text-stage-ink/90">
+                {companionSpeech(
+                  props.themeId,
+                  props.state,
+                  props.petCount,
+                  props.checkedAction,
+                  isNightMode(),
+                  props.customPet,
+                )}
+              </Text>
+            </View>
           </View>
-        </If>
+
+          <Button
+            hitSlop={6}
+            style={{ backdropFilter: "blur(12px)", pointerEvents: "auto" }}
+            accessibilityLabel={companionActionLabel(props.themeId, props.customPet)}
+            onPress={handlePet}
+            class="min-h-10 shrink-0 flex-row items-center gap-1.5 rounded-full border border-stage-ink/25 bg-stage-scrim/75 px-3 py-1.5 transition duration-150 hover:bg-stage-scrim active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          >
+            <View style={petBounce.motion.style}>
+              <QiIcon
+                name={
+                  isStarlightMemorial()
+                    ? "starlight"
+                    : props.themeId === "zen_garden"
+                      ? "flower_branch"
+                      : props.themeId === "playful_bento"
+                        ? "sparkles"
+                        : "paw"
+                }
+                size={13}
+                color={isStarlightMemorial() ? token("ink-gold") : token("stage-ink")}
+              />
+            </View>
+            <Text class="text-xs font-semibold text-stage-ink">
+              {companionActionLabel(props.themeId, props.customPet)}
+            </Text>
+          </Button>
+        </View>
       </View>
 
-      {/* 2. 紧贴画框底缘的胡桃木质窗沿器物托盘（承载 食光 / 家书 / 同窗 / 伙伴 四枚热区按钮） */}
+      {/* 2. 紧贴画芯底缘的极简纯白功能条（食光 / 家书 / 同窗 / 伙伴 / 生成日签） */}
       <View
         role="toolbar"
-        class="flex-row items-center gap-1.5 border-t border-atelier-accent/25 bg-atelier-soft/70 px-2.5 py-1.5"
+        class="flex-row items-center justify-around border-t border-border/35 bg-card px-2 py-2"
       >
-        <Each of={dockItems()} key={(item) => item.id}>
+        <Each of={stripItems()} key={(item) => item.id}>
           {(item) => {
             const isActive = () => props.activeDockId === item().id;
             return (
               <Button
-                hitSlop={2}
-                accessibilityLabel={item().label}
-                onPress={() => item().onPress?.()}
-                class={`relative min-h-11 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-2 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] motion-reduce:transition-none ${
-                  isActive()
-                    ? "border border-atelier-accent/35 bg-card shadow-xs"
-                    : "hover:bg-card/65 active:bg-card/85"
+                hitSlop={4}
+                accessibilityLabel={item().a11y}
+                onPress={() => {
+                  hapticSelection();
+                  item().onPress?.();
+                }}
+                class={`min-h-11 items-center justify-center gap-1 rounded-xl px-2 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] motion-reduce:transition-none ${
+                  isActive() ? "bg-accent/70" : "hover:bg-surface-sunken active:bg-secondary/70"
                 }`}
               >
                 <View class="relative items-center justify-center">
                   <QiIcon
                     name={item().icon}
-                    size={15}
-                    color={isActive() ? token("primary") : token("atelier-accent")}
+                    size={16}
+                    color={isActive() ? token("primary") : token("muted-foreground")}
                   />
-                  <If when={item().hasDot}>
-                    <View class="absolute -right-1.5 -top-0.5 size-2 rounded-full bg-duo-accent" />
+                  <If when={item().unreadCount > 0 || item().hasDot}>
+                    <View class="absolute -right-1.5 -top-0.5 size-1.5 rounded-full bg-primary" />
                   </If>
                 </View>
                 <Text
-                  class={`line-clamp-1 text-xs font-semibold ${
-                    isActive() ? "text-primary" : "text-foreground"
+                  class={`line-clamp-1 text-[11px] font-medium ${
+                    isActive() ? "font-semibold text-primary" : "text-muted-foreground"
                   }`}
                 >
                   {item().label}
@@ -1316,7 +1246,7 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
   );
 }
 
-/** 2×2 手帐方形釉面小瓷贴指标卡：薄胎柔光釉底 + 居中视觉焦点 + 清朗无压排版 */
+/** 纯净瓷白体征指标卡：28×28 轻色图标徽章 + 等宽数字读数，卡片本身保持克制纯白 */
 export function BentoMetricCard(props: {
   icon: QiIconName;
   label: string;
@@ -1330,24 +1260,24 @@ export function BentoMetricCard(props: {
 }) {
   return (
     <View
-      class={`justify-between rounded-3xl border border-border/35 shadow-xs ${
-        props.compact ? "gap-1 p-2.5" : "gap-1.5 p-3.5"
-      } ${bentoBgClass(props.toneSurface)} ${props.class ?? ""}`}
+      class={`justify-between rounded-3xl border border-border/45 bg-card shadow-2xs ${
+        props.compact ? "gap-1.5 p-3" : "gap-2 p-4"
+      } ${props.class ?? ""}`}
     >
-      <View class="flex-row items-center gap-1.5">
+      <View class="flex-row items-center gap-2">
         <View
-          class={`shrink-0 items-center justify-center rounded-full bg-card/80 ${
-            props.compact ? "size-5" : "size-6"
-          }`}
+          class={`shrink-0 items-center justify-center rounded-[8px] ${
+            props.compact ? "size-6" : "size-7"
+          } ${bentoIconBadgeBgClass(props.toneSurface)}`}
         >
           <QiIcon
             name={props.icon}
-            size={props.compact ? 11 : 13}
+            size={props.compact ? 12 : 14}
             color={props.accentColor ?? token("primary")}
           />
         </View>
         <Text
-          class={`min-w-0 flex-1 line-clamp-1 font-semibold leading-tight text-foreground/80 ${
+          class={`min-w-0 flex-1 line-clamp-1 font-medium leading-tight text-muted-foreground ${
             props.compact ? "text-[11px]" : "text-xs"
           }`}
         >
@@ -1355,12 +1285,12 @@ export function BentoMetricCard(props: {
         </Text>
       </View>
 
-      <View class={props.compact ? "gap-1 py-0.5" : "gap-1.5 py-0.5"}>
+      <View class={props.compact ? "gap-1 py-0.5" : "gap-2 py-0.5"}>
         <Text
           class={
             props.compact
-              ? "line-clamp-1 text-base font-bold text-foreground sm:text-xl"
-              : "text-xl font-bold text-foreground sm:text-2xl"
+              ? "line-clamp-1 text-base font-bold tracking-tight text-foreground sm:text-lg"
+              : "text-xl font-bold tracking-tight text-foreground sm:text-2xl"
           }
           style={{ fontVariant: ["tabular-nums"] }}
         >
@@ -1373,7 +1303,7 @@ export function BentoMetricCard(props: {
       </View>
 
       <Text
-        class={`line-clamp-1 leading-snug text-muted-foreground ${
+        class={`line-clamp-2 leading-snug text-muted-foreground ${
           props.compact ? "text-[10px]" : "text-[11px]"
         }`}
       >
@@ -1474,7 +1404,7 @@ export function InkBloomSealCanvas(props: {
   );
 }
 
-/** 触感盖章打卡卡：支持默认横排详卡与 compact 1:1 方形「一念落印」手帐瓷卡双模式 */
+/** 触感盖章打卡卡：支持嵌入式 Hero 主卡、compact 紧凑卡与默认横排详卡三模式 */
 export function StampCheckinCard(props: {
   themeId: VisualThemeId;
   microAction: string;
@@ -1483,6 +1413,7 @@ export function StampCheckinCard(props: {
   onGoLog: () => void;
   onOpenPoster: () => void;
   compact?: boolean;
+  embedded?: boolean;
   class?: string;
 }) {
   const meta = () => getVisualThemeMeta(props.themeId);
@@ -1502,14 +1433,57 @@ export function StampCheckinCard(props: {
     props.onToggle();
   };
 
+  if (props.embedded) {
+    return (
+      <View class={`gap-2.5 ${props.class ?? ""}`}>
+        <View class="flex-row items-center gap-2">
+          <View class="size-7 shrink-0 items-center justify-center rounded-[8px] bg-stamp-soft">
+            <QiIcon name="stamp_seal" size={14} color={token("stamp-ink")} />
+          </View>
+          <Text role="header" class="min-w-0 flex-1 text-sm font-semibold text-foreground">
+            {tr("today.focus_card_title")}
+          </Text>
+        </View>
+
+        <View class="flex-row items-center justify-between gap-3">
+          <Text class="min-w-0 flex-1 text-sm font-medium leading-relaxed text-foreground">
+            {props.microAction}
+          </Text>
+
+          <Button
+            hitSlop={6}
+            accessibilityLabel={
+              props.checked ? tr("sanctuary.stamped_done_btn") : tr("sanctuary.stamp_action_btn")
+            }
+            onPress={handleStampToggle}
+            class={`min-h-11 shrink-0 flex-row items-center justify-center gap-1.5 rounded-full px-4 py-2 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] motion-reduce:transition-none ${
+              props.checked
+                ? "bg-accent text-primary"
+                : "bg-primary text-primary-foreground hover:bg-primary/90"
+            }`}
+          >
+            <QiIcon
+              name={props.checked ? "check" : stampIcon()}
+              size={14}
+              color={props.checked ? token("primary") : token("primary-foreground")}
+            />
+            <Text
+              class={`text-xs font-semibold ${
+                props.checked ? "text-primary" : "text-primary-foreground"
+              }`}
+            >
+              {props.checked ? meta().stampLabel : tr("sanctuary.stamp_action_btn")}
+            </Text>
+          </Button>
+        </View>
+      </View>
+    );
+  }
+
   if (props.compact) {
     return (
       <View
-        class={`relative flex-1 justify-between gap-2 overflow-hidden rounded-3xl border p-3.5 shadow-xs ${
-          props.checked
-            ? "border-stamp-ink/35 bg-stamp-soft/75"
-            : "border-border/40 bg-card"
-        } ${props.class ?? ""}`}
+        class={`relative flex-1 justify-between gap-2 overflow-hidden rounded-3xl border border-border/45 bg-card p-3.5 shadow-2xs ${props.class ?? ""}`}
       >
         <InkBloomSealCanvas
           themeId={props.themeId}
@@ -1518,19 +1492,19 @@ export function StampCheckinCard(props: {
         />
 
         {/* 顶部：今日关注与一念落印 */}
-        <View class="flex-row items-center gap-1.5">
-          <View class="size-6 shrink-0 items-center justify-center rounded-full bg-stamp-soft">
-            <QiIcon name="stamp_seal" size={12} color={token("stamp-ink")} />
+        <View class="flex-row items-center gap-2">
+          <View class="size-7 shrink-0 items-center justify-center rounded-[8px] bg-stamp-soft">
+            <QiIcon name="stamp_seal" size={13} color={token("stamp-ink")} />
           </View>
           <Text
             role="header"
-            class="min-w-0 flex-1 line-clamp-2 text-xs font-bold leading-tight text-foreground/85"
+            class="min-w-0 flex-1 line-clamp-2 text-xs font-semibold leading-tight text-foreground"
           >
             {tr("today.focus_card_title")}
           </Text>
         </View>
 
-        {/* 居中：大尺寸朱砂落印点击区 */}
+        {/* 居中：朱砂落印点击区 */}
         <View class="items-center justify-center py-0.5">
           <SealStamp
             stamped={props.checked}
@@ -1546,7 +1520,7 @@ export function StampCheckinCard(props: {
           />
         </View>
 
-        {/* 底部：生成日签与记一笔双轻入口（窄列自适应零溢出） */}
+        {/* 底部：生成日签与记一笔双轻入口 */}
         <View class="flex-row items-center justify-between gap-1.5">
           <Button
             hitSlop={6}
@@ -1555,10 +1529,10 @@ export function StampCheckinCard(props: {
               hapticSelection();
               props.onOpenPoster();
             }}
-            class="min-h-7 flex-1 flex-row items-center justify-center gap-1 rounded-full border border-border/65 bg-surface-sunken/90 px-2 py-1 transition-colors duration-150 hover:bg-secondary active:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+            class="min-h-8 flex-1 flex-row items-center justify-center gap-1 rounded-full bg-surface-sunken px-2 py-1 transition-colors duration-150 hover:bg-secondary active:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <QiIcon name="postcard" size={10} color={token("primary")} />
-            <Text class="line-clamp-1 text-[10px] font-semibold text-foreground">
+            <QiIcon name="postcard" size={11} color={token("primary")} />
+            <Text class="line-clamp-1 text-[11px] font-semibold text-foreground">
               {tr("today.open_poster")}
             </Text>
           </Button>
@@ -1570,10 +1544,10 @@ export function StampCheckinCard(props: {
               hapticSelection();
               props.onGoLog();
             }}
-            class="min-h-7 flex-1 flex-row items-center justify-center gap-1 rounded-full border border-border/55 bg-card/90 px-2 py-1 transition-colors duration-150 hover:bg-surface-sunken active:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+            class="min-h-8 flex-1 flex-row items-center justify-center gap-1 rounded-full bg-surface-sunken px-2 py-1 transition-colors duration-150 hover:bg-secondary active:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <QiIcon name="utensils" size={10} color={token("muted-foreground")} />
-            <Text class="line-clamp-1 text-[10px] font-semibold text-muted-foreground">
+            <QiIcon name="utensils" size={11} color={token("muted-foreground")} />
+            <Text class="line-clamp-1 text-[11px] font-semibold text-muted-foreground">
               {tr("sanctuary.action_note")}
             </Text>
           </Button>
@@ -1584,11 +1558,7 @@ export function StampCheckinCard(props: {
 
   return (
     <View
-      class={`relative gap-3 overflow-hidden rounded-2xl border p-4 ${
-        props.checked
-          ? "border-stamp-ink/45 bg-stamp-soft"
-          : "border-border/80 bg-card"
-      } ${props.class ?? ""}`}
+      class={`relative gap-3 overflow-hidden rounded-3xl border border-border/45 bg-card p-4 shadow-2xs ${props.class ?? ""}`}
     >
       <If when={props.checked}>
         <InkBloomSealCanvas themeId={props.themeId} />
@@ -1597,7 +1567,10 @@ export function StampCheckinCard(props: {
       <View class="flex-row items-center justify-between gap-3">
         <View class="flex-1 gap-1">
           <View class="flex-row items-center gap-2">
-            <Text role="header" class="text-base font-bold text-foreground">
+            <View class="size-7 shrink-0 items-center justify-center rounded-[8px] bg-stamp-soft">
+              <QiIcon name="stamp_seal" size={14} color={token("stamp-ink")} />
+            </View>
+            <Text role="header" class="text-base font-semibold text-foreground">
               {tr("sanctuary.action_stamp")}
             </Text>
             <View class="flex-row items-center gap-1 rounded-full bg-dew-soft px-2 py-0.5">
@@ -1661,7 +1634,7 @@ export function StampCheckinCard(props: {
   );
 }
 
-/** 3px 纯白模切白边饮食贴纸砖：点击即轻粘进今日饮食日记并自动集 1 滴晨露 */
+/** 轻量快捷食味卡片：纯净纯白表面 + 28×28 轻色图标徽章，点击即记入今日饮食 */
 export function StickerMealTile(props: {
   title: string;
   caption: string;
@@ -1673,40 +1646,36 @@ export function StickerMealTile(props: {
     <Button
       hitSlop={4}
       accessibilityLabel={`${props.title} ${props.caption}`}
-      onPress={props.onPress}
-      style={{
-        borderWidth: 3,
-        borderColor: token("card"),
-        outlineWidth: 1,
-        outlineStyle: "solid",
-        outlineColor: token("border"),
+      onPress={() => {
+        hapticSelection();
+        props.onPress();
       }}
-      class={`min-w-32 flex-1 flex-row items-center gap-1.5 rounded-2xl border-[3px] border-card bg-bento-peach/85 px-2 py-2.5 shadow-sm transition duration-150 hover:bg-bento-amber active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${props.class ?? ""}`}
+      class={`min-h-11 min-w-36 flex-1 flex-row items-center gap-2.5 rounded-2xl border border-border/45 bg-card px-3 py-2.5 shadow-2xs transition duration-150 hover:bg-surface-sunken active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${props.class ?? ""}`}
     >
-      <View class="size-7 shrink-0 items-center justify-center rounded-xl border border-border/55 bg-card shadow-xs">
+      <View class="size-7 shrink-0 items-center justify-center rounded-[8px] bg-accent">
         <QiIcon name={props.icon} size={14} color={token("primary")} />
       </View>
       <View class="min-w-0 flex-1 gap-0.5">
-        <Text class="line-clamp-1 text-[11px] font-bold leading-tight text-foreground">
+        <Text class="line-clamp-1 text-xs font-semibold leading-tight text-foreground">
           {props.title}
         </Text>
-        <Text class="line-clamp-1 text-[10px] leading-tight text-muted-foreground">
+        <Text class="line-clamp-1 text-[11px] leading-tight text-muted-foreground">
           {props.caption}
         </Text>
       </View>
-      <QiIcon name="plus" size={11} color={token("muted-foreground")} />
+      <QiIcon name="plus" size={13} color={token("muted-foreground")} />
     </Button>
   );
 }
 
-/** 温柔零压力晨露藏品阁：仅随累计打卡缓慢点亮，永不惩罚或清零 */
+/** 温柔零压力晨露藏品阁：纯净分组卡与无内框沉降陈列格，随累计打卡缓慢点亮 */
 export function KeepsakeShelfCard(props: {
   themeId: VisualThemeId;
   dewSummary: DewSummaryView;
 }) {
   const meta = () => getVisualThemeMeta(props.themeId);
   return (
-    <View class="gap-3 rounded-2xl border border-border/80 bg-card p-4">
+    <View class="gap-3.5 rounded-3xl border border-border/45 bg-card p-4 shadow-2xs">
       <View class="flex-row items-center justify-between gap-2">
         <View class="flex-1 gap-0.5">
           <Text role="header" class="text-base font-bold text-foreground">
@@ -1735,18 +1704,20 @@ export function KeepsakeShelfCard(props: {
         </View>
       </View>
 
-      <View class="flex-row flex-wrap gap-2">
+      <View class="flex-row flex-wrap gap-2.5">
         <Each of={props.dewSummary.keepsakes} key={(item) => item.id}>
           {(item) => (
             <View
-              class={`min-w-36 flex-1 gap-1.5 rounded-xl border p-3 ${
-                item().unlocked
-                  ? "border-dew-accent/35 bg-dew-soft/55"
-                  : "border-border/60 bg-surface-sunken opacity-70"
+              class={`min-w-36 flex-1 gap-1.5 rounded-2xl bg-surface-sunken p-3 ${
+                item().unlocked ? "" : "opacity-65"
               }`}
             >
               <View class="flex-row items-center justify-between">
-                <View class="size-7 items-center justify-center rounded-lg border border-border/45 bg-card">
+                <View
+                  class={`size-7 items-center justify-center rounded-[8px] ${
+                    item().unlocked ? "bg-dew-soft" : "bg-secondary"
+                  }`}
+                >
                   <QiIcon
                     name={item().icon}
                     size={14}
@@ -1757,6 +1728,7 @@ export function KeepsakeShelfCard(props: {
                   class={`text-[11px] font-semibold ${
                     item().unlocked ? "text-dew-accent" : "text-muted-foreground"
                   }`}
+                  style={{ fontVariant: ["tabular-nums"] }}
                 >
                   {item().unlocked
                     ? tr("sanctuary.keepsake_unlocked_badge")
@@ -1816,14 +1788,14 @@ export function DailyPosterModal(props: {
       case "gold":
         return {
           textClass: "text-ink-gold",
-          badgeBgClass: "bg-bento-amber",
+          badgeBgClass: "bg-vital-steady-soft",
           borderClass: "border-ink-gold/45",
           iconColor: token("ink-gold"),
         };
       case "lapis":
         return {
           textClass: "text-ink-lapis",
-          badgeBgClass: "bg-bento-lavender",
+          badgeBgClass: "bg-accent",
           borderClass: "border-ink-lapis/45",
           iconColor: token("ink-lapis"),
         };
@@ -1907,7 +1879,7 @@ export function DailyPosterModal(props: {
           </View>
 
           {/* 雅集印泥色与无数字隐私切换条 */}
-          <View class="flex-row flex-wrap items-center justify-between gap-2 rounded-2xl border border-border/75 bg-surface-sunken px-3 py-2">
+          <View class="flex-row flex-wrap items-center justify-between gap-2 rounded-2xl bg-surface-sunken px-3 py-2">
             <View class="flex-row items-center gap-1.5">
               <Text class="text-[11px] font-semibold text-muted-foreground">
                 {tr("poster.seal_ink_label")}
@@ -1951,7 +1923,7 @@ export function DailyPosterModal(props: {
                 });
               }}
               class={`min-h-11 flex-row items-center gap-1 rounded-full border px-3 py-1.5 focus-visible:ring-2 focus-visible:ring-ring ${
-                hideNums() ? "border-primary bg-accent" : "border-border bg-card"
+                hideNums() ? "border-primary bg-accent" : "border-border/45 bg-card"
               }`}
             >
               <Text class="text-[11px] font-semibold text-foreground">
@@ -1963,7 +1935,7 @@ export function DailyPosterModal(props: {
           {/* 竖版手作明信片主体（带 3D 拍立得弹簧微倾反馈） */}
           <View
             style={polaroid.style()}
-            class="overflow-hidden rounded-3xl border border-border bg-card p-3.5"
+            class="overflow-hidden rounded-3xl border border-border/45 bg-card p-3.5 shadow-2xs"
           >
             <View class="relative h-56 overflow-hidden rounded-2xl">
               <Image
@@ -2033,8 +2005,7 @@ export function DailyPosterModal(props: {
                   })}
                 </Text>
                 <View
-                  class={`flex-row items-center gap-1 rounded-lg border px-2 py-0.5 ${inkStyle().borderClass} ${inkStyle().badgeBgClass}`}
-                  style={{ transform: [{ rotate: "-6deg" }] }}
+                  class={`flex-row items-center gap-1 rounded-full border px-2.5 py-0.5 ${inkStyle().borderClass} ${inkStyle().badgeBgClass}`}
                 >
                   <QiIcon name="stamp_seal" size={12} color={inkStyle().iconColor} />
                   <Text class={`text-[11px] font-bold ${inkStyle().textClass}`}>

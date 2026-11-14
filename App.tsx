@@ -82,7 +82,7 @@ function App() {
   const navTabs = (): { id: ActiveTab; label: string; icon: QiIconName; sfSymbol: string }[] => [
     { id: "today", label: tr("nav.today"), icon: "sun", sfSymbol: "sun.max.fill" },
     { id: "log", label: tr("nav.log"), icon: "record", sfSymbol: "square.and.pencil" },
-    { id: "insights", label: tr("nav.insights"), icon: "compass", sfSymbol: "safari" },
+    { id: "insights", label: tr("nav.insights"), icon: "compass", sfSymbol: "chart.xyaxis.line" },
     { id: "me", label: tr("nav.me"), icon: "user_shield", sfSymbol: "person.crop.circle" },
   ];
 
@@ -98,96 +98,92 @@ function App() {
   const settings = () => getState().settings;
   const customPets = () => getState().solar_atelier;
   const activeTab = () => getTab();
-  const isMobileTodayBleed = () => !isDesktop() && activeTab() === "today";
 
   return (
     <View
       class="relative flex-1 bg-background"
       style={{
-        paddingTop: isMobileTodayBleed() ? 0 : "env(safe-area-inset-top)",
+        paddingTop: settings().onboarding_done ? "env(safe-area-inset-top)" : 0,
         paddingLeft: "env(safe-area-inset-left)",
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
       <If when={Boolean(getToast())}>
-        <View
-          class={isMobileTodayBleed() ? "absolute inset-x-0 top-0 z-30" : ""}
-          style={{
-            paddingTop: isMobileTodayBleed() ? "calc(env(safe-area-inset-top) + 8px)" : 0,
-            pointerEvents: "box-none",
-          }}
-        >
-          <View style={{ pointerEvents: "auto" }}>
-            <ToastBanner message={getToast()!} onDismiss={() => clearToast()} />
-          </View>
-        </View>
+        <ToastBanner message={getToast()!} onDismiss={() => clearToast()} />
       </If>
 
-      {/* Main layout: desktop NavRail vs mobile single column with shader crossfade */}
-      <View class="flex-1 flex-row">
-        <If when={isDesktop()}>
-          <NavRail
-            title={tr("nav.rail_title")}
-            items={navTabs()}
-            activeId={activeTab()}
-            onSelect={(id) => setTab(id)}
-            footer={
-              <SunkenBox>
-                <View class="flex-row items-center gap-1.5">
-                  <QiIcon name="cloud_lock" size={14} color={token("primary")} />
-                  <Text class="text-xs font-semibold text-foreground">
-                    {tr("nav.local_guard_title")}
-                  </Text>
-                </View>
-                <Text class="text-[11px] leading-relaxed text-muted-foreground">
-                  {tr("nav.local_guard_desc")}
-                </Text>
-              </SunkenBox>
-            }
-          />
-        </If>
+      <SceneCrossfade
+        value={settings().onboarding_done ? "sanctuary" : "prelude"}
+        duration={MOTION_TOKENS.duration.slower}
+        class="flex-1"
+      >
+        <If when={settings().onboarding_done} else={<OnboardingModal />}>
+          <View class="flex-1">
+            {/* Main layout: desktop NavRail vs mobile native 4-Tab UITabBar */}
+            <View class="flex-1 flex-row">
+              <If when={isDesktop()}>
+                <NavRail
+                  title={tr("nav.rail_title")}
+                  items={navTabs()}
+                  activeId={activeTab()}
+                  onSelect={(id) => setTab(id)}
+                  footer={
+                    <SunkenBox>
+                      <View class="flex-row items-center gap-1.5">
+                        <QiIcon name="cloud_lock" size={14} color={token("primary")} />
+                        <Text class="text-xs font-semibold text-foreground">
+                          {tr("nav.local_guard_title")}
+                        </Text>
+                      </View>
+                      <Text class="text-[11px] leading-relaxed text-muted-foreground">
+                        {tr("nav.local_guard_desc")}
+                      </Text>
+                    </SunkenBox>
+                  }
+                />
+              </If>
 
-        <SceneCrossfade
-          value={activeTab()}
-          duration={MOTION_TOKENS.duration.base}
-          class="flex-1"
-        >
-          <Scroll
-            class="flex-1"
-            contentStyle={{
-              paddingTop: !isDesktop() && activeTab() === "today" ? 0 : 8,
-              paddingLeft: 16,
-              paddingRight: 16,
-              paddingBottom: 24,
-              gap: 16,
-            }}
-          >
-            <View class={`mx-auto w-full gap-4 ${isDesktop() ? "max-w-3xl" : "max-w-xl"}`}>
-              {activeTab() === "today" ? (
-                <TodayPage />
-              ) : activeTab() === "log" ? (
-                <LogLabsPage />
-              ) : activeTab() === "insights" ? (
-                <InsightsPage />
-              ) : (
-                <MeVaultPage />
-              )}
+              <SceneCrossfade
+                value={activeTab()}
+                duration={MOTION_TOKENS.duration.base}
+                class="flex-1"
+              >
+                <Scroll
+                  class="flex-1"
+                  contentStyle={{
+                    paddingTop: 6,
+                    paddingLeft: 16,
+                    paddingRight: 16,
+                    paddingBottom: 36,
+                    gap: 16,
+                  }}
+                >
+                  <View class={`mx-auto w-full gap-4 ${isDesktop() ? "max-w-3xl" : "max-w-xl"}`}>
+                    {activeTab() === "today" ? (
+                      <TodayPage />
+                    ) : activeTab() === "log" ? (
+                      <LogLabsPage />
+                    ) : activeTab() === "insights" ? (
+                      <InsightsPage />
+                    ) : (
+                      <MeVaultPage />
+                    )}
+                  </View>
+                </Scroll>
+              </SceneCrossfade>
             </View>
-          </Scroll>
-        </SceneCrossfade>
-      </View>
 
-      <If when={!isDesktop()}>
-        <BottomTabBar
-          items={navTabs()}
-          activeId={getTab()}
-          onSelect={(id) => setTab(id)}
-          onQuickCapture={() => setShowQuickCaptureModal(true)}
-          quickCaptureLabel={tr("nav.quick_capture")}
-        />
-      </If>
+            <If when={!isDesktop()}>
+              <BottomTabBar
+                items={navTabs()}
+                activeId={getTab()}
+                onSelect={(id) => setTab(id)}
+              />
+            </If>
+          </View>
+        </If>
+      </SceneCrossfade>
 
-      <OnboardingModal />
       <If when={isQaStudioEnabled()}>
         <QaStudioSheet />
       </If>

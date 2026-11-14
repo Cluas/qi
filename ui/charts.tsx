@@ -145,131 +145,15 @@ export function VitalityDialCanvas(props: { score: number; state: string; badge:
 /** 兼容既有页面导入别名 */
 export const VitalityRingCanvas = VitalityDialCanvas;
 
-/** 《椅子上有猫》/《胃之书》式和纸手账小票锯齿撕纸边缘（连续三角齿 + 和纸纤维微纹 + 压痕孔线） */
+/** 兼容保留导出：中性无锯齿手账顶/底分隔条（零锯齿、零虚线撕口、零序列号） */
 export function SerratedReceiptBanner(props: { position: "top" | "bottom" }) {
   return (
-    <Canvas
-      class="w-full"
-      style={{ height: 15 }}
-      draw={(cx, size) => {
-        const w = Math.max(160, size.width);
-        const h = size.height;
-        const toothW = 10.5;
-        const count = Math.ceil(w / toothW);
-        const paperFill = readToken("card");
-        const borderStroke = readToken("border");
-        const subtleInk = readToken("ink-subtle");
-        const warmSpeck = readToken("atelier-accent");
-
-        cx.clearRect(0, 0, w, h);
-
-        cx.save();
-        cx.fillStyle = paperFill;
-        cx.strokeStyle = borderStroke;
-        cx.lineWidth = 1.1;
-        cx.lineJoin = "round";
-
-        if (props.position === "top") {
-          const baseY = h;
-          const valleyY = h - 2.5;
-          const peakY = 2;
-
-          cx.beginPath();
-          cx.moveTo(0, baseY);
-          cx.lineTo(0, valleyY);
-          for (let i = 0; i < count; i++) {
-            const xPeak = i * toothW + toothW * 0.5;
-            const xNext = Math.min(w, (i + 1) * toothW);
-            cx.lineTo(xPeak, peakY);
-            cx.lineTo(xNext, valleyY);
-          }
-          cx.lineTo(w, baseY);
-          cx.closePath();
-          cx.fill();
-
-          // 锯齿外沿微描边
-          cx.beginPath();
-          cx.moveTo(0, valleyY);
-          for (let i = 0; i < count; i++) {
-            const xPeak = i * toothW + toothW * 0.5;
-            const xNext = Math.min(w, (i + 1) * toothW);
-            cx.lineTo(xPeak, peakY);
-            cx.lineTo(xNext, valleyY);
-          }
-          cx.stroke();
-
-          // 和纸微纤维斑点
-          cx.fillStyle = warmSpeck;
-          cx.globalAlpha = 0.14;
-          for (let i = 1; i < count; i += 2) {
-            const sx = i * toothW + (i % 3) * 1.5;
-            const sy = valleyY - ((i * 7) % 3) - 0.5;
-            cx.beginPath();
-            cx.arc(sx, sy, 0.85, 0, Math.PI * 2);
-            cx.fill();
-          }
-
-          // 撕纸压痕微圆孔虚线
-          cx.strokeStyle = subtleInk;
-          cx.globalAlpha = 0.34;
-          cx.lineWidth = 1;
-          cx.setLineDash([2, 4]);
-          cx.beginPath();
-          cx.moveTo(12, h - 1);
-          cx.lineTo(w - 12, h - 1);
-          cx.stroke();
-        } else {
-          const baseY = 0;
-          const valleyY = 2.5;
-          const peakY = h - 2;
-
-          cx.beginPath();
-          cx.moveTo(0, baseY);
-          cx.lineTo(0, valleyY);
-          for (let i = 0; i < count; i++) {
-            const xPeak = i * toothW + toothW * 0.5;
-            const xNext = Math.min(w, (i + 1) * toothW);
-            cx.lineTo(xPeak, peakY);
-            cx.lineTo(xNext, valleyY);
-          }
-          cx.lineTo(w, baseY);
-          cx.closePath();
-          cx.fill();
-
-          // 锯齿外沿微描边
-          cx.beginPath();
-          cx.moveTo(0, valleyY);
-          for (let i = 0; i < count; i++) {
-            const xPeak = i * toothW + toothW * 0.5;
-            const xNext = Math.min(w, (i + 1) * toothW);
-            cx.lineTo(xPeak, peakY);
-            cx.lineTo(xNext, valleyY);
-          }
-          cx.stroke();
-
-          // 和纸微纤维斑点
-          cx.fillStyle = warmSpeck;
-          cx.globalAlpha = 0.14;
-          for (let i = 1; i < count; i += 2) {
-            const sx = i * toothW + (i % 3) * 1.5;
-            const sy = valleyY + ((i * 5) % 3) + 0.5;
-            cx.beginPath();
-            cx.arc(sx, sy, 0.85, 0, Math.PI * 2);
-            cx.fill();
-          }
-
-          // 撕纸压痕微圆孔虚线
-          cx.strokeStyle = subtleInk;
-          cx.globalAlpha = 0.34;
-          cx.lineWidth = 1;
-          cx.setLineDash([2, 4]);
-          cx.beginPath();
-          cx.moveTo(12, 1);
-          cx.lineTo(w - 12, 1);
-          cx.stroke();
-        }
-        cx.restore();
-      }}
+    <View
+      class={
+        props.position === "top"
+          ? "rounded-t-2xl border-b border-border/45 bg-secondary/45 px-4 py-2.5"
+          : "rounded-b-2xl border-t border-border/45 bg-secondary/45 px-4 py-2.5"
+      }
     />
   );
 }
@@ -302,7 +186,7 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
       <If
         when={props.points.length > 0}
         else={
-          <View class="items-center justify-center rounded-2xl bg-surface-sunken/80 py-7">
+          <View class="items-center justify-center rounded-2xl bg-secondary/45 py-7">
             <Text class="text-xs text-muted-foreground">{tr("charts.no_rhythm_data")}</Text>
           </View>
         }
@@ -310,7 +194,7 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
         {/* 顶部悬浮可读胶囊读数（点击下方任意节点或胶囊实时联动） */}
         <If when={activePoint()}>
           {(pt) => (
-            <View class="flex-row flex-wrap items-center justify-between gap-2 rounded-full border border-border/50 bg-card/90 px-3.5 py-1.5 shadow-xs">
+            <View class="flex-row flex-wrap items-center justify-between gap-2 rounded-2xl bg-secondary/45 px-3.5 py-2">
               <View class="flex-row items-center gap-2">
                 <View
                   class="size-2 rounded-full"
@@ -348,11 +232,11 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
           )}
         </If>
 
-        {/* 唯一 164px 沉浸式有机丝带画布 + 全域等分触控节点热区 */}
+        {/* 唯一 152px 纯净有机丝带与连续样条画布 + 全域等分触控热区 */}
         <View class="relative w-full">
           <Canvas
             class="w-full"
-            style={{ height: 164 }}
+            style={{ height: 152 }}
             draw={(cx, size) => {
               const scheme = colorScheme();
               const pts = props.points;
@@ -362,11 +246,9 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
               const padL = 8;
               const padR = 8;
               const plotTop = 10;
-              const plotBottom = 122;
+              const plotBottom = 128;
               const plotH = Math.max(48, plotBottom - plotTop);
-              const pillY = 132;
-              const pillH = 7;
-              const dateY = 146;
+              const dateY = 136;
               const availW = Math.max(60, w - padL - padR);
 
               cx.clearRect(0, 0, w, h);
@@ -435,18 +317,17 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
               cx.lineTo(leftEdgeX, corridor[0].botY);
               cx.closePath();
 
-              // 第一层温润青瓷柔底
+              // 第一层克制生命力柔底
               cx.fillStyle = readToken("vital-prime-soft");
-              cx.globalAlpha = scheme === "dark" ? 0.82 : 0.92;
+              cx.globalAlpha = scheme === "dark" ? 0.55 : 0.7;
               cx.fill();
 
-              // 第二层暖杏 -> 青瓷有机丝绸线性渐变叠光
+              // 第二层克制线性渐变叠光
               const ribbonGrad = cx.createLinearGradient(leftEdgeX, plotTop, rightEdgeX, plotBottom);
-              ribbonGrad.addColorStop(0, readToken("bento-amber"));
-              ribbonGrad.addColorStop(0.32, readToken("vital-prime-soft"));
+              ribbonGrad.addColorStop(0, readToken("vital-prime-soft"));
               ribbonGrad.addColorStop(1, readToken("vital-prime"));
               cx.fillStyle = ribbonGrad;
-              cx.globalAlpha = scheme === "dark" ? 0.36 : 0.34;
+              cx.globalAlpha = scheme === "dark" ? 0.24 : 0.2;
               cx.fill();
               cx.restore();
 
@@ -477,120 +358,78 @@ export function InteractiveRhythmPlot(props: { points: RhythmPoint[] }) {
               const focusPt = coords[activeIdx];
               const focusTone = readToken(scoreToneToken(focusPt.score));
 
-              // 2) 当前选中节点细虚线垂直游标
+              // 2) 当前选中日细虚线垂直游标
               cx.save();
               cx.strokeStyle = focusTone;
-              cx.globalAlpha = 0.45;
-              cx.lineWidth = 1.2;
+              cx.globalAlpha = 0.35;
+              cx.lineWidth = 1.1;
               cx.setLineDash([3, 3]);
               cx.beginPath();
               cx.moveTo(focusPt.x, Math.max(4, Math.min(corridor[activeIdx].topY - 4, focusPt.y - 10)));
-              cx.lineTo(focusPt.x, pillY - 4);
+              cx.lineTo(focusPt.x, plotBottom + 2);
               cx.stroke();
               cx.restore();
 
-              // 3) 清晰柔和的连续曲线（休整低谷段自动切换轻盈点虚线，贴合 Gentler Streak 语言）
+              // 3) 单条纯净连续光滑样条曲线（零分段重圆点噪音）
               if (coords.length > 1) {
+                cx.save();
+                cx.strokeStyle = readToken("primary");
+                cx.lineWidth = 2.4;
+                cx.lineCap = "round";
+                cx.lineJoin = "round";
+                cx.beginPath();
+                cx.moveTo(coords[0].x, coords[0].y);
                 for (let i = 0; i < coords.length - 1; i++) {
                   const curr = coords[i];
                   const next = coords[i + 1];
                   const midX = (curr.x + next.x) * 0.5;
-                  const isRestDip = (curr.score + next.score) * 0.5 < 48;
-
-                  cx.save();
-                  cx.strokeStyle = readToken("foreground");
-                  cx.globalAlpha = isRestDip ? 0.72 : 0.88;
-                  cx.lineWidth = 2.15;
-                  cx.lineCap = "round";
-                  cx.lineJoin = "round";
-                  if (isRestDip) {
-                    cx.setLineDash([2.5, 3.5]);
-                  }
-                  cx.beginPath();
-                  cx.moveTo(curr.x, curr.y);
                   cx.bezierCurveTo(midX, curr.y, midX, next.y, next.x, next.y);
-                  cx.stroke();
-                  cx.restore();
                 }
-              }
-
-              // 4) 实心白芯描边圆点节点链 (o—o—o) + 选中节点双环光晕
-              const baseDotR = n > 20 ? 2.7 : 3.35;
-              for (let i = 0; i < coords.length; i++) {
-                const pt = coords[i];
-                const isFocus = i === activeIdx;
-
-                if (isFocus) {
-                  // 双环光晕：外层柔晕 + 次外描边环 + 白芯 + 中心核
-                  cx.save();
-                  cx.fillStyle = focusTone;
-                  cx.globalAlpha = 0.2;
-                  cx.beginPath();
-                  cx.arc(pt.x, pt.y, 10, 0, Math.PI * 2);
-                  cx.fill();
-
-                  cx.strokeStyle = focusTone;
-                  cx.globalAlpha = 0.7;
-                  cx.lineWidth = 1.4;
-                  cx.beginPath();
-                  cx.arc(pt.x, pt.y, 6.8, 0, Math.PI * 2);
-                  cx.stroke();
-
-                  cx.globalAlpha = 1;
-                  cx.fillStyle = readToken("card");
-                  cx.strokeStyle = readToken("foreground");
-                  cx.lineWidth = 2.1;
-                  cx.beginPath();
-                  cx.arc(pt.x, pt.y, 4.4, 0, Math.PI * 2);
-                  cx.fill();
-                  cx.stroke();
-
-                  cx.fillStyle = focusTone;
-                  cx.beginPath();
-                  cx.arc(pt.x, pt.y, 1.85, 0, Math.PI * 2);
-                  cx.fill();
-                  cx.restore();
-                } else {
-                  cx.save();
-                  cx.fillStyle = readToken("card");
-                  cx.strokeStyle = readToken("foreground");
-                  cx.lineWidth = 1.85;
-                  cx.beginPath();
-                  cx.arc(pt.x, pt.y, baseDotR, 0, Math.PI * 2);
-                  cx.fill();
-                  cx.stroke();
-                  cx.restore();
-                }
-              }
-
-              // 5) 画布底部一整行多色日常状态胶囊色条（青瓷绿 / 暖琥珀 / 陶土红）
-              const pillGap = n > 20 ? 2 : 3;
-              for (let i = 0; i < coords.length; i++) {
-                const pt = coords[i];
-                const isFocus = i === activeIdx;
-                const gx = padL + slotW * i + pillGap * 0.5;
-                const gw = Math.max(3.5, slotW - pillGap);
-                const gy = isFocus ? pillY - 1 : pillY;
-                const gh = isFocus ? pillH + 2 : pillH;
-                const pillColor = readToken(scoreToneToken(pt.score));
-
+                cx.stroke();
+                cx.restore();
+              } else if (coords.length === 1) {
                 cx.save();
-                cx.fillStyle = pillColor;
-                cx.globalAlpha = isFocus ? 1 : 0.84;
+                cx.strokeStyle = readToken("primary");
+                cx.lineWidth = 2.4;
+                cx.lineCap = "round";
                 cx.beginPath();
-                cx.roundRect(gx, gy, gw, gh, gh * 0.5);
-                cx.fill();
-
-                if (isFocus) {
-                  cx.strokeStyle = readToken("foreground");
-                  cx.globalAlpha = 0.55;
-                  cx.lineWidth = 1;
-                  cx.stroke();
-                }
+                cx.moveTo(leftEdgeX, coords[0].y);
+                cx.lineTo(rightEdgeX, coords[0].y);
+                cx.stroke();
                 cx.restore();
               }
 
-              // 6) 底部日期微刻度
+              // 4) 仅在唯一选中日（isFocus）绘制柔光晕与白芯焦点圆环
+              cx.save();
+              cx.fillStyle = focusTone;
+              cx.globalAlpha = 0.18;
+              cx.beginPath();
+              cx.arc(focusPt.x, focusPt.y, 10, 0, Math.PI * 2);
+              cx.fill();
+
+              cx.strokeStyle = focusTone;
+              cx.globalAlpha = 0.65;
+              cx.lineWidth = 1.3;
+              cx.beginPath();
+              cx.arc(focusPt.x, focusPt.y, 6.8, 0, Math.PI * 2);
+              cx.stroke();
+
+              cx.globalAlpha = 1;
+              cx.fillStyle = readToken("card");
+              cx.strokeStyle = readToken("primary");
+              cx.lineWidth = 2.2;
+              cx.beginPath();
+              cx.arc(focusPt.x, focusPt.y, 4.4, 0, Math.PI * 2);
+              cx.fill();
+              cx.stroke();
+
+              cx.fillStyle = focusTone;
+              cx.beginPath();
+              cx.arc(focusPt.x, focusPt.y, 1.9, 0, Math.PI * 2);
+              cx.fill();
+              cx.restore();
+
+              // 5) 底部日期微刻度
               const tickIndices =
                 n <= 4
                   ? pts.map((_, i) => i)
@@ -680,7 +519,7 @@ export function SleepArchitectureBar(props: {
       <If
         when={total() > 0}
         else={
-          <View class="items-center justify-center rounded-xl border border-border/60 bg-surface-sunken py-3">
+          <View class="items-center justify-center rounded-2xl bg-secondary/45 py-3">
             <Text class="text-xs text-muted-foreground">{tr("charts.no_sleep_stages")}</Text>
           </View>
         }
@@ -799,15 +638,12 @@ export function LabRangeBulletCanvas(props: {
           return padX + trackW * clamped;
         };
 
-        // 1) 背景中性轨道
+        // 1) 背景中性无边框轨道
         cx.save();
         cx.fillStyle = token("surface-sunken");
-        cx.strokeStyle = token("border");
-        cx.lineWidth = 1;
         cx.beginPath();
         cx.roundRect(padX, barY, trackW, barH, barH / 2);
         cx.fill();
-        cx.stroke();
         cx.restore();
 
         // 2) 临床参考安全区间带（绿色半透）
@@ -1085,10 +921,10 @@ export function UlnTrajectoryCanvas(props: {
                 <Button
                   hitSlop={4}
                   onPress={() => toggleProfile(item().profile_id)}
-                  class={`min-h-8 flex-row items-center gap-1.5 rounded-full border px-3 py-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                  class={`min-h-8 flex-row items-center gap-1.5 rounded-full px-3 py-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
                     isActive()
-                      ? "border-primary/45 bg-card"
-                      : "border-border/60 bg-surface-sunken opacity-55"
+                      ? "bg-secondary"
+                      : "bg-secondary/45 opacity-55"
                   }`}
                 >
                   <Canvas
@@ -1117,12 +953,12 @@ export function UlnTrajectoryCanvas(props: {
       <If
         when={timelineLabels().length > 0}
         else={
-          <View class="items-center justify-center rounded-xl border border-border/60 bg-surface-sunken py-7">
+          <View class="items-center justify-center rounded-2xl bg-secondary/45 py-7">
             <Text class="text-xs text-muted-foreground">{tr("charts.no_lab_trajectory")}</Text>
           </View>
         }
       >
-        <View class="flex-row flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 bg-surface-sunken px-3 py-2">
+        <View class="flex-row flex-wrap items-center justify-between gap-2 rounded-2xl bg-secondary/45 px-3.5 py-2">
           <Text
             class="text-xs font-semibold text-foreground"
             style={{ fontVariant: ["tabular-nums"] }}
@@ -1322,10 +1158,10 @@ export function UlnTrajectoryCanvas(props: {
                   <Button
                     hitSlop={4}
                     onPress={() => selectedIndex.set(idx())}
-                    class={`min-h-7 rounded-full border px-2.5 py-0.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                    class={`min-h-7 rounded-full px-2.5 py-0.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
                       isFocused()
-                        ? "border-primary bg-primary"
-                        : "border-border/70 bg-surface-sunken hover:border-primary/45"
+                        ? "bg-primary"
+                        : "bg-secondary/55"
                     }`}
                   >
                     <Text
@@ -1410,7 +1246,7 @@ export function MultiLagRadarBars(props: {
           <Text class="text-[11px] text-muted-foreground">{tr("charts.confounders_label")}</Text>
           <Each of={props.confounders ?? []} key={(c) => c}>
             {(chip) => (
-              <View class="rounded-full border border-border/70 bg-surface-sunken px-2 py-0.5">
+              <View class="rounded-full bg-secondary/55 px-2.5 py-0.5">
                 <Text class="text-[10px] font-medium text-foreground">{chip()}</Text>
               </View>
             )}
@@ -1421,7 +1257,7 @@ export function MultiLagRadarBars(props: {
       <If
         when={props.items.length > 0}
         else={
-          <View class="items-center justify-center rounded-xl border border-border/60 bg-surface-sunken py-5">
+          <View class="items-center justify-center rounded-2xl bg-secondary/45 py-5">
             <Text class="text-xs text-muted-foreground">{tr("charts.no_multi_lag_data")}</Text>
           </View>
         }
@@ -1432,10 +1268,10 @@ export function MultiLagRadarBars(props: {
               const cohen = () => resolveCohenBadge(item().cohen_d);
               const signPrefix = () => (item().delta_value >= 0 ? "+" : "");
               return (
-                <View class="gap-1.5 rounded-xl border border-border/65 bg-surface-sunken p-3">
+                <View class="gap-2 rounded-2xl bg-secondary/45 p-3.5">
                   <View class="flex-row flex-wrap items-center justify-between gap-2">
                     <View class="flex-row items-center gap-2">
-                      <View class="rounded-lg border border-border/70 bg-card px-2 py-0.5">
+                      <View class="rounded-lg bg-card px-2 py-0.5">
                         <Text
                           class="text-xs font-bold text-foreground"
                           style={{ fontVariant: ["tabular-nums"] }}
@@ -1461,7 +1297,7 @@ export function MultiLagRadarBars(props: {
                     <View class="flex-row items-center gap-1.5">
                       <View
                         class={`rounded-full px-2 py-0.5 ${
-                          cohen().isStrong ? "bg-atelier-soft" : "bg-card border border-border/60"
+                          cohen().isStrong ? "bg-atelier-soft" : "bg-card"
                         }`}
                       >
                         <Text
@@ -1496,15 +1332,12 @@ export function MultiLagRadarBars(props: {
 
                       cx.clearRect(0, 0, w, h);
 
-                      // 底轨
+                      // 无边框中性底轨
                       cx.save();
                       cx.fillStyle = readToken("card");
-                      cx.strokeStyle = readToken("border");
-                      cx.lineWidth = 1;
                       cx.beginPath();
                       cx.roundRect(0, barY, w, barH, barH / 2);
                       cx.fill();
-                      cx.stroke();
                       cx.restore();
 
                       // 中线

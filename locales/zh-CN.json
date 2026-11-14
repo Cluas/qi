@@ -372,7 +372,13 @@
     "sleep_debt": "近夜累计微欠睡 %{hours} 小时",
     "sleep_surplus": "近期多蓄睡 %{hours} 小时",
     "sleep_untracked": "待戴表或手动记入昨夜睡眠",
-    "steps_count": "%{count} 步"
+    "steps_count": "%{count} 步",
+    "scene_picker_btn": "意境",
+    "scene_picker_title": "窗台意境",
+    "scene_picker_sub": "选择此刻桌畔陪伴画风，原有健康记录保持不动",
+    "poster_btn_short": "日签",
+    "feeling_compact_label": "晨起体感",
+    "feeling_adjust": "调整"
   },
   "log": {
     "kicker": "日常与化验",
@@ -1006,7 +1012,16 @@
     "tier_c_sub": "不戴穿戴设备，依靠晨间感受与手动记一笔",
     "tier_c_title": "无穿戴设备 · 纸笔体感手账",
     "healthkit_opt_title": "顺便连接 Apple 健康（导入近 35 天）",
-    "healthkit_opt_sub": "推开窗扉后弹出 iOS 只读授权，用真实睡眠与步数替换示例数据"
+    "healthkit_opt_sub": "推开窗扉后弹出 iOS 只读授权，用真实睡眠与步数替换示例数据",
+    "beat1_kicker": "晨雾初开 · 顺应节律",
+    "beat1_body": "不给生活打分，只陪你听懂身体的潮汐。",
+    "beat2_title": "累了就歇，醒了再出发",
+    "beat2_body": "把繁杂睡眠与心率，化作一句温润的晨间提示。",
+    "beat3_title": "所有记录只留在你的手机里",
+    "beat3_body": "无需注册账号，本机加密保存，随时可导出或抹除。",
+    "orb_hint": "轻触光晕 · 感受一次深呼吸",
+    "healthkit_pill_on": "已开启 Apple 健康只读同步",
+    "healthkit_pill_off": "暂不同步 Apple 健康"
   },
   "qa": {
     "title": "体验调试台",

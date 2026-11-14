@@ -2,9 +2,13 @@ import { Speech, signal, Text, token, View } from "nsh";
 import {
   addFoodSticker,
   addProfileLabMarker,
+  generateEncryptedArchive,
+  generateJsonlExport,
   generateParentsPeaceLetter,
   getAppLocale,
   getDisclaimerText,
+  getEncryptedArchivePreview,
+  getJsonlExportPreview,
   getLogSubTab,
   getState,
   importExternalHealthData,
@@ -17,33 +21,39 @@ import {
   openPetStudio,
   pickAndOcrLabPhoto,
   requestAiAction,
-  searchFoods,
   setLogSubTab,
   setShowAtelierModal,
+  setShowQuickCaptureModal,
   setTab,
   syncAppleHealthkit,
 } from "../store";
 import { StickerCameraMatPanel, type StickerFrameStyle } from "../ui/atelier";
 import {
   LabRangeBulletCanvas,
-  SerratedReceiptBanner,
   UlnTrajectoryCanvas,
   type UlnProfileSeries,
 } from "../ui/charts";
 import {
   ActionButton,
+  Button,
   Card,
+  CollapsibleCard,
   FieldInput,
+  Hairline,
+  HeaderActionPill,
   IconButton,
+  IosGroupedSection,
+  IosLargeHeader,
+  IosListRow,
+  runDrawerLayoutTransition,
   SectionHeader,
   SegmentedTabs,
   SelectChip,
-  SunkenBox,
+  SwitchRow,
   VitalBadge,
 } from "../ui/components";
 import { QiIcon, type QiIconName } from "../ui/icons";
 import { isEnglishLocale, tr } from "../ui/i18n";
-import { StickerMealTile } from "../ui/sanctuary";
 
 const SAMPLE_APPLE_XML = `<HealthData locale="en_US">
   <Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" sourceName="Apple Watch" unit="ms" startDate="2026-11-12 06:10:00 +0800" value="44.2" />
@@ -59,12 +69,15 @@ const SAMPLE_JSONL_DATA =
 
 export function LogLabsPage() {
   const naturalInput = signal("");
-  const foodSearchQuery = signal("");
+  const showAllIntakes = signal(false);
   const speechListening = signal(false);
   const speechHint = signal<string | null>(null);
 
   const customLabDraft = signal<string | null>(null);
   const showCustomLab = signal(false);
+  const expandedLabKey = signal<string | null>(null);
+  const familyUlnOpen = signal(false);
+  const wearableImportOpen = signal(false);
 
   const externalFormat = signal<"apple_health_xml" | "csv" | "jsonl">("apple_health_xml");
   const externalText = signal(SAMPLE_APPLE_XML);
@@ -72,6 +85,7 @@ export function LogLabsPage() {
   const profileMarkerName = signal("");
   const profileMarkerVal = signal("34");
   const profileMarkerHigh = signal("40");
+  const supplementToggles = signal<Record<string, boolean>>({});
 
   const state = () => getState();
   const snap = () => state().snapshot;
@@ -82,53 +96,6 @@ export function LogLabsPage() {
     { id: "quick", label: tr("log.subtab_quick") },
     { id: "labs", label: tr("log.subtab_labs") },
     { id: "vault", label: tr("log.subtab_vault") },
-  ];
-
-  const quickIntakes = (): {
-    category: string;
-    item: string;
-    tag: string;
-    notes: string;
-    kcal: number;
-    icon: QiIconName;
-    caption: string;
-  }[] => [
-    {
-      category: "caffeine",
-      item: tr("log.quick_coffee_item"),
-      tag: tr("log.quick_coffee_tag"),
-      notes: tr("log.quick_coffee_note"),
-      kcal: 15,
-      icon: "coffee",
-      caption: tr("log.quick_coffee_caption"),
-    },
-    {
-      category: "alcohol",
-      item: tr("log.quick_drink_item"),
-      tag: tr("log.quick_drink_tag"),
-      notes: tr("log.quick_drink_note"),
-      kcal: 190,
-      icon: "sparkles",
-      caption: tr("log.quick_drink_caption"),
-    },
-    {
-      category: "late_meal",
-      item: tr("log.quick_late_item"),
-      tag: tr("log.quick_late_tag"),
-      notes: tr("log.quick_late_note"),
-      kcal: 620,
-      icon: "moon",
-      caption: tr("log.quick_late_caption"),
-    },
-    {
-      category: "meal",
-      item: tr("log.quick_meal_item"),
-      tag: tr("log.quick_meal_tag"),
-      notes: tr("log.quick_meal_note"),
-      kcal: 430,
-      icon: "utensils",
-      caption: tr("log.quick_meal_caption"),
-    },
   ];
 
   const effectiveLabText = () => customLabDraft() ?? tr("log.sample_lab_text");
@@ -172,12 +139,9 @@ export function LogLabsPage() {
   };
 
   const intakes = () => state().intakes;
+  const visibleIntakes = () => intakes().slice(0, showAllIntakes() ? 12 : 3);
   const labs = () => state().labs;
   const lastImport = () => state().last_lab_import;
-  const foodHits = () => {
-    const q = foodSearchQuery().trim();
-    return q ? searchFoods(q, 8) : searchFoods("", 6);
-  };
 
   const submitNatural = () => {
     const text = naturalInput().trim();
@@ -221,237 +185,244 @@ export function LogLabsPage() {
     }
   };
 
+  const intakeCategoryBadge = (
+    category: string,
+  ): { icon: QiIconName; bg: string; fg: string } => {
+    switch (category) {
+      case "caffeine":
+        return {
+          icon: "coffee",
+          bg: token("atelier-soft"),
+          fg: token("atelier-accent"),
+        };
+      case "alcohol":
+        return {
+          icon: "sparkles",
+          bg: token("vital-recover-soft"),
+          fg: token("vital-recover"),
+        };
+      case "late_meal":
+        return {
+          icon: "moon",
+          bg: token("vital-recover-soft"),
+          fg: token("vital-recover"),
+        };
+      case "supplement":
+        return {
+          icon: "heart_pulse",
+          bg: token("vital-prime-soft"),
+          fg: token("vital-prime"),
+        };
+      case "sleep":
+        return {
+          icon: "moon",
+          bg: token("secondary"),
+          fg: token("primary"),
+        };
+      default:
+        return {
+          icon: "utensils",
+          bg: token("vital-prime-soft"),
+          fg: token("vital-prime"),
+        };
+    }
+  };
+
+  const dailySupplements = () =>
+    isEnglishLocale()
+      ? [
+          {
+            id: "mag_glycinate",
+            title: "Magnesium Glycinate 200mg",
+            subtitle: "30m before sleep · deep sleep & HRV support",
+            tag: "magnesium",
+          },
+          {
+            id: "vit_d3_k2",
+            title: "Vitamin D3 + K2",
+            subtitle: "With morning meal · metabolic & seasonal balance",
+            tag: "vitamin_d",
+          },
+          {
+            id: "omega3",
+            title: "Omega-3 Fish Oil",
+            subtitle: "With dinner · recovery & vascular calm",
+            tag: "omega3",
+          },
+        ]
+      : [
+          {
+            id: "mag_glycinate",
+            title: "甘氨酸镁 200mg",
+            subtitle: "睡前 30 分钟 · 支持深睡与 HRV 恢复",
+            tag: "镁剂助眠",
+          },
+          {
+            id: "vit_d3_k2",
+            title: "维生素 D3 + K2",
+            subtitle: "随早餐脂溶吸收 · 骨骼与节气免疫",
+            tag: "维D3",
+          },
+          {
+            id: "omega3",
+            title: "高纯度 Omega-3 鱼油",
+            subtitle: "随晚餐 · 温和抗炎与心率平稳",
+            tag: "Omega-3",
+          },
+        ];
+
+  const isSupplementChecked = (id: string, title: string): boolean => {
+    const manual = supplementToggles()[id];
+    if (manual !== undefined) return manual;
+    const today = snap().target_date;
+    return intakes().some((it) => it.date === today && it.item_name === title);
+  };
+
   return (
     <View class="gap-4">
+      <IosLargeHeader
+        title={tr("nav.log")}
+        trailing={
+          <HeaderActionPill
+            label={tr("nav.quick_short")}
+            icon="plus"
+            tone="primary"
+            accessibilityLabel={tr("nav.quick_capture")}
+            onPress={() => setShowQuickCaptureModal(true)}
+          />
+        }
+      />
+
       <SegmentedTabs
         items={subTabs()}
         activeId={getLogSubTab()}
         onSelect={(id) => setLogSubTab(id)}
       />
 
-      {/* Subview 1: Quick Log (Cat on Chair 小票帐单排印 + Bellybook 轻盈贴纸手册感) */}
+      {/* Subview 1: Quick Log (v7.0 Radical Subtraction: 3 calm blocks) */}
       <If when={getLogSubTab() === "quick"}>
         <View class="gap-5">
-          <View class="gap-0">
-            <SerratedReceiptBanner position="top" />
-            <View class="gap-3.5 border-x border-border/65 bg-card px-4 py-3.5">
-              {/* Cat on Chair 票首期数、日期与食光手账编号 */}
-              <View class="gap-2">
-                <View class="flex-row flex-wrap items-center justify-between gap-2">
-                  <Text
-                    class="text-[11px] font-semibold tracking-wider text-muted-foreground"
-                    style={{ fontVariant: ["tabular-nums"] }}
-                  >
-                    {isEnglishLocale()
-                      ? `NO. ${String(42 + intakes().length).padStart(3, "0")} · QI DIET RECEIPT`
-                      : `NO. ${String(42 + intakes().length).padStart(3, "0")} · 知气食光小票`}
-                  </Text>
-                  <Text
-                    class="text-[11px] font-medium text-ink-subtle"
-                    style={{ fontVariant: ["tabular-nums"] }}
-                  >
-                    {`${snap().target_date} · ${solar().solar_term.term_name}`}
-                  </Text>
-                </View>
-                <View class="h-px w-full border-b border-dashed border-border/80" />
-              </View>
+          <Card class="gap-3.5 rounded-3xl p-4">
+            <SectionHeader
+              title={tr("log.nlp_title")}
+              subtitle={tr("log.nlp_subtitle")}
+            />
 
-              <View class="gap-2">
-                <SectionHeader
-                  title={tr("log.nlp_title")}
-                  subtitle={tr("log.nlp_subtitle")}
+            <View class="flex-row items-center gap-2">
+              <View class="min-w-0 flex-1">
+                <FieldInput
+                  value={naturalInput()}
+                  placeholder={tr("log.nlp_placeholder")}
+                  onChange={(v) => naturalInput.set(v)}
                 />
-
-                <View class="flex-row items-center gap-1.5">
-                  <View class="min-w-0 flex-1">
-                    <FieldInput
-                      value={naturalInput()}
-                      placeholder={tr("log.nlp_placeholder")}
-                      onChange={(v) => naturalInput.set(v)}
-                    />
-                  </View>
-                  <ActionButton
-                    title={tr("log.save_entry")}
-                    icon="plus"
-                    size="sm"
-                    onPress={submitNatural}
-                  />
-                  <IconButton
-                    icon="mic"
-                    size="sm"
-                    variant="outline"
-                    accessibilityLabel={
-                      speechListening() ? tr("log.voice_stop") : tr("log.voice_start")
-                    }
-                    onPress={() => void toggleVoiceDictation()}
-                  />
-                </View>
-
-                <If when={Boolean(speechHint())}>
-                  <Text class="text-xs text-muted-foreground">{speechHint()!}</Text>
-                </If>
               </View>
+              <IconButton
+                icon="mic"
+                size="sm"
+                variant="outline"
+                accessibilityLabel={
+                  speechListening() ? tr("log.voice_stop") : tr("log.voice_start")
+                }
+                onPress={() => void toggleVoiceDictation()}
+              />
+            </View>
 
-              {/* Bellybook 3px 白边模切美食贴纸餐垫区（轻盈呼吸留白，无套娃白框） */}
-              <View class="gap-2 rounded-2xl bg-bento-amber/40 px-3 py-3">
-                <View class="flex-row items-center justify-between gap-2 px-0.5">
-                  <Text class="text-xs font-semibold text-foreground">{tr("log.sticker_tiles_title")}</Text>
-                  <Text class="text-[11px] font-medium text-dew-accent">{tr("log.sticker_tiles_dew")}</Text>
-                </View>
-                <View class="flex-row flex-wrap gap-2">
-                  <Each of={quickIntakes()} key={(q) => q.category}>
-                    {(q) => (
-                      <StickerMealTile
-                        title={q().item}
-                        caption={q().caption}
-                        icon={q().icon}
-                        onPress={() =>
-                          logQuickIntake(q().category, q().item, q().tag, q().notes, q().kcal)
-                        }
-                      />
-                    )}
-                  </Each>
-                </View>
-              </View>
-
-              <View class="h-px w-full border-b border-dashed border-border/80" />
-
-              {/* Cat on Chair 点线帐单连接线明细（同票直现：食味名 + ······ 点线 + 热量微签 + 票尾小计） */}
-              <View class="gap-2">
-                <View class="flex-row items-center justify-between gap-2">
-                  <Text class="text-xs font-bold text-foreground">{tr("log.recent_entries")}</Text>
-                  <Text class="text-[11px] text-ink-subtle">{tr("common.local_only")}</Text>
-                </View>
-
-                <If
-                  when={intakes().length > 0}
-                  else={
-                    <View class="py-2">
-                      <Text class="text-xs text-muted-foreground">{tr("log.recent_empty")}</Text>
-                    </View>
-                  }
+            <View class="flex-row flex-wrap items-center justify-between gap-2">
+              <View class="flex-1 flex-row flex-wrap gap-1.5">
+                <Each
+                  of={[
+                    "log.quick_chip_coffee",
+                    "log.quick_chip_tea",
+                    "log.quick_chip_meal",
+                    "log.quick_chip_sleep",
+                  ]}
+                  key={(k) => k}
                 >
-                  <View class="gap-0.5">
-                    <Each of={intakes().slice(0, 6)} key={(it) => it.id}>
-                      {(it) => (
-                        <View class="gap-0.5 py-1.5">
-                          <View class="flex-row items-baseline gap-1.5">
-                            <View class="shrink-0 flex-row items-baseline gap-1.5">
-                              <Text
-                                class="text-[11px] font-semibold text-atelier-accent"
-                                style={{ fontVariant: ["tabular-nums"] }}
-                              >
-                                {it().date.slice(5)}
-                              </Text>
-                              <Text class="text-xs font-semibold text-foreground">
-                                {it().item_name}
-                              </Text>
-                            </View>
+                  {(key) => (
+                    <SelectChip
+                      label={tr(key())}
+                      selected={false}
+                      onPress={() => logNaturalIntake(tr(key()))}
+                    />
+                  )}
+                </Each>
+              </View>
+              <ActionButton
+                title={tr("log.save_entry")}
+                icon="plus"
+                size="sm"
+                onPress={submitNatural}
+              />
+            </View>
 
-                            <View class="mb-1 min-w-6 flex-1 border-b border-dotted border-ink-subtle/75" />
+            <If when={Boolean(speechHint())}>
+              <Text class="text-xs text-muted-foreground">{speechHint()!}</Text>
+            </If>
+          </Card>
 
-                            <View class="shrink-0 rounded-md bg-surface-sunken/90 px-2 py-0.5">
-                              <Text
-                                class="text-[11px] font-semibold text-muted-foreground"
-                                style={{ fontVariant: ["tabular-nums"] }}
-                              >
-                                {it().calories_kcal !== null
-                                  ? `${Math.round(it().calories_kcal!)} kcal`
-                                  : `${it().tags[0] ?? it().category}`}
-                              </Text>
-                            </View>
-                          </View>
-                          <If when={Boolean(it().notes)}>
-                            <Text class="line-clamp-1 pl-9 text-[10px] leading-snug text-muted-foreground">
-                              {it().notes}
-                            </Text>
-                          </If>
-                        </View>
-                      )}
-                    </Each>
-
-                    <View class="gap-1.5 pt-1.5">
-                      <View class="h-px w-full border-b border-dashed border-border/80" />
-                      <View class="flex-row items-center justify-between pt-0.5">
+          <IosGroupedSection
+            title={tr("log.recent_entries")}
+            footer={tr("common.local_only")}
+          >
+            <If
+              when={intakes().length > 0}
+              else={
+                <View class="px-4 py-4">
+                  <Text class="text-xs text-muted-foreground">{tr("log.recent_empty")}</Text>
+                </View>
+              }
+            >
+              <Each of={visibleIntakes()} key={(it) => it.id}>
+                {(it, idx) => {
+                  const badge = () => intakeCategoryBadge(it().category);
+                  return (
+                    <IosListRow
+                      icon={badge().icon}
+                      iconBgColor={badge().bg}
+                      iconColor={badge().fg}
+                      title={it().item_name}
+                      subtitle={it().notes || undefined}
+                      divider={idx() < visibleIntakes().length - 1 || intakes().length > 3}
+                      trailing={
                         <Text
-                          class="text-xs font-semibold text-muted-foreground"
+                          class="text-xs text-muted-foreground"
                           style={{ fontVariant: ["tabular-nums"] }}
                         >
-                          {isEnglishLocale()
-                            ? `TOTAL ITEMS · ${intakes().length}`
-                            : `食光小计 · 共 ${intakes().length} 笔随记`}
+                          {it().date.slice(5)}
                         </Text>
-                        <View class="flex-row items-center gap-1">
-                          <QiIcon name="droplet" size={12} color={token("vital-prime")} />
-                          <Text
-                            class="text-xs font-bold text-vital-prime"
-                            style={{ fontVariant: ["tabular-nums"] }}
-                          >
-                            {`+${Math.max(1, Math.min(12, intakes().length))}`}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                </If>
-              </View>
-            </View>
-            <SerratedReceiptBanner position="bottom" />
-          </View>
-
-          <If when={snap().lagged_impacts.length > 0}>
-            <View class="gap-3 px-0.5">
-              <SectionHeader
-                title={tr("log.lag_feedback_title")}
-                subtitle={tr("log.lag_feedback_sub")}
-              />
-              <View class="gap-2.5">
-                <Each of={snap().lagged_impacts} key={(imp) => `${imp.tag}-${imp.outcome_label}`}>
-                  {(imp) => (
-                    <View class="gap-1.5 rounded-2xl bg-card/90 px-4 py-3 shadow-2xs">
-                      <View class="flex-row items-center justify-between gap-2">
-                        <Text class="text-xs font-semibold text-primary">
-                          {`${imp().tag} → ${imp().outcome_label}`}
-                        </Text>
-                        <VitalBadge
-                          tone={imp().delta_value >= 0 ? "optimal" : "watch_low"}
-                          label={`${imp().delta_value >= 0 ? "+" : ""}${imp().delta_value.toFixed(1)} ${imp().unit}`}
-                        />
-                      </View>
-                      <Text class="text-xs leading-relaxed text-foreground">{imp().summary}</Text>
-                    </View>
-                  )}
-                </Each>
-              </View>
-            </View>
-          </If>
-
-          {/* 锯齿撕纸副联：本地常见食物与嘌呤速查 */}
-          <View class="gap-0">
-            <SerratedReceiptBanner position="top" />
-            <View class="gap-2.5 border-x border-border/65 bg-card px-4 py-3.5">
-              <Text class="text-xs font-semibold text-foreground">{tr("log.food_dict_title")}</Text>
-              <FieldInput
-                value={foodSearchQuery()}
-                placeholder={tr("log.food_dict_placeholder")}
-                onChange={(v) => foodSearchQuery.set(v)}
-              />
-              <View class="flex-row flex-wrap gap-2">
-                <Each of={foodHits()} key={(hit) => hit.id}>
-                  {(hit) => (
-                    <SelectChip
-                      label={`${hit().name} · ${hit().kcal}kcal`}
-                      selected={false}
-                      onPress={() =>
-                        logQuickIntake(hit().category, hit().name, hit().rhythm_tag, hit().tip, hit().kcal)
                       }
                     />
-                  )}
-                </Each>
-              </View>
-            </View>
-            <SerratedReceiptBanner position="bottom" />
-          </View>
+                  );
+                }}
+              </Each>
+              <If when={intakes().length > 3}>
+                <IosListRow
+                  title={
+                    showAllIntakes()
+                      ? isEnglishLocale()
+                        ? "Show less"
+                        : "收起"
+                      : isEnglishLocale()
+                        ? `Show all (${intakes().length})`
+                        : `展开全部 (${intakes().length})`
+                  }
+                  divider={false}
+                  showChevron={false}
+                  trailing={
+                    <QiIcon
+                      name={showAllIntakes() ? "chevron_down" : "chevron_right"}
+                      size={16}
+                      color={token("primary")}
+                    />
+                  }
+                  onPress={() => {
+                    runDrawerLayoutTransition("easeInEaseOut");
+                    showAllIntakes.set(!showAllIntakes());
+                  }}
+                />
+              </If>
+            </If>
+          </IosGroupedSection>
 
           <StickerCameraMatPanel
             stickers={solar().stickers.map((st, idx) => ({
@@ -478,7 +449,7 @@ export function LogLabsPage() {
       {/* Subview 2: Labs & Supplements */}
       <If when={getLogSubTab() === "labs"}>
         <View class="gap-4">
-          <Card>
+          <Card class="gap-3.5 rounded-3xl p-4">
             <SectionHeader
               title={tr("log.labs_card_title")}
               subtitle={tr("log.ocr_privacy_hint")}
@@ -513,7 +484,7 @@ export function LogLabsPage() {
             </View>
 
             <If when={showCustomLab()}>
-              <SunkenBox>
+              <View class="gap-2.5 rounded-2xl bg-secondary/45 p-3.5">
                 <Text class="text-xs font-semibold text-foreground">{tr("log.paste_lab_title")}</Text>
                 <FieldInput
                   value={effectiveLabText()}
@@ -531,11 +502,11 @@ export function LogLabsPage() {
                     });
                   }}
                 />
-              </SunkenBox>
+              </View>
             </If>
 
             <If when={Boolean(lastImport())}>
-              <View class="gap-2 rounded-xl border border-vital-prime/30 bg-vital-prime-soft p-3.5">
+              <View class="gap-2 rounded-2xl bg-vital-prime-soft p-3.5">
                 <View class="flex-row items-center gap-2">
                   <QiIcon name="user_shield" size={16} color={token("vital-prime")} />
                   <Text class="flex-1 text-xs font-semibold text-vital-prime">
@@ -549,120 +520,200 @@ export function LogLabsPage() {
             </If>
           </Card>
 
-          <Card>
-            <SectionHeader
-              title={tr("log.labs_archived_title")}
-              subtitle={tr("log.labs_archived_count", { count: labs().length })}
-            />
+          <IosGroupedSection
+            title={tr("log.labs_archived_title")}
+            right={
+              <Text
+                class="text-[11px] font-medium text-muted-foreground"
+                style={{ fontVariant: ["tabular-nums"] }}
+              >
+                {tr("log.labs_archived_count", { count: labs().length })}
+              </Text>
+            }
+            footer={getDisclaimerText()}
+          >
             <If
               when={labs().length > 0}
               else={
-                <SunkenBox>
+                <View class="px-4 py-4">
                   <Text class="text-xs text-muted-foreground">{tr("log.labs_archived_empty")}</Text>
-                </SunkenBox>
+                </View>
               }
             >
-              <View class="gap-3">
-                <Each of={labs()} key={(lb) => `${lb.id}-${lb.test_date}-${lb.canonical_key}`}>
-                  {(lb) => (
-                    <SunkenBox>
-                      <View class="flex-row items-center justify-between gap-2">
-                        <View class="flex-1 gap-0.5">
-                          <Text class="text-sm font-semibold text-foreground">{lb().marker_name}</Text>
-                          <Text class="text-xs text-muted-foreground">
-                            {tr("log.lab_date_row", { date: lb().test_date })}
-                          </Text>
-                        </View>
-                        <VitalBadge tone={lb().flag} label={labFlagLabel(lb().flag)} />
-                      </View>
+              <Each of={labs()} key={(lb) => `${lb.id}-${lb.test_date}-${lb.canonical_key}`}>
+                {(lb, idx) => {
+                  const rowKey = () => `${lb().id}-${lb().test_date}-${lb().canonical_key}`;
+                  const isExpanded = () => expandedLabKey() === rowKey();
+                  return (
+                    <View>
+                      <Button
+                        onPress={() => {
+                          runDrawerLayoutTransition("easeInEaseOut");
+                          expandedLabKey.set(isExpanded() ? null : rowKey());
+                        }}
+                        class="w-full px-4 py-3.5 text-left"
+                        accessibilityLabel={lb().marker_name}
+                      >
+                        <View class="w-full gap-2">
+                          <View class="flex-row items-center justify-between gap-2">
+                            <View class="min-w-0 flex-1 gap-0.5">
+                              <Text class="text-[15px] font-semibold text-foreground">
+                                {lb().marker_name}
+                              </Text>
+                              <Text
+                                class="text-xs text-muted-foreground"
+                                style={{ fontVariant: ["tabular-nums"] }}
+                              >
+                                {tr("log.lab_date_row", { date: lb().test_date })}
+                              </Text>
+                            </View>
+                            <View class="flex-row items-center gap-2">
+                              <VitalBadge tone={lb().flag} label={labFlagLabel(lb().flag)} />
+                              <QiIcon
+                                name={isExpanded() ? "chevron_down" : "chevron_right"}
+                                size={15}
+                                color={token("muted-foreground")}
+                              />
+                            </View>
+                          </View>
 
-                      <View class="flex-row items-baseline justify-between gap-2">
-                        <Text
-                          class="text-lg font-bold text-foreground"
-                          style={{ fontVariant: ["tabular-nums"] }}
-                        >
-                          {`${lb().value} ${lb().unit}`}
-                        </Text>
-                        <Text
-                          class="text-xs text-muted-foreground"
-                          style={{ fontVariant: ["tabular-nums"] }}
-                        >
-                          {lb().ref_low !== null && lb().ref_high !== null
-                            ? tr("log.lab_ref_bounds", {
-                                low: lb().ref_low ?? "--",
-                                high: lb().ref_high ?? "--",
-                              })
-                            : tr("log.lab_no_ref")}
-                        </Text>
-                      </View>
-
-                      <LabRangeBulletCanvas
-                        value={lb().value}
-                        refLow={lb().ref_low}
-                        refHigh={lb().ref_high}
-                        flag={lb().flag}
-                        prevValue={lb().prev_value}
-                      />
-
-                      <If when={lb().prev_value !== null}>
-                        <View class="flex-row flex-wrap items-center gap-2">
-                          <View class="rounded-full border border-border bg-card px-2.5 py-1">
+                          <View class="flex-row items-baseline justify-between gap-2">
                             <Text
-                              class="text-[11px] font-medium text-primary"
+                              class="text-xl font-bold text-foreground"
                               style={{ fontVariant: ["tabular-nums"] }}
                             >
-                              {tr("log.lab_prev_line", {
-                                date: lb().prev_date ?? "—",
-                                val: lb().prev_value ?? 0,
-                                unit: lb().unit,
-                                change: formatLabChange(lb().trend, lb().delta, lb().unit),
-                              })}
+                              {`${lb().value} ${lb().unit}`}
+                            </Text>
+                            <Text
+                              class="text-xs text-muted-foreground"
+                              style={{ fontVariant: ["tabular-nums"] }}
+                            >
+                              {lb().ref_low !== null && lb().ref_high !== null
+                                ? tr("log.lab_ref_bounds", {
+                                    low: lb().ref_low ?? "--",
+                                    high: lb().ref_high ?? "--",
+                                  })
+                                : tr("log.lab_no_ref")}
                             </Text>
                           </View>
-                        </View>
-                      </If>
 
-                      <Text class="text-xs leading-relaxed text-muted-foreground">{lb().plain_note}</Text>
-                    </SunkenBox>
+                          <LabRangeBulletCanvas
+                            value={lb().value}
+                            refLow={lb().ref_low}
+                            refHigh={lb().ref_high}
+                            flag={lb().flag}
+                            prevValue={lb().prev_value}
+                          />
+
+                          <If when={isExpanded()}>
+                            <View class="gap-1.5 pt-1">
+                              <If when={lb().prev_value !== null}>
+                                <View class="flex-row flex-wrap items-center gap-2">
+                                  <View class="rounded-full bg-secondary/55 px-2.5 py-1">
+                                    <Text
+                                      class="text-[11px] font-medium text-primary"
+                                      style={{ fontVariant: ["tabular-nums"] }}
+                                    >
+                                      {tr("log.lab_prev_line", {
+                                        date: lb().prev_date ?? "—",
+                                        val: lb().prev_value ?? 0,
+                                        unit: lb().unit,
+                                        change: formatLabChange(lb().trend, lb().delta, lb().unit),
+                                      })}
+                                    </Text>
+                                  </View>
+                                </View>
+                              </If>
+                              <Text class="text-xs leading-relaxed text-muted-foreground">
+                                {lb().plain_note}
+                              </Text>
+                            </View>
+                          </If>
+                        </View>
+                      </Button>
+                      <If when={idx() < labs().length - 1}>
+                        <Hairline class="ml-4" />
+                      </If>
+                    </View>
+                  );
+                }}
+              </Each>
+            </If>
+          </IosGroupedSection>
+
+          <IosGroupedSection
+            title={isEnglishLocale() ? "Daily supplements" : "每日补剂打卡"}
+            footer={
+              isEnglishLocale()
+                ? "Toggling records today's supplement adherence in your local log."
+                : "开启即记录今日补剂服用，参与节律与恢复关联统计。"
+            }
+          >
+            <Each of={dailySupplements()} key={(sup) => sup.id}>
+              {(sup, idx) => (
+                <View>
+                  <View class="px-4 py-1">
+                    <SwitchRow
+                      title={sup().title}
+                      subtitle={sup().subtitle}
+                      checked={isSupplementChecked(sup().id, sup().title)}
+                      onChange={(next) => {
+                        supplementToggles.set({
+                          ...supplementToggles(),
+                          [sup().id]: next,
+                        });
+                        if (next) {
+                          logQuickIntake(
+                            "supplement",
+                            sup().title,
+                            sup().tag,
+                            sup().subtitle,
+                            0,
+                          );
+                        }
+                      }}
+                    />
+                  </View>
+                  <If when={idx() < dailySupplements().length - 1}>
+                    <Hairline class="ml-4" />
+                  </If>
+                </View>
+              )}
+            </Each>
+          </IosGroupedSection>
+
+          <CollapsibleCard
+            title={tr("log.family_uln_title")}
+            subtitle={tr("log.family_uln_subtitle")}
+            open={familyUlnOpen()}
+            onToggle={() => familyUlnOpen.set(!familyUlnOpen())}
+          >
+            <View class="flex-row items-center justify-between gap-2">
+              <View class="flex-row flex-wrap gap-1.5">
+                <Each
+                  of={[
+                    { id: "self", label: tr("log.profile_self") },
+                    { id: "partner", label: tr("log.profile_partner") },
+                    { id: "parents", label: tr("log.profile_parents_default") },
+                  ]}
+                  key={(p) => p.id}
+                >
+                  {(p) => (
+                    <SelectChip
+                      label={p().label}
+                      selected={selectedProfileId() === p().id}
+                      onPress={() => selectedProfileId.set(p().id as "self" | "partner" | "parents")}
+                    />
                   )}
                 </Each>
               </View>
-            </If>
-
-            <Text class="text-[11px] leading-relaxed text-muted-foreground">{getDisclaimerText()}</Text>
-          </Card>
-
-          <Card>
-            <SectionHeader
-              title={tr("log.family_uln_title")}
-              subtitle={tr("log.family_uln_subtitle")}
-              right={
-                <ActionButton
-                  title={tr("log.family_letter_btn")}
-                  icon="family_heart"
-                  size="sm"
-                  onPress={() => generateParentsPeaceLetter()}
-                />
-              }
-            />
-
-            <View class="flex-row flex-wrap gap-1.5">
-              <Each
-                of={[
-                  { id: "self", label: tr("log.profile_self") },
-                  { id: "partner", label: tr("log.profile_partner") },
-                  { id: "parents", label: tr("log.profile_parents_default") },
-                ]}
-                key={(p) => p.id}
-              >
-                {(p) => (
-                  <SelectChip
-                    label={p().label}
-                    selected={selectedProfileId() === p().id}
-                    onPress={() => selectedProfileId.set(p().id as "self" | "partner" | "parents")}
-                  />
-                )}
-              </Each>
+              <ActionButton
+                title={tr("log.family_letter_btn")}
+                icon="family_heart"
+                size="sm"
+                variant="outline"
+                onPress={() => generateParentsPeaceLetter()}
+              />
             </View>
 
             <View class="flex-row flex-wrap items-center gap-2">
@@ -717,11 +768,11 @@ export function LogLabsPage() {
             </If>
 
             <If when={state().recheck_reminders.length > 0}>
-              <View class="gap-1.5 pt-1">
+              <View class="gap-2 pt-1">
                 <Text class="text-xs font-semibold text-foreground">{tr("log.recheck_title")}</Text>
                 <Each of={state().recheck_reminders.slice(0, 4)} key={(r) => `${r.profile_id}-${r.canonical_key}`}>
                   {(r) => (
-                    <SunkenBox>
+                    <View class="rounded-2xl bg-secondary/45 px-3.5 py-2.5">
                       <Text class="text-xs leading-relaxed text-foreground">
                         {tr("log.recheck_row", {
                           profile: r().profile_label,
@@ -730,19 +781,83 @@ export function LogLabsPage() {
                           text: r().reminder_text,
                         })}
                       </Text>
-                    </SunkenBox>
+                    </View>
                   )}
                 </Each>
               </View>
             </If>
-          </Card>
+          </CollapsibleCard>
         </View>
       </If>
 
       {/* Subview 3: Hearth Vault & Wearable Sources */}
       <If when={getLogSubTab() === "vault"}>
         <View class="gap-4">
-          <Card>
+          <IosGroupedSection
+            title={tr("log.hearth_summary_title")}
+            footer={tr("log.hearth_summary_sub", {
+              intakes: intakes().length,
+              labs: labs().length,
+              stickers: solar().stickers.length,
+            })}
+          >
+            <IosListRow
+              icon="utensils"
+              iconBgColor={token("vital-prime-soft")}
+              iconColor={token("vital-prime")}
+              title={isEnglishLocale() ? "Daily log entries" : "食光与日常随记"}
+              divider={true}
+              trailing={
+                <Text
+                  class="text-sm font-semibold text-foreground"
+                  style={{ fontVariant: ["tabular-nums"] }}
+                >
+                  {String(intakes().length)}
+                </Text>
+              }
+            />
+            <IosListRow
+              icon="file_lab"
+              iconBgColor={token("vital-steady-soft")}
+              iconColor={token("vital-steady")}
+              title={isEnglishLocale() ? "Archived lab biomarkers" : "已归档化验指标"}
+              divider={true}
+              trailing={
+                <Text
+                  class="text-sm font-semibold text-foreground"
+                  style={{ fontVariant: ["tabular-nums"] }}
+                >
+                  {String(labs().length)}
+                </Text>
+              }
+            />
+            <IosListRow
+              icon="camera"
+              iconBgColor={token("atelier-soft")}
+              iconColor={token("atelier-accent")}
+              title={isEnglishLocale() ? "Food stickers & mats" : "食光贴纸月历收藏"}
+              divider={true}
+              trailing={
+                <Text
+                  class="text-sm font-semibold text-foreground"
+                  style={{ fontVariant: ["tabular-nums"] }}
+                >
+                  {String(solar().stickers.length)}
+                </Text>
+              }
+            />
+            <IosListRow
+              icon="custom_pet"
+              iconBgColor={token("secondary")}
+              iconColor={token("primary")}
+              title={tr("today.open_custom_pet")}
+              showChevron={true}
+              divider={false}
+              onPress={() => openPetStudio()}
+            />
+          </IosGroupedSection>
+
+          <Card class="gap-3.5 rounded-3xl p-4">
             <SectionHeader
               title={tr("log.healthkit_card_title")}
               subtitle={tr("log.healthkit_card_sub")}
@@ -784,31 +899,90 @@ export function LogLabsPage() {
                 </View>
 
                 <If when={Boolean(state().settings.healthkit_last_summary)}>
-                  <SunkenBox>
+                  <View class="rounded-2xl bg-secondary/45 px-3.5 py-2.5">
                     <Text class="text-xs leading-relaxed text-foreground">
                       {state().settings.healthkit_last_summary}
                     </Text>
-                  </SunkenBox>
+                  </View>
                 </If>
               </View>
             </If>
 
             <If when={!isHealthkitSupported()}>
-              <SunkenBox>
+              <View class="rounded-2xl bg-secondary/45 px-3.5 py-2.5">
                 <Text class="text-xs leading-relaxed text-muted-foreground">
                   {tr("me.healthkit_desktop_hint")}
                 </Text>
-              </SunkenBox>
+              </View>
             </If>
           </Card>
 
-          <Card>
-            <SectionHeader
-              title={tr("log.wearable_title")}
-              subtitle={tr("log.wearable_subtitle")}
-              right={<VitalBadge tone="neutral" label={tr("log.wearable_badge")} />}
+          <IosGroupedSection
+            title={tr("me.vault_section")}
+            footer={
+              getJsonlExportPreview() || getEncryptedArchivePreview()
+                ? isEnglishLocale()
+                  ? "Export payload ready — view or copy full archive in Me › Privacy & Vault."
+                  : "已生成导出快照，可前往「我的 › 隐私与金库」查看或复制完整归档。"
+                : undefined
+            }
+          >
+            <IosListRow
+              icon="file_lab"
+              iconBgColor={token("vital-prime-soft")}
+              iconColor={token("vital-prime")}
+              title={tr("me.export_jsonl_btn")}
+              subtitle={
+                getJsonlExportPreview()
+                  ? isEnglishLocale()
+                    ? "JSONL export generated"
+                    : "已生成明文 JSONL 快照"
+                  : isEnglishLocale()
+                    ? "Plain human-readable log & biomarker timeline"
+                    : "可自由迁移的明文随记与指标时间线"
+              }
+              showChevron={true}
+              divider={true}
+              onPress={() => generateJsonlExport()}
             />
+            <IosListRow
+              icon="cloud_lock"
+              iconBgColor={token("secondary")}
+              iconColor={token("primary")}
+              title={tr("me.export_backup")}
+              subtitle={
+                getEncryptedArchivePreview()
+                  ? isEnglishLocale()
+                    ? "Encrypted archive ready"
+                    : "已生成加密金库归档"
+                  : isEnglishLocale()
+                    ? "Local encrypted archive for backup & restore"
+                    : "端侧加密归档，用于备份与跨机迁移"
+              }
+              showChevron={true}
+              divider={true}
+              onPress={() => generateEncryptedArchive()}
+            />
+            <IosListRow
+              icon="user_shield"
+              iconBgColor={token("secondary")}
+              iconColor={token("muted-foreground")}
+              title={tr("me.vault_section")}
+              subtitle={isEnglishLocale() ? "Open full security & sync settings" : "前往完整隐私与同步设置"}
+              showChevron={true}
+              divider={false}
+              onPress={() => setTab("me")}
+            />
+          </IosGroupedSection>
 
+          <CollapsibleCard
+            title={tr("log.wearable_title")}
+            subtitle={tr("log.wearable_subtitle")}
+            badgeLabel={tr("log.wearable_badge")}
+            badgeTone="neutral"
+            open={wearableImportOpen()}
+            onToggle={() => wearableImportOpen.set(!wearableImportOpen())}
+          >
             <View class="flex-row flex-wrap gap-2">
               <SelectChip
                 label="Apple Health XML"
@@ -849,39 +1023,12 @@ export function LogLabsPage() {
               onPress={() => importExternalHealthData(externalFormat(), externalText())}
             />
 
-            <SunkenBox>
+            <View class="rounded-2xl bg-secondary/45 px-3.5 py-2.5">
               <Text class="text-xs leading-relaxed text-muted-foreground">
                 {tr("log.wearable_merge_note")}
               </Text>
-            </SunkenBox>
-          </Card>
-
-          <Card>
-            <SectionHeader
-              title={tr("log.hearth_summary_title")}
-              subtitle={tr("log.hearth_summary_sub", {
-                intakes: intakes().length,
-                labs: labs().length,
-                stickers: solar().stickers.length,
-              })}
-            />
-            <View class="flex-row flex-wrap gap-2">
-              <ActionButton
-                title={tr("today.open_custom_pet")}
-                icon="custom_pet"
-                variant="outline"
-                size="sm"
-                onPress={() => openPetStudio()}
-              />
-              <ActionButton
-                title={tr("me.vault_section")}
-                icon="cloud_lock"
-                variant="secondary"
-                size="sm"
-                onPress={() => setTab("me")}
-              />
             </View>
-          </Card>
+          </CollapsibleCard>
         </View>
       </If>
     </View>

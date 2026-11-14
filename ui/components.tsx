@@ -1,6 +1,7 @@
-import { colorScheme, effect, type JSX, Keyboard, platform, Scroll, signal, Text, token, View, windowSize } from "nsh";
+import { effect, type JSX, Keyboard, platform, Scroll, signal, Text, token, View, windowSize } from "nsh";
 import { Button, Collapsible, Dialog, Input, Progress, Sheet, Switch, Tab, Tabs } from "nsh/base";
 import { isAvailable as isDesktopHost, Window } from "nsh/desktop";
+import { isAvailable as isMobileHost, TabBar } from "nsh/mobile";
 import { hapticSelection, hapticStampImpact, hapticSuccess } from "./haptics";
 import { tr } from "./i18n";
 import { QiIcon, type QiIconName } from "./icons";
@@ -85,22 +86,232 @@ function resolveToneSemanticColor(tone?: string): string {
 
 /** 极细分割线：以留白和 1px 边界替代多层嵌套框 */
 export function Hairline(props: { class?: string }) {
-  return <View class={`h-px w-full bg-border/65 ${props.class ?? ""}`} />;
+  return <View class={`h-px w-full bg-border/55 ${props.class ?? ""}`} />;
 }
 
-/** 宋韵瓷面一级卡片：同心外圆角 rounded-2xl 与统一内边距 p-4 */
+/** iOS 原生分组大标题顶栏（Large Title + 可选日期副标 + 右侧轻胶囊操作区） */
+export function IosLargeHeader(props: {
+  kicker?: string;
+  kickerMeta?: string;
+  title: string;
+  subtitle?: string;
+  trailing?: JSX.Element;
+  class?: string;
+}) {
+  return (
+    <View class={`gap-1 pb-1 pt-1 ${props.class ?? ""}`}>
+      <If when={Boolean(props.kicker) || Boolean(props.kickerMeta)}>
+        <View class="flex-row items-center gap-1.5">
+          <If when={Boolean(props.kicker)}>
+            <Text class="text-xs font-medium tracking-wide text-muted-foreground">
+              {props.kicker}
+            </Text>
+          </If>
+          <If when={Boolean(props.kicker) && Boolean(props.kickerMeta)}>
+            <Text class="text-xs text-muted-foreground/70">·</Text>
+          </If>
+          <If when={Boolean(props.kickerMeta)}>
+            <Text
+              class="text-xs font-medium tracking-wide text-muted-foreground"
+              style={{ fontVariant: ["tabular-nums"] }}
+            >
+              {props.kickerMeta}
+            </Text>
+          </If>
+        </View>
+      </If>
+      <View class="min-h-11 flex-row items-center justify-between gap-2.5">
+        <Text
+          role="header"
+          class="flex-1 text-[28px] font-bold tracking-tight text-foreground sm:text-[30px]"
+        >
+          {props.title}
+        </Text>
+        <If when={Boolean(props.trailing)}>
+          <View class="shrink-0 flex-row items-center gap-1.5">{props.trailing}</View>
+        </If>
+      </View>
+      <If when={Boolean(props.subtitle)}>
+        <Text class="text-xs leading-relaxed text-muted-foreground">{props.subtitle}</Text>
+      </If>
+    </View>
+  );
+}
+
+/** 顶栏紧凑原生胶囊按钮（带 hitSlop 保障 44pt+ Apple 触控热区） */
+export function HeaderActionPill(props: {
+  label: string;
+  icon?: QiIconName;
+  tone?: "neutral" | "primary";
+  onPress: () => void;
+  accessibilityLabel?: string;
+  class?: string;
+}) {
+  const isPrimary = () => (props.tone ?? "neutral") === "primary";
+  return (
+    <Button
+      hitSlop={6}
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      onPress={() => {
+        hapticSelection();
+        props.onPress();
+      }}
+      class={`min-h-9 flex-row items-center justify-center gap-1 rounded-full border px-3 py-1.5 transition duration-150 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] motion-reduce:transition-none ${
+        isPrimary()
+          ? "border-primary/20 bg-accent hover:opacity-90"
+          : "border-border/60 bg-card hover:bg-secondary/70"
+      } ${props.class ?? ""}`}
+    >
+      <If when={Boolean(props.icon)}>
+        <QiIcon
+          name={props.icon!}
+          size={13}
+          color={isPrimary() ? token("primary") : token("foreground")}
+        />
+      </If>
+      <Text class={`text-xs font-semibold ${isPrimary() ? "text-primary" : "text-foreground"}`}>
+        {props.label}
+      </Text>
+    </Button>
+  );
+}
+
+/** iOS 原生内嵌分组卡片区块（Inset Grouped Section） */
+export function IosGroupedSection(props: {
+  title?: string;
+  footer?: string;
+  right?: JSX.Element;
+  class?: string;
+  cardClass?: string;
+  children?: JSX.Element;
+}) {
+  return (
+    <View class={`gap-1.5 ${props.class ?? ""}`}>
+      <If when={Boolean(props.title) || Boolean(props.right)}>
+        <View class="flex-row items-center justify-between gap-2 px-1.5">
+          <If when={Boolean(props.title)}>
+            <Text role="header" class="text-[13px] font-medium text-muted-foreground">
+              {props.title}
+            </Text>
+          </If>
+          <View>{props.right}</View>
+        </View>
+      </If>
+      <View
+        class={`overflow-hidden rounded-2xl border border-border/45 bg-card ${props.cardClass ?? ""}`}
+      >
+        {props.children}
+      </View>
+      <If when={Boolean(props.footer)}>
+        <Text class="px-1.5 text-xs leading-relaxed text-muted-foreground">{props.footer}</Text>
+      </If>
+    </View>
+  );
+}
+
+/** iOS 原生列表行（28pt 语义微徽章 + 左缩进发丝分隔线 + 右侧数值与披露箭头） */
+export function IosListRow(props: {
+  icon?: QiIconName;
+  iconBgColor?: string;
+  iconColor?: string;
+  title: string;
+  subtitle?: string;
+  value?: string;
+  destructive?: boolean;
+  showChevron?: boolean;
+  divider?: boolean;
+  disabled?: boolean;
+  trailing?: JSX.Element;
+  onPress?: () => void;
+  accessibilityLabel?: string;
+  class?: string;
+}) {
+  const rowContent = () => (
+    <View class="flex-1 flex-row items-center justify-between gap-3">
+      <View class="min-w-0 flex-1 flex-row items-center gap-3">
+        <If when={Boolean(props.icon)}>
+          <View
+            class="size-7 items-center justify-center rounded-[7px]"
+            style={{ backgroundColor: props.iconBgColor ?? token("accent") }}
+          >
+            <QiIcon
+              name={props.icon!}
+              size={15}
+              color={
+                props.iconColor ??
+                (props.destructive ? token("destructive") : token("primary"))
+              }
+            />
+          </View>
+        </If>
+        <View class="min-w-0 flex-1 gap-0.5">
+          <Text
+            class={`text-[15px] font-medium ${
+              props.destructive ? "text-destructive" : "text-foreground"
+            }`}
+          >
+            {props.title}
+          </Text>
+          <If when={Boolean(props.subtitle)}>
+            <Text class="text-xs leading-snug text-muted-foreground">{props.subtitle}</Text>
+          </If>
+        </View>
+      </View>
+
+      <View class="shrink-0 flex-row items-center gap-1.5">
+        <If when={Boolean(props.value)}>
+          <Text
+            class="text-sm text-muted-foreground"
+            style={{ fontVariant: ["tabular-nums"] }}
+          >
+            {props.value}
+          </Text>
+        </If>
+        <If when={Boolean(props.trailing)}>{props.trailing}</If>
+        <If when={props.showChevron ?? Boolean(props.onPress)}>
+          <QiIcon name="chevron_right" size={16} color={token("ink-subtle")} />
+        </If>
+      </View>
+    </View>
+  );
+
+  return (
+    <View class={props.class ?? ""}>
+      {props.onPress ? (
+        <Button
+          disabled={props.disabled}
+          accessibilityLabel={props.accessibilityLabel ?? props.title}
+          onPress={() => {
+            hapticSelection();
+            props.onPress?.();
+          }}
+          class="min-h-11 flex-row items-center px-4 py-2.5 transition-colors duration-150 hover:bg-surface-sunken/80 active:bg-secondary/65 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none disabled:opacity-45"
+        >
+          {rowContent()}
+        </Button>
+      ) : (
+        <View class="min-h-11 flex-row items-center px-4 py-2.5">{rowContent()}</View>
+      )}
+      <If when={Boolean(props.divider)}>
+        <View class={`h-px bg-border/50 ${props.icon ? "ml-14" : "ml-4"}`} />
+      </If>
+    </View>
+  );
+}
+
+/** 纯净瓷面一级卡片：极轻边界与 16pt 留白 */
 export function Card(props: { class?: string; children?: JSX.Element }) {
   return (
-    <View class={`gap-3.5 rounded-2xl border border-border/85 bg-card p-4 ${props.class ?? ""}`}>
+    <View class={`gap-3.5 rounded-2xl border border-border/45 bg-card p-4 ${props.class ?? ""}`}>
       {props.children}
     </View>
   );
 }
 
-/** 同心沉降次级盒：内嵌于 Card 内使用 rounded-xl 与低噪声边界 */
+/** 同心沉降次级盒：遵循单归属边界法则，去边框保持内层呼吸 */
 export function SunkenBox(props: { class?: string; children?: JSX.Element }) {
   return (
-    <View class={`gap-2 rounded-xl border border-border/55 bg-surface-sunken p-3.5 ${props.class ?? ""}`}>
+    <View class={`gap-2 rounded-xl bg-surface-sunken p-3.5 ${props.class ?? ""}`}>
       {props.children}
     </View>
   );
@@ -568,7 +779,7 @@ export function SelectChip(props: {
   );
 }
 
-/** 带说明文案的开关行（最小 44pt 行高） */
+/** 带说明文案的开关行（对齐 iOS 原生拨杆比例与 44pt+ 行高） */
 export function SwitchRow(props: {
   title: string;
   subtitle?: string;
@@ -578,7 +789,7 @@ export function SwitchRow(props: {
   return (
     <View class="min-h-11 flex-row items-center justify-between gap-3 py-1">
       <View class="flex-1 gap-0.5">
-        <Text class="text-sm font-medium text-foreground">{props.title}</Text>
+        <Text class="text-[15px] font-medium text-foreground">{props.title}</Text>
         <If when={Boolean(props.subtitle)}>
           <Text class="text-xs leading-relaxed text-muted-foreground">{props.subtitle}</Text>
         </If>
@@ -590,8 +801,8 @@ export function SwitchRow(props: {
           props.onChange(checked);
         }}
         class="flex-row items-center rounded-full focus-visible:ring-2 focus-visible:ring-ring"
-        trackClass="w-11 rounded-full bg-muted p-0.5 transition-colors checked:bg-primary motion-reduce:transition-none"
-        thumbClass="size-5 rounded-full bg-card shadow-sm transition-transform checked:translate-x-5 motion-reduce:transition-none"
+        trackClass="w-12 rounded-full bg-secondary p-0.5 transition-colors checked:bg-primary motion-reduce:transition-none"
+        thumbClass="size-6 rounded-full bg-white shadow-xs transition-transform checked:translate-x-5 motion-reduce:transition-none"
       />
     </View>
   );
@@ -724,7 +935,7 @@ export function NavRail<T extends string>(props: {
   );
 }
 
-/** 移动端拇指弧区 5 槽悬浮液态毛玻璃圆胶囊底栏（iOS 26 Liquid Glass + 和纸温润朱砂印纽 + 原生弹簧滑移） */
+/** 移动端 iOS 原生 4 槽系统标签栏（真机直通 UITabBar Liquid Glass；无头与窄屏桌面降级为 1:1 高保真 UITabBar 形态） */
 export function BottomTabBar<T extends string>(props: {
   items: { id: T; label: string; icon: QiIconName; sfSymbol?: string }[];
   activeId: T;
@@ -732,100 +943,74 @@ export function BottomTabBar<T extends string>(props: {
   onQuickCapture?: () => void;
   quickCaptureLabel?: string;
 }) {
-  const leftItems = () => props.items.slice(0, 2);
-  const rightItems = () => props.items.slice(2);
+  const activeIndex = () => {
+    const idx = props.items.findIndex((item) => item.id === props.activeId);
+    return idx >= 0 ? idx : 0;
+  };
+
+  if (isMobileHost) {
+    return (
+      <TabBar
+        items={props.items.map((item) => ({
+          title: item.label,
+          icon: item.sfSymbol ?? undefined,
+        }))}
+        selectedIndex={activeIndex()}
+        onChange={({ index }) => {
+          const next = props.items[index];
+          if (next) {
+            hapticSelection();
+            props.onSelect(next.id);
+          }
+        }}
+      />
+    );
+  }
 
   return (
     <View
-      class="px-3 pt-1"
-      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 6px)" }}
+      ios={{ backdropMaterial: "chrome" }}
+      style={{
+        backdropFilter: "blur(24px)",
+        paddingBottom: "calc(env(safe-area-inset-bottom) + 2px)",
+      }}
+      class="border-t border-border/65 bg-card/95 px-2 pt-1.5"
     >
-      <View
-        ios={{ backdropMaterial: "chrome" }}
-        style={{
-          backdropFilter: "blur(22px)",
-          glassEffect: colorScheme() === "dark" ? "none" : "regular",
-          glassTintColor: token("card"),
-        }}
-        class="rounded-full border border-border/65 bg-card/86 px-2 py-1 shadow-sm"
-      >
-        <Tabs
-          class="flex-row items-center gap-1"
-          indicatorClass="inset-y-0.5 rounded-full bg-accent"
-        >
-          <Each of={leftItems()} key={(t) => `bottom-${t.id}`}>
-            {(tab) => (
-              <Tab
-                selected={props.activeId === tab().id}
-                onPress={() => {
-                  hapticSelection();
-                  props.onSelect(tab().id);
-                }}
-                class="min-h-12 flex-1 items-center justify-center gap-0.5 rounded-full px-0.5 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-              >
-                <QiIcon
-                  name={tab().icon}
-                  size={18}
-                  color={props.activeId === tab().id ? token("primary") : token("muted-foreground")}
-                />
-                <Text
-                  class={`text-[11px] font-semibold ${
-                    props.activeId === tab().id ? "text-primary" : "text-muted-foreground"
-                  }`}
-                >
-                  {tab().label}
-                </Text>
-              </Tab>
-            )}
-          </Each>
-
-          <If when={Boolean(props.onQuickCapture)}>
-            <Button
-              hitSlop={6}
-              accessibilityLabel={props.quickCaptureLabel ?? tr("nav.quick_capture")}
+      <Tabs class="flex-row items-center" indicatorClass="bg-transparent">
+        <Each of={props.items} key={(t) => `bottom-${t.id}`}>
+          {(tab) => (
+            <Tab
+              selected={props.activeId === tab().id}
               onPress={() => {
                 hapticSelection();
-                props.onQuickCapture?.();
+                props.onSelect(tab().id);
               }}
-              class="mx-1 min-h-11 min-w-14 items-center justify-center gap-0.5 rounded-2xl border border-stamp-ink/35 bg-stamp-soft px-3 py-1 transition duration-150 hover:border-stamp-ink/55 active:scale-[0.95] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:active:scale-100"
+              class="min-h-12 flex-1 items-center justify-center gap-0.5 px-1 py-1 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             >
-              <QiIcon name="stamp_seal" size={15} color={token("stamp-ink")} />
-              <Text class="text-[10px] font-semibold text-stamp-ink">
-                {tr("nav.quick_short")}
-              </Text>
-            </Button>
-          </If>
-
-          <Each of={rightItems()} key={(t) => `bottom-${t.id}`}>
-            {(tab) => (
-              <Tab
-                selected={props.activeId === tab().id}
-                onPress={() => {
-                  hapticSelection();
-                  props.onSelect(tab().id);
-                }}
-                class="min-h-12 flex-1 items-center justify-center gap-0.5 rounded-full px-0.5 py-1.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              <QiIcon
+                name={tab().icon}
+                size={21}
+                strokeWidth={props.activeId === tab().id ? 2.1 : 1.75}
+                color={props.activeId === tab().id ? token("primary") : token("muted-foreground")}
+              />
+              <Text
+                class={`text-[10px] tracking-tight ${
+                  props.activeId === tab().id
+                    ? "font-semibold text-primary"
+                    : "font-medium text-muted-foreground"
+                }`}
               >
-                <QiIcon
-                  name={tab().icon}
-                  size={18}
-                  color={props.activeId === tab().id ? token("primary") : token("muted-foreground")}
-                />
-                <Text
-                  class={`text-[11px] font-semibold ${
-                    props.activeId === tab().id ? "text-primary" : "text-muted-foreground"
-                  }`}
-                >
-                  {tab().label}
-                </Text>
-              </Tab>
-            )}
-          </Each>
-        </Tabs>
-      </View>
+                {tab().label}
+              </Text>
+            </Tab>
+          )}
+        </Each>
+      </Tabs>
     </View>
   );
 }
+
+export const AdaptiveBottomTabBar = BottomTabBar;
 
 /** 通用原生模态窗体（供冷启动全页引导及重要确认弹窗复用） */
 export function ModalSurface(props: {
@@ -993,7 +1178,7 @@ export function DrawerSheet(props: {
   );
 }
 
-/** 消费级分段切换标签栏（基于 nsh/base Tabs，自带原生弹簧滑动指示器） */
+/** iOS UISegmentedControl 比例分段切换标签栏（纤薄 36pt、无外框、轻质滑块） */
 export function SegmentedTabs<T extends string = string>(props: {
   items: { id: T; label: string; icon?: QiIconName }[];
   activeId: T;
@@ -1003,8 +1188,8 @@ export function SegmentedTabs<T extends string = string>(props: {
 }) {
   return (
     <Tabs
-      class={`flex-row rounded-2xl border border-border/70 bg-surface-sunken p-1 ${props.class ?? ""}`}
-      indicatorClass="inset-y-1 rounded-xl bg-card border border-border/50"
+      class={`flex-row rounded-[10px] bg-secondary/85 p-0.5 ${props.class ?? ""}`}
+      indicatorClass="inset-y-0.5 rounded-[8px] bg-card shadow-xs"
     >
       <Each of={props.items} key={(item) => item.id}>
         {(item) => (
@@ -1014,16 +1199,16 @@ export function SegmentedTabs<T extends string = string>(props: {
               hapticSelection();
               props.onSelect(item().id);
             }}
-            class="group min-h-11 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl px-2.5 py-2 focus-visible:ring-2 focus-visible:ring-ring"
+            class="group min-h-9 flex-1 flex-row items-center justify-center gap-1 rounded-[8px] px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring"
           >
             <If when={Boolean(item().icon)}>
               <QiIcon
                 name={item().icon!}
-                size={14}
+                size={13}
                 color={props.activeId === item().id ? token("foreground") : token("muted-foreground")}
               />
             </If>
-            <Text class="text-xs font-semibold text-muted-foreground group-selected:text-foreground">
+            <Text class="text-[13px] font-medium text-muted-foreground group-selected:font-semibold group-selected:text-foreground">
               {item().label}
             </Text>
           </Tab>
@@ -1086,7 +1271,7 @@ export function CollapsibleCard(props: {
   );
 }
 
-/** 宋韵沉降微圆角指标磁贴（带矢量图标、等宽数字与大众化副标题） */
+/** 纯净沉降微圆角指标磁贴（无多余嵌套边，带矢量图标与等宽数字） */
 export function StatMetricTile(props: {
   icon: QiIconName;
   label: string;
@@ -1095,7 +1280,7 @@ export function StatMetricTile(props: {
   tone?: string;
 }) {
   return (
-    <View class="flex-1 gap-1.5 rounded-xl border border-border/55 bg-surface-sunken p-3 sm:p-3.5">
+    <View class="flex-1 gap-1.5 rounded-xl bg-surface-sunken p-2.5 sm:p-3.5">
       <View class="flex-row items-center gap-1.5">
         <View class="w-4 items-center justify-center">
           <QiIcon
@@ -1104,10 +1289,10 @@ export function StatMetricTile(props: {
             color={resolveToneSemanticColor(props.tone)}
           />
         </View>
-        <Text class="text-xs font-medium text-muted-foreground">{props.label}</Text>
+        <Text class="line-clamp-1 text-xs font-medium text-muted-foreground">{props.label}</Text>
       </View>
       <Text
-        class="text-lg font-bold text-foreground sm:text-xl"
+        class="text-base font-bold tracking-tight text-foreground sm:text-xl"
         style={{ fontVariant: ["tabular-nums"] }}
       >
         {props.value}
@@ -1145,4 +1330,5 @@ export function ConsumerStatusPill(props: { status: string }) {
   return <VitalBadge tone={mapped().tone} label={mapped().label} />;
 }
 
+export { Button } from "nsh/base";
 export { MOTION_TOKENS, runDrawerLayoutTransition } from "./motion";

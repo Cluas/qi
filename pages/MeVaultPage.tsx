@@ -12,7 +12,6 @@ import {
   getAppearancePref,
   getAppLocale,
   getCloudEntitlements,
-  getDewSummary,
   getDisclaimerText,
   getEncryptedArchivePreview,
   getHearthGiftCount,
@@ -22,7 +21,6 @@ import {
   getRestoringPurchases,
   getRestoreStatusMessage,
   getState,
-  getVisualTheme,
   isHealthkitSupported,
   isQaStudioEnabled,
   isSyncingHealthkit,
@@ -43,7 +41,7 @@ import {
   setShowAtelierModal,
   setShowCompanionLetterModal,
   setShowQaStudio,
-  setVisualTheme,
+  setShowQuickCaptureModal,
   setWeatherMood,
   setWidgetPrivacyMode,
   syncAppleHealthkit,
@@ -56,13 +54,18 @@ import {
   verifyEntitlements,
   wipeVaultAndReset,
 } from "../store";
+import { SeasonalPassPanel, WristWidgetPreviewCard } from "../ui/atelier";
 import {
   ActionButton,
+  Button,
   Card,
   ChoiceCard,
-  CollapsibleCard,
   FieldInput,
   Hairline,
+  HeaderActionPill,
+  IosGroupedSection,
+  IosLargeHeader,
+  IosListRow,
   SectionHeader,
   SegmentedTabs,
   SelectChip,
@@ -72,12 +75,11 @@ import {
   VitalBadge,
 } from "../ui/components";
 import { QiIcon } from "../ui/icons";
-import { tr } from "../ui/i18n";
-import { SeasonalPassPanel, WristWidgetPreviewCard } from "../ui/atelier";
-import { type SealInkId, ThemeSwitcherStrip, type WeatherMood } from "../ui/sanctuary";
+import { isEnglishLocale, tr } from "../ui/i18n";
+import { type SealInkId, type WeatherMood } from "../ui/sanctuary";
 
 export function MeVaultPage() {
-  // Recovery / export / legal / wipe modals
+  // Recovery / export / legal / wipe & disclosure states
   const showRecoveryPhrase = signal(false);
   const showRestoreSheet = signal(false);
   const restorePhraseInput = signal("");
@@ -86,9 +88,14 @@ export function MeVaultPage() {
   const showNoticeSheet = signal(false);
   const showPrivacySheet = signal(false);
   const showWipeConfirm = signal(false);
+  const healthkitOpen = signal(false);
+  const syncOpen = signal(false);
+  const aiOpen = signal(false);
+  const pushOpen = signal(false);
   const cloudAccountOpen = signal(false);
 
   // Custom Pet Companion Studio form state
+  const petFormOpen = signal(false);
   const editPetId = signal<string | null>(null);
   const draftPetName = signal("");
   const draftSpecies = signal<"cat" | "dog" | "rabbit" | "fox" | "other">("cat");
@@ -117,6 +124,17 @@ export function MeVaultPage() {
     { id: "vault_export", label: tr("me.subtab_vault") },
   ];
 
+  const appearanceModes = (): { id: "system" | "light" | "dark"; label: string }[] => [
+    { id: "system", label: tr("common.appearance_auto") },
+    { id: "light", label: tr("common.appearance_paper") },
+    { id: "dark", label: tr("common.appearance_ink") },
+  ];
+
+  const localeOptions = (): { id: "zh-CN" | "en"; label: string }[] => [
+    { id: "zh-CN", label: "简体中文" },
+    { id: "en", label: "English" },
+  ];
+
   const syncModes = () => [
     { id: "icloud_drive", label: tr("me.icloud_title") },
     { id: "webdav", label: tr("me.webdav_title") },
@@ -129,6 +147,25 @@ export function MeVaultPage() {
     { id: "on_device_local", label: tr("me.ai_mode_local") },
     { id: "lan_ollama", label: tr("me.ai_mode_ollama") },
   ];
+
+  const currentSyncLabel = () => {
+    const mode = settings().sync_mode;
+    if (mode === "icloud_drive") return tr("sync.mode_icloud_summary");
+    if (mode === "webdav") return tr("sync.mode_webdav_summary");
+    if (mode === "byo_server") return tr("sync.mode_byo_summary");
+    return tr("sync.mode_local_summary");
+  };
+
+  const currentAiLabel = () => {
+    switch (settings().ai_mode) {
+      case "official_zdr_cloud":
+        return isEnglishLocale() ? "Cloud ZDR" : "云端 ZDR";
+      case "lan_ollama":
+        return "Ollama";
+      default:
+        return isEnglishLocale() ? "On-device" : "本机摘要";
+    }
+  };
 
   const speciesOptions = () => [
     { id: "cat", label: tr("pet.species_cat") },
@@ -168,10 +205,14 @@ export function MeVaultPage() {
   const loadPetIntoEditor = (petId: string) => {
     const found = customPets().find((p) => p.id === petId);
     if (!found) return;
+    petFormOpen.set(true);
     editPetId.set(found.id);
     draftPetName.set(found.name);
     draftSpecies.set(
-      (found.species === "dog" || found.species === "rabbit" || found.species === "fox" || found.species === "other"
+      (found.species === "dog" ||
+      found.species === "rabbit" ||
+      found.species === "fox" ||
+      found.species === "other"
         ? found.species
         : "cat") as "cat" | "dog" | "rabbit" | "fox" | "other",
     );
@@ -212,6 +253,7 @@ export function MeVaultPage() {
     });
     if (saved) {
       resetPetDraft();
+      petFormOpen.set(false);
     }
   };
 
@@ -256,36 +298,31 @@ export function MeVaultPage() {
 
   return (
     <View class="gap-4">
+      <IosLargeHeader
+        title={tr("nav.me")}
+        trailing={
+          <HeaderActionPill
+            label={tr("nav.quick_short")}
+            icon="plus"
+            tone="primary"
+            accessibilityLabel={tr("nav.quick_capture")}
+            onPress={() => setShowQuickCaptureModal(true)}
+          />
+        }
+      />
+
       <SegmentedTabs
         items={subTabs()}
         activeId={getMeSubTab()}
         onSelect={(id) => setMeSubTab(id)}
+        size="sm"
       />
 
       {/* Subview 1: Sanctuary & Custom Pet Studio */}
       <If when={getMeSubTab() === "pet_studio"}>
         <View class="gap-5">
-          {/* 无框手帐风物屏风切换抬头 */}
-          <View class="gap-3 px-0.5 pt-0.5">
-            <SectionHeader
-              title={tr("me.theme_section")}
-              subtitle={tr("themes.switcher_subtitle")}
-              right={
-                <View class="flex-row items-center gap-1.5">
-                  <QiIcon name="droplet" size={13} color={token("vital-prime")} />
-                  <VitalBadge tone="prime_ready" label={`${getDewSummary().points}`} />
-                </View>
-              }
-            />
-            <ThemeSwitcherStrip
-              activeId={getVisualTheme()}
-              detailed={true}
-              onSelect={(id) => setVisualTheme(id)}
-            />
-          </View>
-
-          {/* Custom Pet Companion Studio（去多层边框套娃，呈风物陈列架质感） */}
-          <View class="gap-4 rounded-3xl border border-border/55 bg-card/90 p-4 shadow-2xs">
+          {/* Custom Pet Studio (1 Free Forever + 3 Pro + Memorial + Paw Ex Libris) */}
+          <Card>
             <SectionHeader
               title={tr("pet.studio_title")}
               subtitle={tr("pet.studio_subtitle")}
@@ -300,11 +337,7 @@ export function MeVaultPage() {
               }
             />
 
-            <View class="gap-2 rounded-2xl bg-bento-sage/45 p-3.5">
-              <View class="flex-row flex-wrap gap-1.5">
-                <VitalBadge tone="prime_ready" label={tr("atelier.free_forever_pill")} />
-                <VitalBadge tone="neutral" label={tr("atelier.pro_pets_pill")} />
-              </View>
+            <View class="gap-1">
               <Text class="text-xs leading-relaxed text-muted-foreground">
                 {entitlements().is_atelier_unlocked
                   ? tr("pet.pro_slots_limit")
@@ -344,9 +377,9 @@ export function MeVaultPage() {
                 <View class="gap-2.5">
                   <Each of={customPets()} key={(pet) => pet.id}>
                     {(pet) => (
-                      <View class="gap-2.5 rounded-2xl bg-surface-sunken/75 p-3.5">
+                      <View class="gap-2.5 rounded-2xl bg-surface-sunken p-3.5">
                         <View class="flex-row items-center gap-3">
-                          <View class="size-12 items-center justify-center overflow-hidden rounded-full border-2 border-card bg-card shadow-2xs">
+                          <View class="size-12 items-center justify-center overflow-hidden rounded-full border border-border/45 bg-card">
                             <If
                               when={Boolean(pet().photo_data_url)}
                               else={
@@ -426,14 +459,33 @@ export function MeVaultPage() {
 
             <Hairline />
 
-            {/* Create or edit pet form */}
+            {/* Create or edit pet form (progressive disclosure) */}
             <View class="gap-3">
-              <Text role="header" class="text-sm font-bold text-foreground">
-                {editPetId() ? tr("common.edit") : tr("pet.add_pet")}
-              </Text>
+              <Button
+                hitSlop={6}
+                accessibilityLabel={editPetId() ? tr("common.edit") : tr("pet.add_pet")}
+                onPress={() => petFormOpen.update((v) => !v)}
+                class="min-h-11 flex-row items-center justify-between gap-2 rounded-2xl bg-surface-sunken px-3.5 py-2.5 active:opacity-80"
+              >
+                <View class="flex-row items-center gap-2">
+                  <QiIcon name="plus" size={14} color={token("primary")} />
+                  <Text role="header" class="text-sm font-semibold text-foreground">
+                    {editPetId() ? tr("common.edit") : tr("pet.add_pet")}
+                  </Text>
+                </View>
+                <View
+                  class={`transition-transform duration-150 ${
+                    petFormOpen() || Boolean(editPetId()) ? "rotate-180" : ""
+                  }`}
+                >
+                  <QiIcon name="chevron_down" size={14} color={token("muted-foreground")} />
+                </View>
+              </Button>
 
-              <If when={!editPetId() && !petQuota().can_add_more}>
-                <View class="gap-2 rounded-2xl bg-atelier-soft/55 p-3.5">
+              <If when={petFormOpen() || Boolean(editPetId())}>
+                <View class="gap-3 pt-1">
+                  <If when={!editPetId() && !petQuota().can_add_more}>
+                <SunkenBox class="gap-2">
                   <Text class="text-xs leading-relaxed text-muted-foreground">
                     {tr("pet.slot_limit_reached", { limit: petQuota().allowed_count })}
                   </Text>
@@ -444,7 +496,7 @@ export function MeVaultPage() {
                     variant="outline"
                     onPress={() => setShowAtelierModal(true)}
                   />
-                </View>
+                </SunkenBox>
               </If>
 
               <View class="flex-row flex-wrap items-center gap-3">
@@ -547,7 +599,7 @@ export function MeVaultPage() {
                 onPress={() => draftStarlight.set(!draftStarlight())}
               />
 
-              <View class="gap-2 rounded-2xl bg-atelier-soft/50 p-3.5">
+              <SunkenBox class="gap-2">
                 <View class="flex-row items-center justify-between gap-2">
                   <Text class="text-xs font-semibold text-foreground">
                     {tr("pet.paw_ex_libris_title")}
@@ -555,9 +607,7 @@ export function MeVaultPage() {
                   <VitalBadge
                     tone={petQuota().is_pro_ex_libris_unlocked ? "prime_ready" : "neutral"}
                     label={
-                      petQuota().is_pro_ex_libris_unlocked
-                        ? tr("common.unlocked")
-                        : tr("common.pro")
+                      petQuota().is_pro_ex_libris_unlocked ? tr("common.unlocked") : tr("common.pro")
                     }
                   />
                 </View>
@@ -569,18 +619,20 @@ export function MeVaultPage() {
                   placeholder={tr("pet.paw_seal_placeholder")}
                   onChange={(v) => draftPawStamp.set(v)}
                 />
-              </View>
+              </SunkenBox>
 
-              <ActionButton
-                title={editPetId() ? tr("common.save") : tr("pet.save_pet")}
-                icon="custom_pet"
-                onPress={submitPetForm}
-              />
+                  <ActionButton
+                    title={editPetId() ? tr("common.save") : tr("pet.save_pet")}
+                    icon="custom_pet"
+                    onPress={submitPetForm}
+                  />
+                </View>
+              </If>
             </View>
-          </View>
+          </Card>
 
           {/* First-person custom pet weekly letters */}
-          <View class="gap-3.5 rounded-3xl border border-border/55 bg-card/90 p-4 shadow-2xs">
+          <Card>
             <SectionHeader
               title={tr("pet.weekly_letter_title")}
               subtitle={tr("pet.weekly_letter_pro_lock")}
@@ -626,15 +678,15 @@ export function MeVaultPage() {
             <If
               when={petLetters().length > 0}
               else={
-                <View class="rounded-2xl bg-surface-sunken/70 p-3.5">
+                <SunkenBox>
                   <Text class="text-xs text-muted-foreground">{tr("pet.weekly_letter_empty")}</Text>
-                </View>
+                </SunkenBox>
               }
             >
               <View class="gap-2.5">
                 <Each of={petLetters()} key={(l) => l.id}>
                   {(l) => (
-                    <View class="gap-2 rounded-2xl bg-bento-amber/35 p-3.5">
+                    <SunkenBox class="gap-2">
                       <View class="flex-row items-center justify-between gap-2">
                         <Text class="text-sm font-bold text-foreground">{l().title}</Text>
                         <VitalBadge tone="prime_ready" label={l().solar_term} />
@@ -648,19 +700,19 @@ export function MeVaultPage() {
                           {tr("pet.weekly_letter_signed", { petName: l().pet_name })}
                         </Text>
                       </View>
-                    </View>
+                    </SunkenBox>
                   )}
                 </Each>
               </View>
             </If>
-          </View>
+          </Card>
         </View>
       </If>
 
       {/* Subview 2: Atelier & Billing */}
       <If when={getMeSubTab() === "atelier_billing"}>
         <View class="gap-5">
-          <View class="gap-3.5 rounded-3xl border border-border/55 bg-card/90 p-4 shadow-2xs">
+          <Card>
             <SectionHeader
               title={tr("me.atelier_card_title")}
               subtitle={
@@ -676,15 +728,6 @@ export function MeVaultPage() {
               }
             />
 
-            <View class="gap-1 rounded-2xl bg-bento-sage/45 p-3.5">
-              <Text class="text-xs font-semibold text-foreground">
-                {`${entitlements().tier_display} · ${entitlements().state}`}
-              </Text>
-              <Text class="text-xs leading-relaxed text-muted-foreground">
-                {entitlements().status_banner}
-              </Text>
-            </View>
-
             <ActionButton
               title={tr("atelier.browse_btn")}
               icon="sparkles"
@@ -692,7 +735,7 @@ export function MeVaultPage() {
             />
 
             {/* Commercial Consumable Hearth Gift Pass (App Store 3.2.1(vi) compliant) */}
-            <View class="gap-2 rounded-2xl bg-atelier-soft/55 p-3.5">
+            <SunkenBox class="gap-2">
               <View class="flex-row items-center justify-between gap-2">
                 <Text class="flex-1 text-xs font-bold text-foreground">
                   {tr("atelier.hearth_gift_title")}
@@ -714,35 +757,40 @@ export function MeVaultPage() {
                 variant="outline"
                 onPress={() => purchaseHearthGiftPass()}
               />
-            </View>
+            </SunkenBox>
 
             {/* App Store Restore Purchases & Verification */}
-            <View class="flex-row flex-wrap gap-2">
-              <ActionButton
-                title={
-                  getRestoringPurchases()
-                    ? tr("atelier.compliance.restoring")
-                    : tr("atelier.compliance.restore_purchases")
-                }
-                icon="restore_arrow"
-                size="sm"
-                variant="outline"
-                disabled={getRestoringPurchases()}
-                onPress={() => void restoreApplePurchases()}
-              />
-              <ActionButton
-                title={tr("me.verify_ed25519_btn")}
-                icon="check"
-                size="sm"
-                variant="outline"
-                onPress={() => verifyEntitlements()}
-              />
+            <View class="gap-2">
+              <View class="flex-row gap-2">
+                <ActionButton
+                  title={
+                    getRestoringPurchases()
+                      ? tr("atelier.compliance.restoring")
+                      : tr("atelier.compliance.restore_purchases")
+                  }
+                  icon="restore_arrow"
+                  size="sm"
+                  variant="outline"
+                  disabled={getRestoringPurchases()}
+                  onPress={() => void restoreApplePurchases()}
+                  class="flex-1"
+                />
+                <ActionButton
+                  title={tr("me.verify_ed25519_btn")}
+                  icon="check"
+                  size="sm"
+                  variant="outline"
+                  onPress={() => verifyEntitlements()}
+                  class="flex-1"
+                />
+              </View>
               <ActionButton
                 title={tr("log.family_letter_btn")}
                 icon="family_heart"
                 size="sm"
                 variant="secondary"
                 onPress={() => generateParentsPeaceLetter()}
+                class="w-full"
               />
               <If when={entitlements().is_atelier_unlocked}>
                 <ActionButton
@@ -755,15 +803,15 @@ export function MeVaultPage() {
             </View>
 
             <If when={Boolean(getRestoreStatusMessage())}>
-              <View class="rounded-2xl bg-surface-sunken/75 p-3">
+              <SunkenBox>
                 <Text class="text-xs text-foreground">{getRestoreStatusMessage()}</Text>
-              </View>
+              </SunkenBox>
             </If>
 
             <Text class="text-[11px] leading-relaxed text-muted-foreground">
               {tr("atelier.compliance.auto_renewal_disclosure")}
             </Text>
-          </View>
+          </Card>
 
           <WristWidgetPreviewCard
             score={getState().snapshot.qi_score}
@@ -824,64 +872,84 @@ export function MeVaultPage() {
         </View>
       </If>
 
-      {/* Subview 3: Vault, Privacy & Export */}
+      {/* Subview 3: Vault, Privacy & Export (Apple Settings Inset Grouped UI) */}
       <If when={getMeSubTab() === "vault_export"}>
-        <View class="gap-4">
-          <Card>
-            <SectionHeader
-              title={tr("me.preferences_section")}
-              subtitle={tr("me.preferences_ios_sub")}
-            />
+        <View class="gap-5">
+          {/* Group 1: Appearance, Language & Numeric Privacy */}
+          <IosGroupedSection
+            title={tr("me.preferences_section")}
+            footer={tr("me.preferences_ios_sub")}
+          >
+            <View class="gap-2 px-4 pb-3 pt-3">
+              <View class="flex-row items-center gap-3">
+                <View
+                  class="size-7 items-center justify-center rounded-[7px]"
+                  style={{ backgroundColor: token("bento-amber") }}
+                >
+                  <QiIcon name="sun" size={15} color={token("primary")} />
+                </View>
+                <Text class="text-[15px] font-medium text-foreground">
+                  {tr("common.appearance")}
+                </Text>
+              </View>
+              <SegmentedTabs
+                items={appearanceModes()}
+                activeId={getAppearancePref()}
+                onSelect={(id) => setAppearancePref(id)}
+                size="sm"
+              />
+            </View>
 
-            <View class="gap-2">
-              <Text class="text-xs font-semibold text-muted-foreground">
-                {tr("common.language")}
-              </Text>
-              <View class="flex-row flex-wrap gap-2">
-                <SelectChip
-                  label="简体中文"
-                  selected={getAppLocale() === "zh-CN"}
-                  onPress={() => setAppLocale("zh-CN")}
-                />
-                <SelectChip
-                  label="English"
-                  selected={getAppLocale() === "en"}
-                  onPress={() => setAppLocale("en")}
+            <View class="mx-4 h-px bg-border/50" />
+
+            <View class="gap-2 px-4 py-3">
+              <View class="flex-row items-center gap-3">
+                <View
+                  class="size-7 items-center justify-center rounded-[7px]"
+                  style={{ backgroundColor: token("dew-soft") }}
+                >
+                  <QiIcon name="globe" size={15} color={token("dew-accent")} />
+                </View>
+                <Text class="text-[15px] font-medium text-foreground">
+                  {tr("common.language")}
+                </Text>
+              </View>
+              <SegmentedTabs
+                items={localeOptions()}
+                activeId={getAppLocale()}
+                onSelect={(id) => setAppLocale(id)}
+                size="sm"
+              />
+            </View>
+
+            <View class="mx-4 h-px bg-border/50" />
+
+            <View class="flex-row items-center gap-3 px-4 py-1.5">
+              <View
+                class="size-7 items-center justify-center rounded-[7px]"
+                style={{ backgroundColor: token("accent") }}
+              >
+                <QiIcon name="widget" size={15} color={token("primary")} />
+              </View>
+              <View class="flex-1">
+                <SwitchRow
+                  title={tr("atelier.widget.mode_numeric")}
+                  checked={getState().solar_atelier.widget_preview.privacy_mode === "metrics"}
+                  onChange={(checked) => setWidgetPrivacyMode(checked ? "metrics" : "metaphor")}
                 />
               </View>
             </View>
+          </IosGroupedSection>
 
-            <Hairline />
-
-            <View class="gap-2">
-              <Text class="text-xs font-semibold text-muted-foreground">
-                {tr("common.appearance")}
-              </Text>
-              <View class="flex-row flex-wrap gap-2">
-                <SelectChip
-                  label={tr("common.appearance_auto")}
-                  selected={getAppearancePref() === "system"}
-                  onPress={() => setAppearancePref("system")}
-                />
-                <SelectChip
-                  label={tr("common.appearance_paper")}
-                  selected={getAppearancePref() === "light"}
-                  onPress={() => setAppearancePref("light")}
-                />
-                <SelectChip
-                  label={tr("common.appearance_ink")}
-                  selected={getAppearancePref() === "dark"}
-                  onPress={() => setAppearancePref("dark")}
-                />
-              </View>
-            </View>
-          </Card>
-
-          <Card>
-            <SectionHeader
+          {/* Group 2: Local Security Vault, HealthKit, Encrypted Sync, AI & Backups */}
+          <IosGroupedSection title={tr("me.vault_section")}>
+            {/* Apple HealthKit */}
+            <IosListRow
+              icon="heart_pulse"
+              iconBgColor={token("bento-peach")}
+              iconColor={token("stamp-ink")}
               title={tr("me.healthkit_title")}
-              subtitle={tr("me.healthkit_subtitle")}
-              right={
+              trailing={
                 <VitalBadge
                   tone={settings().healthkit_authorized ? "prime_ready" : "neutral"}
                   label={
@@ -891,229 +959,281 @@ export function MeVaultPage() {
                   }
                 />
               }
+              divider={!healthkitOpen()}
+              onPress={() => healthkitOpen.update((v) => !v)}
             />
+            <If when={healthkitOpen()}>
+              <View class="gap-3 bg-surface-sunken/70 px-4 py-3">
+                <Text class="text-xs leading-relaxed text-muted-foreground">
+                  {settings().healthkit_last_sync_at
+                    ? tr("me.healthkit_last_at", { time: settings().healthkit_last_sync_at })
+                    : tr("me.healthkit_subtitle")}
+                </Text>
+                <If when={isHealthkitSupported()} else={
+                  <Text class="text-xs leading-relaxed text-muted-foreground">
+                    {tr("me.healthkit_desktop_hint")}
+                  </Text>
+                }>
+                  <View class="flex-row flex-wrap gap-2">
+                    <ActionButton
+                      title={
+                        isSyncingHealthkit()
+                          ? tr("me.healthkit_syncing_btn")
+                          : settings().healthkit_authorized
+                            ? tr("me.healthkit_sync_35d_btn")
+                            : tr("me.healthkit_connect_btn")
+                      }
+                      icon="heart_pulse"
+                      size="sm"
+                      disabled={isSyncingHealthkit()}
+                      onPress={() => void syncAppleHealthkit(35, false)}
+                      class="flex-1"
+                    />
+                    <ActionButton
+                      title={tr("me.healthkit_sync_90d_btn")}
+                      icon="refresh"
+                      size="sm"
+                      variant="outline"
+                      disabled={isSyncingHealthkit()}
+                      onPress={() => void syncAppleHealthkit(90, false)}
+                    />
+                  </View>
+                  <SwitchRow
+                    title={tr("me.healthkit_auto_sync_title")}
+                    subtitle={tr("me.healthkit_auto_sync_sub")}
+                    checked={settings().healthkit_auto_sync}
+                    onChange={(v) => setHealthkitAutoSync(v)}
+                  />
+                  <If when={Boolean(settings().healthkit_last_summary)}>
+                    <Text class="text-xs leading-relaxed text-foreground">
+                      {settings().healthkit_last_summary}
+                    </Text>
+                  </If>
+                  <Text class="text-[11px] leading-relaxed text-muted-foreground">
+                    {tr("me.healthkit_perm_hint")}
+                  </Text>
+                </If>
+              </View>
+              <View class="mx-4 h-px bg-border/50" />
+            </If>
 
-            <If when={isHealthkitSupported()}>
-              <View class="gap-3">
+            {/* Encrypted Sync & WebDAV */}
+            <IosListRow
+              icon="cloud_lock"
+              iconBgColor={token("vital-prime-soft")}
+              iconColor={token("vital-prime")}
+              title={tr("me.sync_section")}
+              value={currentSyncLabel()}
+              divider={!syncOpen()}
+              onPress={() => syncOpen.update((v) => !v)}
+            />
+            <If when={syncOpen()}>
+              <View class="gap-3 bg-surface-sunken/70 px-4 py-3">
+                <Text class="text-xs leading-relaxed text-muted-foreground">
+                  {tr("me.sync_subtitle")}
+                </Text>
+                <View class="flex-row flex-wrap gap-1.5">
+                  <Each of={syncModes()} key={(m) => m.id}>
+                    {(m) => (
+                      <SelectChip
+                        label={m().label}
+                        selected={settings().sync_mode === m().id}
+                        onPress={() =>
+                          updateSyncConfig(
+                            m().id,
+                            settings().webdav_url,
+                            settings().byo_server_url,
+                            settings().webdav_username,
+                            settings().webdav_password,
+                          )
+                        }
+                      />
+                    )}
+                  </Each>
+                </View>
+
+                <If when={settings().sync_mode === "webdav"}>
+                  <View class="gap-2">
+                    <Text class="text-xs font-medium text-foreground">{tr("me.webdav_title")}</Text>
+                    <FieldInput
+                      value={settings().webdav_url}
+                      placeholder="https://dav.example.com/dav/qi-vault/"
+                      onChange={(v) =>
+                        updateSyncConfig(
+                          "webdav",
+                          v,
+                          settings().byo_server_url,
+                          settings().webdav_username,
+                          settings().webdav_password,
+                        )
+                      }
+                    />
+                    <FieldInput
+                      value={settings().webdav_username}
+                      placeholder={tr("me.webdav_user_placeholder")}
+                      onChange={(v) =>
+                        updateSyncConfig(
+                          "webdav",
+                          settings().webdav_url,
+                          settings().byo_server_url,
+                          v,
+                          settings().webdav_password,
+                        )
+                      }
+                    />
+                    <FieldInput
+                      value={settings().webdav_password}
+                      placeholder={tr("me.webdav_pass_placeholder")}
+                      onChange={(v) =>
+                        updateSyncConfig(
+                          "webdav",
+                          settings().webdav_url,
+                          settings().byo_server_url,
+                          settings().webdav_username,
+                          v,
+                        )
+                      }
+                    />
+                    <ActionButton
+                      title={tr("me.webdav_pull_btn")}
+                      icon="refresh"
+                      size="sm"
+                      variant="outline"
+                      onPress={() => pullWebdavSync()}
+                    />
+                  </View>
+                </If>
+
+                <If when={settings().sync_mode === "byo_server"}>
+                  <View class="gap-2">
+                    <Text class="text-xs font-medium text-foreground">
+                      {tr("me.byo_server_label")}
+                    </Text>
+                    <FieldInput
+                      value={settings().byo_server_url}
+                      placeholder="http://127.0.0.1:8788"
+                      onChange={(v) =>
+                        updateSyncConfig(
+                          "byo_server",
+                          settings().webdav_url,
+                          v,
+                          settings().webdav_username,
+                          settings().webdav_password,
+                        )
+                      }
+                    />
+                  </View>
+                </If>
+
                 <View class="flex-row flex-wrap gap-2">
                   <ActionButton
-                    title={
-                      isSyncingHealthkit()
-                        ? tr("me.healthkit_syncing_btn")
-                        : settings().healthkit_authorized
-                          ? tr("me.healthkit_sync_35d_btn")
-                          : tr("me.healthkit_connect_btn")
-                    }
-                    icon="heart_pulse"
-                    disabled={isSyncingHealthkit()}
-                    onPress={() => void syncAppleHealthkit(35, false)}
+                    title={tr("me.sync_now")}
+                    icon="cloud_lock"
+                    size="sm"
+                    onPress={() => runE2eeSyncNow()}
                     class="flex-1"
                   />
                   <ActionButton
-                    title={tr("me.healthkit_sync_90d_btn")}
+                    title={tr("me.restore_btn")}
                     icon="refresh"
+                    size="sm"
                     variant="outline"
-                    disabled={isSyncingHealthkit()}
-                    onPress={() => void syncAppleHealthkit(90, false)}
+                    onPress={() => {
+                      restorePhraseInput.set(settings().recovery_phrase);
+                      showRestoreSheet.set(true);
+                    }}
                   />
                 </View>
 
-                <SwitchRow
-                  title={tr("me.healthkit_auto_sync_title")}
-                  subtitle={tr("me.healthkit_auto_sync_sub")}
-                  checked={settings().healthkit_auto_sync}
-                  onChange={(v) => setHealthkitAutoSync(v)}
+                <ActionButton
+                  title={
+                    showRecoveryPhrase() ? tr("me.hide_phrase_btn") : tr("me.show_phrase_btn")
+                  }
+                  icon="user_shield"
+                  size="sm"
+                  variant="secondary"
+                  onPress={() => showRecoveryPhrase.set(!showRecoveryPhrase())}
                 />
 
-                <If when={Boolean(settings().healthkit_last_summary) || Boolean(settings().healthkit_last_sync_at)}>
-                  <SunkenBox>
-                    <If when={Boolean(settings().healthkit_last_sync_at)}>
-                      <Text class="text-xs font-semibold text-primary">
-                        {tr("me.healthkit_last_at", { time: settings().healthkit_last_sync_at })}
-                      </Text>
-                    </If>
-                    <If when={Boolean(settings().healthkit_last_summary)}>
-                      <Text class="text-xs leading-relaxed text-foreground">
-                        {settings().healthkit_last_summary}
-                      </Text>
-                    </If>
-                    <Text class="text-[11px] leading-relaxed text-muted-foreground">
-                      {tr("me.healthkit_perm_hint")}
+                <If when={Boolean(settings().last_sync_summary)}>
+                  <View class="gap-0.5 rounded-xl bg-card p-3">
+                    <Text class="text-xs font-semibold text-primary">
+                      {tr("me.sync_status_label")}
                     </Text>
-                  </SunkenBox>
+                    <Text class="text-xs text-muted-foreground">{settings().last_sync_summary}</Text>
+                  </View>
+                </If>
+
+                <If when={showRecoveryPhrase()}>
+                  <View class="gap-2 rounded-xl bg-card p-3">
+                    <Text class="text-xs font-semibold text-vital-steady">
+                      {tr("me.recovery_phrase_warn")}
+                    </Text>
+                    <Text class="text-sm font-semibold text-foreground">
+                      {settings().recovery_phrase}
+                    </Text>
+                    <ActionButton
+                      title={tr("common.copy")}
+                      size="sm"
+                      variant="secondary"
+                      onPress={() =>
+                        void copyToClipboard(
+                          settings().recovery_phrase,
+                          tr("sync.passphrase_label"),
+                        )
+                      }
+                    />
+                  </View>
                 </If>
               </View>
+              <View class="mx-4 h-px bg-border/50" />
             </If>
 
-            <If when={!isHealthkitSupported()}>
-              <SunkenBox>
+            {/* AI Briefing Engine */}
+            <IosListRow
+              icon="sparkles"
+              iconBgColor={token("atelier-soft")}
+              iconColor={token("atelier-accent")}
+              title={tr("me.ai_section_title")}
+              value={currentAiLabel()}
+              divider={!aiOpen()}
+              onPress={() => aiOpen.update((v) => !v)}
+            />
+            <If when={aiOpen()}>
+              <View class="gap-3 bg-surface-sunken/70 px-4 py-3">
                 <Text class="text-xs leading-relaxed text-muted-foreground">
-                  {tr("me.healthkit_desktop_hint")}
+                  {tr("me.ai_section_subtitle")}
                 </Text>
-              </SunkenBox>
-            </If>
-          </Card>
+                <View class="flex-row flex-wrap gap-1.5">
+                  <Each of={aiModes()} key={(m) => m.id}>
+                    {(m) => (
+                      <SelectChip
+                        label={m().label}
+                        selected={settings().ai_mode === m().id}
+                        onPress={() =>
+                          updateAiConfig(
+                            m().id,
+                            settings().zdr_consented,
+                            settings().lan_ai_url,
+                            settings().lan_ai_model,
+                            settings().thermal_throttled,
+                            settings().simulated_ram_gb,
+                          )
+                        }
+                      />
+                    )}
+                  </Each>
+                </View>
 
-          <Card>
-            <SectionHeader
-              title={tr("me.sync_section")}
-              subtitle={tr("me.sync_subtitle")}
-              right={<VitalBadge tone="prime_ready" label={tr("common.encrypted")} />}
-            />
-
-            <View class="flex-row flex-wrap gap-2">
-              <Each of={syncModes()} key={(m) => m.id}>
-                {(m) => (
-                  <SelectChip
-                    label={m().label}
-                    selected={settings().sync_mode === m().id}
-                    onPress={() =>
-                      updateSyncConfig(
-                        m().id,
-                        settings().webdav_url,
-                        settings().byo_server_url,
-                        settings().webdav_username,
-                        settings().webdav_password,
-                      )
-                    }
-                  />
-                )}
-              </Each>
-            </View>
-
-            <If when={settings().sync_mode === "webdav"}>
-              <SunkenBox>
-                <Text class="text-xs font-medium text-foreground">{tr("me.webdav_title")}</Text>
-                <FieldInput
-                  value={settings().webdav_url}
-                  placeholder="https://dav.example.com/dav/qi-vault/"
-                  onChange={(v) =>
-                    updateSyncConfig(
-                      "webdav",
-                      v,
-                      settings().byo_server_url,
-                      settings().webdav_username,
-                      settings().webdav_password,
-                    )
-                  }
-                />
-                <FieldInput
-                  value={settings().webdav_username}
-                  placeholder={tr("me.webdav_user_placeholder")}
-                  onChange={(v) =>
-                    updateSyncConfig(
-                      "webdav",
-                      settings().webdav_url,
-                      settings().byo_server_url,
-                      v,
-                      settings().webdav_password,
-                    )
-                  }
-                />
-                <FieldInput
-                  value={settings().webdav_password}
-                  placeholder={tr("me.webdav_pass_placeholder")}
-                  onChange={(v) =>
-                    updateSyncConfig(
-                      "webdav",
-                      settings().webdav_url,
-                      settings().byo_server_url,
-                      settings().webdav_username,
-                      v,
-                    )
-                  }
-                />
-                <ActionButton
-                  title={tr("me.webdav_pull_btn")}
-                  icon="refresh"
-                  size="sm"
-                  variant="outline"
-                  onPress={() => pullWebdavSync()}
-                />
-              </SunkenBox>
-            </If>
-
-            <If when={settings().sync_mode === "byo_server"}>
-              <SunkenBox>
-                <Text class="text-xs font-medium text-foreground">{tr("me.byo_server_label")}</Text>
-                <FieldInput
-                  value={settings().byo_server_url}
-                  placeholder="http://127.0.0.1:8788"
-                  onChange={(v) =>
-                    updateSyncConfig(
-                      "byo_server",
-                      settings().webdav_url,
-                      v,
-                      settings().webdav_username,
-                      settings().webdav_password,
-                    )
-                  }
-                />
-              </SunkenBox>
-            </If>
-
-            <View class="flex-row flex-wrap gap-2">
-              <ActionButton
-                title={tr("me.sync_now")}
-                icon="cloud_lock"
-                onPress={() => runE2eeSyncNow()}
-                class="flex-1"
-              />
-              <ActionButton
-                title={tr("me.restore_btn")}
-                icon="refresh"
-                variant="outline"
-                onPress={() => {
-                  restorePhraseInput.set(settings().recovery_phrase);
-                  showRestoreSheet.set(true);
-                }}
-              />
-            </View>
-
-            <ActionButton
-              title={
-                showRecoveryPhrase() ? tr("me.hide_phrase_btn") : tr("me.show_phrase_btn")
-              }
-              icon="user_shield"
-              variant="secondary"
-              onPress={() => showRecoveryPhrase.set(!showRecoveryPhrase())}
-            />
-
-            <If when={Boolean(settings().last_sync_summary)}>
-              <SunkenBox>
-                <Text class="text-xs font-semibold text-primary">{tr("me.sync_status_label")}</Text>
-                <Text class="text-xs text-muted-foreground">{settings().last_sync_summary}</Text>
-              </SunkenBox>
-            </If>
-
-            <If when={showRecoveryPhrase()}>
-              <SunkenBox>
-                <Text class="text-xs font-semibold text-vital-steady">
-                  {tr("me.recovery_phrase_warn")}
-                </Text>
-                <Text class="text-sm font-semibold text-foreground">{settings().recovery_phrase}</Text>
-                <ActionButton
-                  title={tr("common.copy")}
-                  variant="secondary"
-                  onPress={() => void copyToClipboard(settings().recovery_phrase, tr("sync.passphrase_label"))}
-                />
-              </SunkenBox>
-            </If>
-          </Card>
-
-          <Card>
-            <SectionHeader title={tr("me.ai_section_title")} subtitle={tr("me.ai_section_subtitle")} />
-
-            <View class="flex-row flex-wrap gap-2">
-              <Each of={aiModes()} key={(m) => m.id}>
-                {(m) => (
-                  <SelectChip
-                    label={m().label}
-                    selected={settings().ai_mode === m().id}
-                    onPress={() =>
+                <If when={settings().ai_mode === "official_zdr_cloud"}>
+                  <SwitchRow
+                    title={tr("me.zdr_switch_title")}
+                    subtitle={tr("me.zdr_switch_sub")}
+                    checked={settings().zdr_consented}
+                    onChange={(checked) =>
                       updateAiConfig(
-                        m().id,
-                        settings().zdr_consented,
+                        "official_zdr_cloud",
+                        checked,
                         settings().lan_ai_url,
                         settings().lan_ai_model,
                         settings().thermal_throttled,
@@ -1121,223 +1241,255 @@ export function MeVaultPage() {
                       )
                     }
                   />
-                )}
-              </Each>
-            </View>
+                </If>
 
-            <If when={settings().ai_mode === "official_zdr_cloud"}>
-              <SwitchRow
-                title={tr("me.zdr_switch_title")}
-                subtitle={tr("me.zdr_switch_sub")}
-                checked={settings().zdr_consented}
-                onChange={(checked) =>
-                  updateAiConfig(
-                    "official_zdr_cloud",
-                    checked,
-                    settings().lan_ai_url,
-                    settings().lan_ai_model,
-                    settings().thermal_throttled,
-                    settings().simulated_ram_gb,
-                  )
-                }
-              />
+                <If when={settings().ai_mode === "on_device_local"}>
+                  <Text class="text-xs leading-relaxed text-muted-foreground">
+                    {tr("me.local_ai_note")}
+                  </Text>
+                </If>
+
+                <If when={settings().ai_mode === "lan_ollama"}>
+                  <View class="gap-2">
+                    <Text class="text-xs font-medium text-foreground">{tr("me.ollama_title")}</Text>
+                    <FieldInput
+                      value={settings().lan_ai_url}
+                      placeholder="http://127.0.0.1:11434/v1"
+                      onChange={(v) =>
+                        updateAiConfig(
+                          "lan_ollama",
+                          settings().zdr_consented,
+                          v,
+                          settings().lan_ai_model,
+                          settings().thermal_throttled,
+                          settings().simulated_ram_gb,
+                        )
+                      }
+                    />
+                    <FieldInput
+                      value={settings().lan_ai_model}
+                      placeholder="qwen3:latest"
+                      onChange={(v) =>
+                        updateAiConfig(
+                          "lan_ollama",
+                          settings().zdr_consented,
+                          settings().lan_ai_url,
+                          v,
+                          settings().thermal_throttled,
+                          settings().simulated_ram_gb,
+                        )
+                      }
+                    />
+                  </View>
+                </If>
+              </View>
+              <View class="mx-4 h-px bg-border/50" />
             </If>
 
-            <If when={settings().ai_mode === "on_device_local"}>
-              <SunkenBox>
-                <Text class="text-xs leading-relaxed text-muted-foreground">
-                  {tr("me.local_ai_note")}
-                </Text>
-              </SunkenBox>
+            {/* Morning Push Notifications */}
+            <IosListRow
+              icon="tea_cup"
+              iconBgColor={token("bento-sage")}
+              iconColor={token("vital-prime")}
+              title={tr("me.push_title")}
+              value={settings().morning_push_enabled ? settings().morning_push_time : ""}
+              divider={!pushOpen()}
+              onPress={() => pushOpen.update((v) => !v)}
+            />
+            <If when={pushOpen()}>
+              <View class="gap-2.5 bg-surface-sunken/70 px-4 py-3">
+                <SwitchRow
+                  title={tr("me.push_switch_title", { time: settings().morning_push_time })}
+                  subtitle={tr("me.push_switch_sub")}
+                  checked={settings().morning_push_enabled}
+                  onChange={(checked) => toggleMorningPush(checked)}
+                />
+                <ActionButton
+                  title={tr("me.push_preview_btn")}
+                  icon="sun"
+                  size="sm"
+                  variant="outline"
+                  onPress={() => void sendMorningTestNotification()}
+                />
+              </View>
+              <View class="mx-4 h-px bg-border/50" />
             </If>
 
-            <If when={settings().ai_mode === "lan_ollama"}>
-              <SunkenBox>
-                <Text class="text-xs font-medium text-foreground">{tr("me.ollama_title")}</Text>
-                <FieldInput
-                  value={settings().lan_ai_url}
-                  placeholder="http://127.0.0.1:11434/v1"
-                  onChange={(v) =>
-                    updateAiConfig(
-                      "lan_ollama",
-                      settings().zdr_consented,
-                      v,
-                      settings().lan_ai_model,
-                      settings().thermal_throttled,
-                      settings().simulated_ram_gb,
-                    )
+            {/* Optional Cloud Session */}
+            <IosListRow
+              icon="compass"
+              iconBgColor={token("secondary")}
+              iconColor={token("foreground")}
+              title={tr("me.cloud_card_title")}
+              trailing={
+                <VitalBadge
+                  tone={ent()?.plan_tier === "pro" ? "prime_ready" : "neutral"}
+                  label={
+                    ent()?.plan_tier === "pro"
+                      ? tr("common.pro")
+                      : settings().cloud_token
+                        ? tr("sync.connected")
+                        : tr("sync.disconnected")
                   }
                 />
+              }
+              divider={!cloudAccountOpen()}
+              onPress={() => cloudAccountOpen.update((v) => !v)}
+            />
+            <If when={cloudAccountOpen()}>
+              <View class="gap-2.5 bg-surface-sunken/70 px-4 py-3">
                 <FieldInput
-                  value={settings().lan_ai_model}
-                  placeholder="qwen3:latest"
-                  onChange={(v) =>
-                    updateAiConfig(
-                      "lan_ollama",
-                      settings().zdr_consented,
-                      settings().lan_ai_url,
-                      v,
-                      settings().thermal_throttled,
-                      settings().simulated_ram_gb,
-                    )
-                  }
+                  value={settings().cloud_url}
+                  placeholder="http://127.0.0.1:8788"
+                  onChange={(v) => updateCloudUrlAndHandle(v, settings().cloud_handle)}
                 />
-              </SunkenBox>
+                <FieldInput
+                  value={settings().cloud_handle}
+                  placeholder={tr("me.cloud_handle_placeholder")}
+                  onChange={(v) => updateCloudUrlAndHandle(settings().cloud_url, v)}
+                />
+                <ActionButton
+                  title={tr("me.cloud_connect_btn")}
+                  size="sm"
+                  variant="outline"
+                  onPress={() => void connectCloudSession(settings().cloud_url, settings().cloud_handle)}
+                />
+                <If when={ent() !== null}>
+                  <View class="gap-0.5 rounded-xl bg-card p-3">
+                    <Text class="text-xs font-semibold text-primary">
+                      {`${ent()!.plan_tier.toUpperCase()} · ${ent()!.month ?? ent()!.year_month ?? "—"}`}
+                    </Text>
+                    <Text class="text-xs text-muted-foreground">
+                      {ent()!.lab_parses_remaining < 0
+                        ? tr("me.cloud_quota_unlimited")
+                        : tr("me.cloud_quota_remaining", {
+                            rem: ent()!.lab_parses_remaining,
+                            used: ent()!.lab_parses_used,
+                          })}
+                    </Text>
+                  </View>
+                </If>
+              </View>
+              <View class="mx-4 h-px bg-border/50" />
             </If>
-          </Card>
 
-          <Card>
-            <SectionHeader title={tr("me.push_title")} subtitle={tr("me.push_subtitle")} />
-            <SwitchRow
-              title={tr("me.push_switch_title", { time: settings().morning_push_time })}
-              subtitle={tr("me.push_switch_sub")}
-              checked={settings().morning_push_enabled}
-              onChange={(checked) => toggleMorningPush(checked)}
+            {/* Export .qivault */}
+            <IosListRow
+              icon="user_shield"
+              iconBgColor={token("secondary")}
+              iconColor={token("foreground")}
+              title={tr("me.export_backup")}
+              divider={!Boolean(getEncryptedArchivePreview())}
+              onPress={() => generateEncryptedArchive()}
             />
-            <ActionButton
-              title={tr("me.push_preview_btn")}
-              icon="sun"
-              variant="outline"
-              onPress={() => void sendMorningTestNotification()}
-            />
-          </Card>
-
-          <CollapsibleCard
-            title={tr("me.cloud_card_title")}
-            subtitle={tr("me.cloud_card_subtitle")}
-            badgeLabel={
-              ent()?.plan_tier === "pro"
-                ? tr("common.pro")
-                : settings().cloud_token
-                  ? tr("sync.connected")
-                  : tr("sync.disconnected")
-            }
-            badgeTone={ent()?.plan_tier === "pro" ? "prime_ready" : "neutral"}
-            open={cloudAccountOpen()}
-            onToggle={() => cloudAccountOpen.set(!cloudAccountOpen())}
-          >
-            <FieldInput
-              value={settings().cloud_url}
-              placeholder="http://127.0.0.1:8788"
-              onChange={(v) => updateCloudUrlAndHandle(v, settings().cloud_handle)}
-            />
-            <FieldInput
-              value={settings().cloud_handle}
-              placeholder={tr("me.cloud_handle_placeholder")}
-              onChange={(v) => updateCloudUrlAndHandle(settings().cloud_url, v)}
-            />
-            <ActionButton
-              title={tr("me.cloud_connect_btn")}
-              variant="outline"
-              onPress={() => void connectCloudSession(settings().cloud_url, settings().cloud_handle)}
-            />
-            <If when={ent() !== null}>
-              <SunkenBox>
-                <Text class="text-xs font-semibold text-primary">
-                  {`${ent()!.plan_tier.toUpperCase()} · ${ent()!.month ?? ent()!.year_month ?? "—"}`}
-                </Text>
-                <Text class="text-xs text-muted-foreground">
-                  {ent()!.lab_parses_remaining < 0
-                    ? tr("me.cloud_quota_unlimited")
-                    : tr("me.cloud_quota_remaining", {
-                        rem: ent()!.lab_parses_remaining,
-                        used: ent()!.lab_parses_used,
-                      })}
-                </Text>
-              </SunkenBox>
-            </If>
-          </CollapsibleCard>
-
-          <Card>
-            <SectionHeader title={tr("me.vault_section")} subtitle={tr("me.subtitle")} />
-
-            <View class="flex-row flex-wrap gap-2">
-              <ActionButton
-                title={tr("me.export_backup")}
-                variant="secondary"
-                onPress={() => generateEncryptedArchive()}
-                class="flex-1"
-              />
-              <ActionButton
-                title={tr("me.export_jsonl_btn")}
-                variant="secondary"
-                onPress={() => generateJsonlExport()}
-                class="flex-1"
-              />
-            </View>
-
-            <View class="flex-row flex-wrap gap-2">
-              <ActionButton
-                title={tr("me.compliance_links_label")}
-                variant="outline"
-                onPress={() => showPrivacySheet.set(true)}
-                class="flex-1"
-              />
-              <ActionButton
-                title={tr("me.notice_btn")}
-                variant="outline"
-                onPress={() => showNoticeSheet.set(true)}
-                class="flex-1"
-              />
-            </View>
-
             <If when={Boolean(getEncryptedArchivePreview())}>
-              <SunkenBox>
+              <View class="gap-2 bg-surface-sunken/70 px-4 py-3">
                 <Text class="text-xs font-semibold text-primary">{tr("me.qivault_ready")}</Text>
                 <Text class="text-xs text-muted-foreground">
                   {getEncryptedArchivePreview()!.slice(0, 220)}
                 </Text>
                 <ActionButton
                   title={tr("common.copy")}
+                  size="sm"
                   variant="secondary"
-                  onPress={() =>
-                    void copyToClipboard(getEncryptedArchivePreview()!, ".qivault")
-                  }
+                  onPress={() => void copyToClipboard(getEncryptedArchivePreview()!, ".qivault")}
                 />
-              </SunkenBox>
+              </View>
+              <View class="mx-4 h-px bg-border/50" />
             </If>
 
+            {/* Export JSONL */}
+            <IosListRow
+              icon="file_lab"
+              iconBgColor={token("secondary")}
+              iconColor={token("foreground")}
+              title={tr("me.export_jsonl_btn")}
+              divider={Boolean(getJsonlExportPreview())}
+              onPress={() => generateJsonlExport()}
+            />
             <If when={Boolean(getJsonlExportPreview())}>
-              <SunkenBox>
+              <View class="gap-1.5 bg-surface-sunken/70 px-4 py-3">
                 <Text class="text-xs font-semibold text-foreground">{tr("me.jsonl_ready")}</Text>
                 <Text class="text-xs text-muted-foreground">{getJsonlExportPreview()!}</Text>
-              </SunkenBox>
-            </If>
-
-            <ActionButton
-              title={tr("me.erase_all")}
-              variant="danger"
-              onPress={() => showWipeConfirm.set(true)}
-            />
-          </Card>
-
-          <If when={isQaStudioEnabled()}>
-            <Card>
-              <View class="flex-row items-center gap-3">
-                <View class="size-10 items-center justify-center rounded-xl bg-accent">
-                  <QiIcon name="sliders" size={20} color={token("primary")} />
-                </View>
-                <View class="flex-1 gap-0.5">
-                  <Text role="header" class="text-base font-semibold text-foreground">
-                    {tr("qa.title")}
-                  </Text>
-                  <Text class="text-xs leading-relaxed text-muted-foreground">
-                    {tr("qa.subtitle")}
-                  </Text>
-                </View>
               </View>
-              <ActionButton
-                title={tr("me.qa_studio_btn")}
+            </If>
+          </IosGroupedSection>
+
+          {/* Group 3: Compliance, Notices & QA Studio */}
+          <IosGroupedSection>
+            <IosListRow
+              icon="user_shield"
+              iconBgColor={token("secondary")}
+              iconColor={token("foreground")}
+              title={tr("me.compliance_links_label")}
+              divider={true}
+              onPress={() => showPrivacySheet.set(true)}
+            />
+            <IosListRow
+              icon="compass"
+              iconBgColor={token("secondary")}
+              iconColor={token("foreground")}
+              title={tr("me.notice_btn")}
+              divider={isQaStudioEnabled()}
+              onPress={() => showNoticeSheet.set(true)}
+            />
+            <If when={isQaStudioEnabled()}>
+              <IosListRow
                 icon="sliders"
-                variant="outline"
+                iconBgColor={token("accent")}
+                iconColor={token("primary")}
+                title={tr("me.qa_studio_btn")}
                 onPress={() => setShowQaStudio(true)}
               />
-            </Card>
-          </If>
+            </If>
+          </IosGroupedSection>
+
+          {/* Group 4b: Danger Zone (inline confirmation) */}
+          <IosGroupedSection>
+            <IosListRow
+              icon="flame"
+              iconBgColor={token("vital-recover-soft")}
+              iconColor={token("destructive")}
+              title={tr("me.erase_all")}
+              destructive={true}
+              showChevron={false}
+              divider={showWipeConfirm()}
+              onPress={() => showWipeConfirm.update((v) => !v)}
+            />
+            <If when={showWipeConfirm()}>
+              <View class="gap-2.5 bg-surface-sunken/70 p-3.5">
+                <Text class="text-xs font-bold text-destructive">
+                  {tr("me.wipe_confirm_title")}
+                </Text>
+                <Text class="text-xs leading-relaxed text-muted-foreground">
+                  {tr("me.wipe_confirm_body")}
+                </Text>
+                <View class="flex-row gap-2">
+                  <ActionButton
+                    title={tr("common.cancel")}
+                    size="sm"
+                    variant="secondary"
+                    onPress={() => showWipeConfirm.set(false)}
+                    class="flex-1"
+                  />
+                  <ActionButton
+                    title={tr("me.wipe_confirm_cta")}
+                    size="sm"
+                    variant="danger"
+                    onPress={() => {
+                      showWipeConfirm.set(false);
+                      wipeVaultAndReset();
+                    }}
+                    class="flex-1"
+                  />
+                </View>
+              </View>
+            </If>
+          </IosGroupedSection>
         </View>
       </If>
 
-      {/* Modals shared by MeVaultPage (去套娃 Card 外壳，消除双重 32pt 内边距) */}
+      {/* Modals shared by MeVaultPage */}
       <SheetDialog
         open={showRestoreSheet()}
         title={tr("me.restore_sheet_title")}
@@ -1421,34 +1573,6 @@ export function MeVaultPage() {
           <SunkenBox class="gap-2">
             <Text class="text-xs leading-relaxed text-foreground">{getNoticeText().trim()}</Text>
           </SunkenBox>
-        </View>
-      </SheetDialog>
-
-      <SheetDialog
-        open={showWipeConfirm()}
-        role="alertdialog"
-        title={tr("me.wipe_confirm_title")}
-        onClose={() => showWipeConfirm.set(false)}
-      >
-        <View class="gap-3.5">
-          <Text class="text-sm leading-relaxed text-foreground">{tr("me.wipe_confirm_body")}</Text>
-          <View class="flex-row gap-2">
-            <ActionButton
-              title={tr("common.cancel")}
-              variant="secondary"
-              onPress={() => showWipeConfirm.set(false)}
-              class="flex-1"
-            />
-            <ActionButton
-              title={tr("me.wipe_confirm_cta")}
-              variant="danger"
-              onPress={() => {
-                showWipeConfirm.set(false);
-                wipeVaultAndReset();
-              }}
-              class="flex-1"
-            />
-          </View>
         </View>
       </SheetDialog>
     </View>

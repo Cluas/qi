@@ -1,4 +1,14 @@
-import { type App, expect, open, test } from "nsh/test";
+import { type App, expect, type OpenOptions, open, test } from "nsh/test";
+
+function openQi(options?: OpenOptions | null) {
+  return open("./App.tsx", {
+    ...options,
+    modules: {
+      "nsh/mobile": { isAvailable: false },
+      ...(options?.modules ?? {}),
+    },
+  });
+}
 
 const FORBIDDEN_BRAND = ["知气", "Qi"].join(" · ");
 const FORBIDDEN_LEGACY_RE = new RegExp(
@@ -28,14 +38,14 @@ async function scrollIntoView(app: App, target: string, dy: number) {
 
 test("知气 v5.0 确定性中文冷启动、极简顶栏、中英双语实时切换与四大空间化页面测试", async () => {
   // Even on an en-US host locale, Qi starts deterministically in zh-CN
-  const app = await open("./App.tsx", { locale: "en-US" });
+  const app = await openQi({ locale: "en-US" });
 
   expect(app.shows("欢迎来到知气")).toBe(true);
   expect(app.shows("知气")).toBe(true);
   expect(app.shows("Tier A 全穿戴")).toBe(false);
   assertCleanCopy(app.texts());
 
-  await app.scroll("欢迎来到知气", 500);
+  await scrollIntoView(app, "欢迎来到知气", 500);
   await app.press("推开窗扉");
   await app.waitFor("窗台已铺设好，开始安安静静记第一天吧");
   expect(app.shows("欢迎来到知气")).toBe(false);
@@ -55,17 +65,18 @@ test("知气 v5.0 确定性中文冷启动、极简顶栏、中英双语实时�
   await app.press(app.count("顺顺小满毛") > 1 ? "顺顺小满毛 >> nth=1" : "顺顺小满毛");
   await app.waitUntil(() => app.texts().some((t) => t.includes("伸了个懒腰") || t.includes("松软印章")));
 
-  // Sanctuary theme switcher & DailyPosterModal
+  // Sanctuary theme switcher (inside「意境」DrawerSheet) & DailyPosterModal
+  await app.press("意境");
+  await app.waitFor("窗台意境");
   await app.press("掌上山水");
   await app.waitFor("养气松石灵境");
-  if (app.shows("关闭")) await app.press("关闭");
 
   await app.press("元气手账");
   await app.waitFor("软胶猫「煤球」");
-  if (app.shows("关闭")) await app.press("关闭");
 
   await app.press("窗畔有猫");
   await app.waitFor("三花猫「小满」");
+  if (app.shows("完成")) await app.press("完成");
   if (app.shows("关闭")) await app.press("关闭");
 
   await app.press(app.count("生成日签") > 1 ? "生成日签 >> nth=0" : "生成日签");
@@ -191,14 +202,15 @@ test("知气 v5.0 确定性中文冷启动、极简顶栏、中英双语实时�
   await app.waitFor("清空本机手账数据…");
   await app.press("清空本机手账数据…");
   await app.waitFor("真的要清空本机手账金库吗？");
+  await scrollIntoView(app, "确认彻底清空本机数据", 240);
   await app.press("确认彻底清空本机数据");
   await app.waitFor("欢迎来到知气");
 }, 90000);
 
 test("知气 v5.0 自定陪伴工坊、只读金库零删档、Apple IAP 合规三件套与窗台添柴礼赠券测试", async () => {
-  const app = await open("./App.tsx", { locale: "en-US" });
+  const app = await openQi({ locale: "en-US" });
 
-  await app.scroll("欢迎来到知气", 500);
+  await scrollIntoView(app, "欢迎来到知气", 500);
   await app.press("推开窗扉");
   await app.waitFor("窗台已铺设好，开始安安静静记第一天吧");
   await app.press("关闭");
@@ -208,7 +220,8 @@ test("知气 v5.0 自定陪伴工坊、只读金库零删档、Apple IAP 合规�
   await app.waitFor("自定陪伴工坊");
   expect(app.shows("免费版永久拥有 1 个自定陪伴位，到期或未订阅亦永不删档")).toBe(true);
 
-  await app.scroll("自定陪伴工坊", 260);
+  if (!app.shows("陪伴称呼")) await app.press("安放新陪伴");
+  await scrollIntoView(app, "自定陪伴工坊", 260);
   await app.type("比如：糯米、阿福、土豆", "糯米");
   await scrollIntoView(app, "安放新陪伴", 220);
   await app.press("设为星光纪念窗台");
@@ -229,6 +242,7 @@ test("知气 v5.0 自定陪伴工坊、只读金库零删档、Apple IAP 合规�
   await app.press("我的");
   await app.waitFor("已安放 1/1 位陪伴");
   await scrollIntoView(app, "安放新陪伴", 320);
+  if (!app.shows("陪伴称呼")) await app.press("安放新陪伴");
   await app.type("比如：糯米、阿福、土豆", "土豆");
   await scrollIntoView(app, "安放新陪伴", 360);
   await app.press("安放至窗台");
@@ -256,6 +270,7 @@ test("知气 v5.0 自定陪伴工坊、只读金库零删档、Apple IAP 合规�
   await app.press("自定陪伴工坊");
   await app.waitFor("已安放 1/3 位陪伴");
   await scrollIntoView(app, "安放新陪伴", 360);
+  if (!app.shows("陪伴称呼")) await app.press("安放新陪伴");
   await app.clear("text:土豆");
   await app.type("比如：糯米、阿福、土豆", "阿福");
   await scrollIntoView(app, "安放新陪伴", 420);
@@ -336,12 +351,13 @@ test("知气 v5.0 自定陪伴工坊、只读金库零删档、Apple IAP 合规�
   await app.waitFor("清空本机手账数据…");
   await app.press("清空本机手账数据…");
   await app.waitFor("真的要清空本机手账金库吗？");
+  await scrollIntoView(app, "确认彻底清空本机数据", 240);
   await app.press("确认彻底清空本机数据");
   await app.waitFor("欢迎来到知气");
 }, 90000);
 
 test("知气 v5.5 iOS 竖屏 (393x852 Dynamic Island) 拇指底栏速记抽屉与 WidgetKit 矩阵测试", async () => {
-  const app = await open("./App.tsx", {
+  const app = await openQi({
     width: 393,
     height: 852,
     safeArea: { top: 59, bottom: 34, left: 0, right: 0 },
@@ -411,15 +427,16 @@ test("知气 v5.5 iOS 竖屏 (393x852 Dynamic Island) 拇指底栏速记抽屉�
   await scrollIntoView(app, "清空本机手账数据…", 700);
   await app.press("清空本机手账数据…");
   await app.waitFor("真的要清空本机手账金库吗？");
+  await scrollIntoView(app, "确认彻底清空本机数据", 240);
   await app.press("确认彻底清空本机数据");
   await app.waitFor("欢迎来到知气");
 }, 90000);
 
 test("知气 v5.6 Apple HealthKit 原生直连卡片与炉火金库双语入口测试", async () => {
-  const app = await open("./App.tsx", { locale: "en-US" });
+  const app = await openQi({ locale: "en-US" });
 
   await app.waitFor("欢迎来到知气");
-  await app.scroll("欢迎来到知气", 500);
+  await scrollIntoView(app, "欢迎来到知气", 500);
   await app.press("推开窗扉");
   await app.waitFor("窗台已铺设好，开始安安静静记第一天吧");
   await app.press("关闭");
@@ -469,6 +486,63 @@ test("知气 v5.6 Apple HealthKit 原生直连卡片与炉火金库双语入口�
   await app.waitFor("清空本机手账数据…");
   await app.press("清空本机手账数据…");
   await app.waitFor("真的要清空本机手账金库吗？");
+  await scrollIntoView(app, "确认彻底清空本机数据", 240);
+  await app.press("确认彻底清空本机数据");
+  await app.waitFor("欢迎来到知气");
+}, 90000);
+
+test("知气 v7.0 首启零做题感官序幕动效与四页减法渐进披露测试", async () => {
+  const app = await openQi({
+    width: 393,
+    height: 852,
+    safeArea: { top: 59, bottom: 34, left: 0, right: 0 },
+  });
+
+  // 1. 首启直接进入全屏感官序幕，严禁做题问卷与底部 tab 透出
+  await app.waitFor("欢迎来到知气");
+  expect(app.shows("眼下最想优先照料哪一件事？")).toBe(false);
+  expect(app.shows("你平时用哪种方式记录健康信号？")).toBe(false);
+  expect(app.shows("今日关注与一念落印")).toBe(false);
+  assertCleanCopy(app.texts());
+
+  // 点击呼吸光晕切换诗意节拍，随后一步推开窗扉
+  await app.press("轻触光晕 · 感受一次深呼吸");
+  await app.waitFor("累了就歇，醒了再出发");
+  await app.press("推开窗扉");
+  await app.waitFor("今日手账");
+  if (app.shows("关闭")) await app.press("关闭");
+
+  // 2. 今日页减法校验：晨起体感 5 选芯片默认折叠；点按「调整」可展开选择并自动收起
+  expect(app.shows("很疲惫")).toBe(false);
+  expect(app.shows("晨起体感")).toBe(true);
+  await app.press("调整");
+  await app.waitFor("很疲惫");
+  await app.press("轻盈");
+  await app.waitUntil(() => !app.shows("很疲惫"));
+
+  // 3. 记录页减法校验：隐藏重复千卡贴纸表与默认折叠原始 XML 导入框
+  await app.press("记录");
+  await app.waitFor("一念自然语记");
+  expect(app.shows("一触即记贴纸卡")).toBe(false);
+  await app.press("炉火金库");
+  await app.waitFor("炉火金库摘要");
+  expect(app.texts().join("\n").includes("<HealthData")).toBe(false);
+
+  // 4. 我的页减法校验：隐私与金库移除重复 WidgetKit，雅集不暴露 free_core 枚举
+  await app.press("我的");
+  await app.press("隐私与金库");
+  await app.waitFor("界面与习惯");
+  expect(app.shows("iOS 锁屏与桌面小组件预览（WidgetKit）")).toBe(false);
+  await app.press("雅集与权益");
+  await app.waitFor("知气手作坊");
+  expect(app.texts().join("\n").includes("free_core")).toBe(false);
+  expect(app.shows("展开往期节气博物架")).toBe(true);
+  await app.press("隐私与金库");
+  await scrollIntoView(app, "本地安全金库", 900);
+  await scrollIntoView(app, "清空本机手账数据…", 700);
+  await app.press("清空本机手账数据…");
+  await app.waitFor("真的要清空本机手账金库吗？");
+  await scrollIntoView(app, "确认彻底清空本机数据", 240);
   await app.press("确认彻底清空本机数据");
   await app.waitFor("欢迎来到知气");
 }, 90000);

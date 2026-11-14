@@ -9,26 +9,32 @@ import {
   setInsightsSubTab,
   setShowAtelierModal,
   setShowFourSeasonsScrollModal,
+  setShowQuickCaptureModal,
   startCustomExperiment,
   startExperiment,
   toggleExperimentToday,
 } from "../store";
-import { InteractiveRhythmPlot, MultiLagRadarBars, SleepArchitectureBar } from "../ui/charts";
+import { InteractiveRhythmPlot, MultiLagRadarBars } from "../ui/charts";
 import {
   ActionButton,
+  Button,
   Card,
-  CollapsibleCard,
   FieldInput,
+  Hairline,
+  HeaderActionPill,
+  IosGroupedSection,
+  IosLargeHeader,
+  IosListRow,
   MeterBar,
   SectionHeader,
   SegmentedTabs,
   SelectChip,
-  SunkenBox,
+  StatMetricTile,
   VitalBadge,
 } from "../ui/components";
-import { BadgeCeramicIcon, HandscrollIcon } from "../ui/icons";
-import { tr } from "../ui/i18n";
-import { BentoMetricCard, KeepsakeShelfCard } from "../ui/sanctuary";
+import { BadgeCeramicIcon, HandscrollIcon, QiIcon } from "../ui/icons";
+import { isEnglishLocale, tr } from "../ui/i18n";
+import { KeepsakeShelfCard } from "../ui/sanctuary";
 
 function progressPercent(completed: number, target: number): number {
   if (!Number.isFinite(target) || target <= 0) return 0;
@@ -40,7 +46,7 @@ export function InsightsPage() {
   const customHypothesis = signal("");
   const customDays = signal(7);
   const customWashout = signal(2);
-  const customOpen = signal(false);
+  const expDetailOpen = signal(false);
 
   const state = () => getState();
   const snap = () => state().snapshot;
@@ -70,39 +76,63 @@ export function InsightsPage() {
     startCustomExperiment(title, hypothesis, customDays(), customWashout());
     customTitle.set("");
     customHypothesis.set("");
-    customOpen.set(false);
+    expDetailOpen.set(false);
   };
 
   return (
     <View class="gap-4">
+      <IosLargeHeader
+        title={tr("nav.insights")}
+        trailing={
+          <HeaderActionPill
+            label={tr("nav.quick_short")}
+            icon="plus"
+            tone="primary"
+            accessibilityLabel={tr("nav.quick_capture")}
+            onPress={() => setShowQuickCaptureModal(true)}
+          />
+        }
+      />
+
       <SegmentedTabs
         items={subTabs()}
         activeId={getInsightsSubTab()}
         onSelect={(id) => setInsightsSubTab(id)}
       />
 
-      {/* Subview 1: Rhythm Curves & N-of-1 Experiments */}
+      {/* Subview 1: Rhythm Curves & N-of-1 Experiments (v7.0 Radical Subtraction: 3 calm cards) */}
       <If when={getInsightsSubTab() === "curves"}>
         <View class="gap-5">
-          {/* Gentler Streak 式无框人文洞察总结语录 + 轻盈趋势字标 + 三联无框釉面数字瓷贴 */}
-          <View class="gap-3.5 px-0.5 pt-0.5">
+          {/* Card 1: 元气与睡眠节律（唯一主曲线，无重复睡眠结构块） */}
+          <Card class="gap-3.5 rounded-3xl p-4">
+            <View class="flex-row items-center justify-between gap-2">
+              <Text role="header" class="text-base font-bold text-foreground">
+                {tr("insights.rhythm_trend_title")}
+              </Text>
+              <VitalBadge
+                tone={
+                  snap().state === "recovery_priority"
+                    ? "recovery_priority"
+                    : snap().state === "moderate_steady"
+                      ? "moderate_steady"
+                      : "prime_ready"
+                }
+                label={snap().state_badge}
+              />
+            </View>
+
+            <InteractiveRhythmPlot points={snap().trend_14d} />
+          </Card>
+
+          {/* Card 2: 近两周节律起伏对比 */}
+          <Card class="gap-3.5 rounded-3xl p-4">
             <View class="gap-1.5">
               <View class="flex-row items-center justify-between gap-2">
-                <Text
-                  class="text-xs font-medium text-muted-foreground"
-                  style={{ fontVariant: ["tabular-nums"] }}
-                >
-                  {tr("insights.period_subtitle", {
-                    current: period().current_window,
-                    prev: period().previous_window,
-                  })}
+                <Text role="header" class="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                  {tr("insights.period_title")}
                 </Text>
                 <VitalBadge tone="neutral" label={tr("insights.period_badge")} />
               </View>
-
-              <Text role="header" class="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-                {tr("insights.period_title")}
-              </Text>
 
               <Text class="pt-0.5 text-[15px] leading-relaxed text-foreground/90">
                 {period().summary}
@@ -110,8 +140,7 @@ export function InsightsPage() {
             </View>
 
             <View class="flex-row gap-2">
-              <BentoMetricCard
-                compact={true}
+              <StatMetricTile
                 icon="heart_pulse"
                 label={tr("today.metric_title_hrv_rmssd").replace(" (RMSSD)", "")}
                 value={period().hrv_current === null ? "—" : `${period().hrv_current!.toFixed(1)} ms`}
@@ -120,13 +149,10 @@ export function InsightsPage() {
                     ? tr("insights.prev_7d_empty")
                     : tr("insights.prev_7d_val", { val: `${period().hrv_prev!.toFixed(1)}` })
                 }
-                toneSurface="sage"
-                accentColor={token("vital-prime")}
-                class="min-w-0 flex-1 border-transparent"
+                tone="optimal"
               />
 
-              <BentoMetricCard
-                compact={true}
+              <StatMetricTile
                 icon="flame"
                 label={tr("today.metric_title_rhr")}
                 value={period().rhr_current === null ? "—" : `${period().rhr_current!.toFixed(1)} bpm`}
@@ -135,13 +161,10 @@ export function InsightsPage() {
                     ? tr("insights.prev_7d_empty")
                     : tr("insights.prev_7d_val", { val: `${period().rhr_prev!.toFixed(1)}` })
                 }
-                toneSurface="peach"
-                accentColor={token("stamp-ink")}
-                class="min-w-0 flex-1 border-transparent"
+                tone="watch_high"
               />
 
-              <BentoMetricCard
-                compact={true}
+              <StatMetricTile
                 icon="moon"
                 label={tr("today.metric_sleep")}
                 value={period().sleep_current_h === null ? "—" : `${period().sleep_current_h!.toFixed(1)} h`}
@@ -150,72 +173,32 @@ export function InsightsPage() {
                     ? tr("insights.prev_7d_empty")
                     : tr("insights.prev_7d_val", { val: `${period().sleep_prev_h!.toFixed(1)} h` })
                 }
-                toneSurface="lavender"
-                accentColor={token("sleep-rem")}
-                class="min-w-0 flex-1 border-transparent"
+                tone="neutral"
               />
             </View>
-          </View>
+          </Card>
 
-          {/* 无框沉浸有机丝带主图区（直铺宣纸背景，告别 Card 白框套娃） */}
-          <View class="gap-3 px-0.5">
-            <View class="flex-row items-center justify-between gap-2">
-              <Text role="header" class="text-base font-bold text-foreground">
-                {tr("insights.rhythm_trend_title")}
-              </Text>
-              <Text class="text-xs font-semibold text-vital-prime">{snap().state_badge}</Text>
-            </View>
-
-            <InteractiveRhythmPlot points={snap().trend_14d} />
-
-            <If when={Boolean(snap().sleep_stages_last_night)}>
-              <View class="gap-2 rounded-2xl bg-bento-lavender/50 px-3.5 py-3">
-                <Text class="text-xs font-semibold text-foreground">
-                  {tr("insights.sleep_arch_title")}
-                </Text>
-                <SleepArchitectureBar
-                  deepMin={snap().sleep_stages_last_night!.deep_min}
-                  coreMin={snap().sleep_stages_last_night!.core_min}
-                  remMin={snap().sleep_stages_last_night!.rem_min}
-                  awakeMin={snap().sleep_stages_last_night!.awake_min}
-                />
-              </View>
-            </If>
-          </View>
-
-          <Card>
+          {/* Card 3: 个人 N-of-1 小实验（极简表层 + 折叠详情/模板/新建） */}
+          <Card class="gap-3.5 rounded-3xl p-4">
             <SectionHeader
               title={tr("insights.experiments_title")}
-              subtitle={tr("insights.experiments_subtitle")}
               right={<VitalBadge tone="neutral" label={tr("insights.experiments_badge")} />}
             />
 
             <If
               when={experiments().length > 0}
               else={
-                <SunkenBox>
+                <View class="rounded-2xl bg-secondary/45 px-3.5 py-3">
                   <Text class="text-xs text-muted-foreground">{tr("insights.experiments_empty")}</Text>
-                </SunkenBox>
+                </View>
               }
             >
               <View class="gap-3">
                 <Each of={experiments()} key={(e) => e.id}>
                   {(exp) => (
-                    <SunkenBox>
+                    <View class="gap-2.5 rounded-2xl bg-secondary/45 p-3.5">
                       <View class="flex-row items-center justify-between gap-2">
-                        <View class="flex-1 gap-0.5">
-                          <Text class="text-sm font-semibold text-foreground">{exp().title}</Text>
-                          <Text
-                            class="text-xs text-muted-foreground"
-                            style={{ fontVariant: ["tabular-nums"] }}
-                          >
-                            {tr("insights.exp_progress_line", {
-                              start: exp().start_date,
-                              done: exp().completed_days,
-                              target: exp().target_days,
-                            })}
-                          </Text>
-                        </View>
+                        <Text class="flex-1 text-sm font-semibold text-foreground">{exp().title}</Text>
                         <VitalBadge
                           tone={exp().checked_today ? "prime_ready" : "neutral"}
                           label={exp().checked_today ? tr("insights.exp_checked") : tr("insights.exp_pending")}
@@ -227,9 +210,74 @@ export function InsightsPage() {
                         accessibilityLabel={exp().title}
                       />
 
-                      <Text class="text-xs leading-relaxed text-muted-foreground">{exp().hypothesis}</Text>
+                      <ActionButton
+                        title={
+                          exp().checked_today
+                            ? tr("insights.exp_toggle_done")
+                            : tr("insights.exp_toggle_todo")
+                        }
+                        icon="paw"
+                        variant={exp().checked_today ? "secondary" : "primary"}
+                        onPress={() => toggleExperimentToday(exp().id)}
+                      />
+                    </View>
+                  )}
+                </Each>
+              </View>
+            </If>
+            <Hairline />
 
-                      <View class="flex-row gap-3 border-y border-border/55 py-2">
+            <Button
+              hitSlop={6}
+              accessibilityLabel={
+                isEnglishLocale()
+                  ? "Trial metrics, templates & new trial"
+                  : "对照指标、洗脱详情与新建实验"
+              }
+              onPress={() => expDetailOpen.set(!expDetailOpen())}
+              class="min-h-10 flex-row items-center justify-between gap-2 rounded-xl px-1 py-1 active:opacity-75"
+            >
+              <View class="flex-1 gap-0.5">
+                <Text class="text-xs font-semibold text-foreground">
+                  {isEnglishLocale()
+                    ? "Trial metrics, templates & new trial"
+                    : "对照指标、洗脱详情与新建实验"}
+                </Text>
+                <Text class="text-[11px] text-muted-foreground">
+                  {tr("insights.custom_exp_subtitle")}
+                </Text>
+              </View>
+              <View class={`transition-transform duration-150 ${expDetailOpen() ? "rotate-180" : ""}`}>
+                <QiIcon name="chevron_down" size={14} color={token("muted-foreground")} />
+              </View>
+            </Button>
+
+            <If when={expDetailOpen()}>
+              <View class="gap-3.5 pt-1">
+                <If when={experiments().length > 0}>
+              <View class="gap-2.5">
+                <Each of={experiments()} key={(e) => `detail-${e.id}`}>
+                  {(exp) => (
+                    <View class="gap-2 rounded-2xl bg-secondary/45 p-3.5">
+                      <View class="flex-row items-center justify-between gap-2">
+                        <Text class="text-xs font-semibold text-foreground">{exp().title}</Text>
+                        <Text
+                          class="text-[11px] text-muted-foreground"
+                          style={{ fontVariant: ["tabular-nums"] }}
+                        >
+                          {tr("insights.exp_progress_line", {
+                            start: exp().start_date,
+                            done: exp().completed_days,
+                            target: exp().target_days,
+                          })}
+                        </Text>
+                      </View>
+
+                      <Text class="text-xs leading-relaxed text-muted-foreground">
+                        {exp().hypothesis}
+                      </Text>
+
+                      <View class="flex-row gap-3 rounded-xl bg-card/85 px-3 py-2.5">
                         <View class="flex-1 gap-0.5">
                           <Text class="text-[11px] text-muted-foreground">{tr("today.metric_recovery")}</Text>
                           <Text
@@ -239,7 +287,7 @@ export function InsightsPage() {
                             {formatDelta(exp().hrv_delta_ms, "ms")}
                           </Text>
                         </View>
-                        <View class="flex-1 gap-0.5 border-l border-border/55 pl-3">
+                        <View class="flex-1 gap-0.5">
                           <Text class="text-[11px] text-muted-foreground">{tr("today.rhr_label")}</Text>
                           <Text
                             class="text-xs font-semibold text-foreground"
@@ -248,7 +296,7 @@ export function InsightsPage() {
                             {formatDelta(exp().rhr_delta_bpm, "bpm", true)}
                           </Text>
                         </View>
-                        <View class="flex-1 gap-0.5 border-l border-border/55 pl-3">
+                        <View class="flex-1 gap-0.5">
                           <Text class="text-[11px] text-muted-foreground">{tr("today.metric_title_sleep_deep")}</Text>
                           <Text
                             class="text-xs font-semibold text-foreground"
@@ -266,24 +314,13 @@ export function InsightsPage() {
                           skipped: exp().washout_skipped_days,
                         })}
                       </Text>
-
-                      <ActionButton
-                        title={
-                          exp().checked_today
-                            ? tr("insights.exp_toggle_done")
-                            : tr("insights.exp_toggle_todo")
-                        }
-                        icon="paw"
-                        variant={exp().checked_today ? "secondary" : "primary"}
-                        onPress={() => toggleExperimentToday(exp().id)}
-                      />
-                    </SunkenBox>
+                    </View>
                   )}
                 </Each>
               </View>
             </If>
 
-            <View class="gap-2 pt-1">
+            <View class="gap-2">
               <Text class="text-xs font-semibold text-foreground">{tr("insights.templates_title")}</Text>
               <View class="flex-row flex-wrap gap-2">
                 <Each of={templates()} key={(tpl) => tpl.id}>
@@ -297,89 +334,101 @@ export function InsightsPage() {
                 </Each>
               </View>
             </View>
-          </Card>
 
-          <CollapsibleCard
-            title={tr("insights.custom_exp_title")}
-            subtitle={tr("insights.custom_exp_subtitle")}
-            open={customOpen()}
-            onToggle={() => customOpen.set(!customOpen())}
-          >
-            <FieldInput
-              value={customTitle()}
-              placeholder={tr("insights.custom_exp_name_placeholder")}
-              onChange={(v) => customTitle.set(v)}
-            />
-            <FieldInput
-              value={customHypothesis()}
-              placeholder={tr("insights.custom_exp_hypothesis_placeholder")}
-              onChange={(v) => customHypothesis.set(v)}
-            />
-            <View class="flex-row flex-wrap items-center justify-between gap-2">
-              <View class="gap-1.5">
-                <View class="flex-row flex-wrap gap-1.5">
-                  <Each of={[7, 14, 21]} key={(d) => d}>
-                    {(d) => (
-                      <SelectChip
-                        label={tr("common.days_unit", { value: d() })}
-                        selected={customDays() === d()}
-                        onPress={() => customDays.set(d())}
-                      />
-                    )}
-                  </Each>
+            <View class="gap-2.5 pt-1">
+              <Text class="text-xs font-semibold text-foreground">{tr("insights.custom_exp_title")}</Text>
+              <FieldInput
+                value={customTitle()}
+                placeholder={tr("insights.custom_exp_name_placeholder")}
+                onChange={(v) => customTitle.set(v)}
+              />
+              <FieldInput
+                value={customHypothesis()}
+                placeholder={tr("insights.custom_exp_hypothesis_placeholder")}
+                onChange={(v) => customHypothesis.set(v)}
+              />
+              <View class="flex-row flex-wrap items-center justify-between gap-2">
+                <View class="gap-1.5">
+                  <View class="flex-row flex-wrap gap-1.5">
+                    <Each of={[7, 14, 21]} key={(d) => d}>
+                      {(d) => (
+                        <SelectChip
+                          label={tr("common.days_unit", { value: d() })}
+                          selected={customDays() === d()}
+                          onPress={() => customDays.set(d())}
+                        />
+                      )}
+                    </Each>
+                  </View>
+                  <View class="flex-row flex-wrap gap-1.5">
+                    <Each of={[0, 1, 2, 3]} key={(w) => w}>
+                      {(w) => (
+                        <SelectChip
+                          label={tr("insights.washout_chip", { days: w() })}
+                          selected={customWashout() === w()}
+                          onPress={() => customWashout.set(w())}
+                        />
+                      )}
+                    </Each>
+                  </View>
                 </View>
-                <View class="flex-row flex-wrap gap-1.5">
-                  <Each of={[0, 1, 2, 3]} key={(w) => w}>
-                    {(w) => (
-                      <SelectChip
-                        label={tr("insights.washout_chip", { days: w() })}
-                        selected={customWashout() === w()}
-                        onPress={() => customWashout.set(w())}
-                      />
-                    )}
-                  </Each>
-                </View>
+                <ActionButton title={tr("insights.start_experiment")} icon="plus" onPress={submitCustomExperiment} />
               </View>
-              <ActionButton title={tr("insights.start_experiment")} icon="plus" onPress={submitCustomExperiment} />
             </View>
-          </CollapsibleCard>
+              </View>
+            </If>
+          </Card>
         </View>
       </If>
 
       {/* Subview 2: Multi-Lag Correlations */}
       <If when={getInsightsSubTab() === "correlations"}>
         <View class="gap-4">
-          <Card>
-            <SectionHeader
-              title={tr("insights.lag_title")}
-              subtitle={tr("insights.lag_subtitle")}
-            />
-            <If when={snap().lagged_impacts.length === 0}>
-              <SunkenBox>
-                <Text class="text-xs text-muted-foreground">{tr("insights.lag_empty")}</Text>
-              </SunkenBox>
+          <IosGroupedSection
+            title={tr("insights.lag_title")}
+            footer={tr("insights.lag_subtitle")}
+          >
+            <If
+              when={snap().lagged_impacts.length > 0}
+              else={
+                <View class="px-4 py-4">
+                  <Text class="text-xs text-muted-foreground">{tr("insights.lag_empty")}</Text>
+                </View>
+              }
+            >
+              <Each
+                of={snap().lagged_impacts}
+                key={(imp) => `${imp.tag}-${imp.outcome_label}`}
+              >
+                {(imp, idx) => (
+                  <IosListRow
+                    icon="heart_pulse"
+                    iconBgColor={
+                      imp().delta_value >= 0
+                        ? token("vital-prime-soft")
+                        : token("vital-recover-soft")
+                    }
+                    iconColor={
+                      imp().delta_value >= 0
+                        ? token("vital-prime")
+                        : token("vital-recover")
+                    }
+                    title={`${imp().tag} → ${imp().outcome_label}`}
+                    subtitle={imp().summary}
+                    divider={idx() < snap().lagged_impacts.length - 1}
+                    trailing={
+                      <VitalBadge
+                        tone={imp().delta_value >= 0 ? "optimal" : "watch_low"}
+                        label={`${imp().delta_value >= 0 ? "+" : ""}${imp().delta_value.toFixed(1)} ${imp().unit}`}
+                      />
+                    }
+                  />
+                )}
+              </Each>
             </If>
-            <If when={snap().lagged_impacts.length > 0}>
-              <View class="gap-2">
-                <Each of={snap().lagged_impacts} key={(imp) => `${imp.tag}-${imp.outcome_label}`}>
-                  {(imp) => (
-                    <SunkenBox>
-                      <View class="flex-row items-center justify-between gap-2">
-                        <Text class="text-sm font-semibold text-foreground">{`${imp().tag} → ${imp().outcome_label}`}</Text>
-                        <VitalBadge
-                          tone={imp().delta_value >= 0 ? "optimal" : "watch_low"}
-                          label={`${imp().delta_value >= 0 ? "+" : ""}${imp().delta_value.toFixed(1)} ${imp().unit}`}
-                        />
-                      </View>
-                      <Text class="text-xs leading-relaxed text-muted-foreground">{imp().summary}</Text>
-                    </SunkenBox>
-                  )}
-                </Each>
-              </View>
-            </If>
-          </Card>
+          </IosGroupedSection>
 
-          <Card>
+          <Card class="gap-3.5 rounded-3xl p-4">
             <SectionHeader
               title={tr("insights.radar_title")}
               subtitle={tr("insights.radar_subtitle")}
@@ -430,7 +479,7 @@ export function InsightsPage() {
         <View class="gap-4">
           <KeepsakeShelfCard themeId={getVisualTheme()} dewSummary={getDewSummary()} />
 
-          <Card>
+          <Card class="gap-3.5 rounded-3xl p-4">
             <SectionHeader
               title={tr("insights.ceramic_title")}
               subtitle={tr("insights.ceramic_subtitle")}
@@ -447,7 +496,7 @@ export function InsightsPage() {
             <View class="flex-row flex-wrap gap-2">
               <Each of={state().solar_atelier.ceramic_badges} key={(b) => b.id}>
                 {(b) => (
-                  <SunkenBox class="min-w-44 flex-1">
+                  <View class="min-w-44 flex-1 gap-1.5 rounded-2xl bg-secondary/45 p-3.5">
                     <View class="flex-row items-center gap-1.5">
                       <BadgeCeramicIcon
                         size={16}
@@ -460,7 +509,7 @@ export function InsightsPage() {
                       />
                     </View>
                     <Text class="text-[11px] leading-relaxed text-muted-foreground">{b().reason}</Text>
-                  </SunkenBox>
+                  </View>
                 )}
               </Each>
             </View>

@@ -12,11 +12,11 @@ import {
   MeterBar,
   ModalSurface,
   SectionHeader,
+  SegmentedTabs,
   SelectChip,
   SheetDialog,
   SunkenBox,
   SwitchRow,
-  VitalBadge,
 } from "./components";
 import { isEnglishLocale, tr } from "./i18n";
 import {
@@ -289,17 +289,17 @@ export function QiAtelierModal(props: {
           </View>
 
           {/* 伙伴轻声耳语 + 30天陪伴礼遇 */}
-          <View class="gap-2.5 rounded-2xl border border-atelier-accent/35 bg-atelier-soft p-3.5">
+          <View class="gap-2.5 rounded-2xl border border-border/45 bg-card p-4 shadow-2xs">
             <View class="flex-row flex-wrap items-center justify-between gap-2">
               <View class="flex-row items-center gap-1.5">
                 <QiIcon name="sparkles" size={14} color={token("atelier-accent")} />
-                <Text class="text-xs font-bold text-atelier-accent">
+                <Text class="text-xs font-bold text-foreground">
                   {tr("atelier.companion_note_title", { companionName: themeMeta().companionName })}
                 </Text>
               </View>
-              <View class="rounded-full border border-atelier-accent/35 bg-card px-2.5 py-0.5">
+              <View class="rounded-full bg-secondary px-2.5 py-0.5">
                 <Text
-                  class="text-[11px] font-semibold text-atelier-accent"
+                  class="text-[11px] font-semibold text-primary"
                   style={{ fontVariant: ["tabular-nums"] }}
                 >
                   {loyaltyEligible()
@@ -308,18 +308,18 @@ export function QiAtelierModal(props: {
                 </Text>
               </View>
             </View>
-            <Text class="text-xs leading-relaxed text-foreground">
+            <Text class="text-xs leading-relaxed text-muted-foreground">
               {tr("atelier.companion_note_body")}
             </Text>
             <If when={Boolean(props.offlineStateBanner)}>
-              <View class="rounded-xl border border-border/60 bg-card/80 px-3 py-1.5">
+              <View class="rounded-xl bg-surface-sunken px-3 py-1.5">
                 <Text class="text-[11px] font-medium text-muted-foreground">{props.offlineStateBanner}</Text>
               </View>
             </If>
           </View>
 
           {/* 自定陪伴权益说明：1 位永久免费 vs Pro 3 位 + 爪印藏书票 + 每周来信 */}
-          <View class="gap-2 rounded-2xl border border-border/75 bg-card p-3.5">
+          <View class="gap-2 rounded-2xl border border-border/45 bg-card p-4">
             <View class="flex-row items-center gap-2">
               <CustomPetIcon size={16} color={token("atelier-accent")} />
               <Text class="flex-1 text-xs font-bold text-foreground">
@@ -335,8 +335,8 @@ export function QiAtelierModal(props: {
                   {tr("atelier.free_forever_pill")}
                 </Text>
               </View>
-              <View class="rounded-full bg-atelier-soft px-2.5 py-0.5">
-                <Text class="text-[10px] font-semibold text-atelier-accent">
+              <View class="rounded-full bg-secondary px-2.5 py-0.5">
+                <Text class="text-[10px] font-semibold text-foreground">
                   {tr("atelier.pro_pets_pill")}
                 </Text>
               </View>
@@ -357,16 +357,16 @@ export function QiAtelierModal(props: {
                     onPress={() => selectTier(plan().tier)}
                     class={`gap-2 rounded-2xl border p-3.5 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
                       isSelected()
-                        ? "border-atelier-accent bg-atelier-soft/75"
-                        : "border-border/75 bg-card hover:border-atelier-accent/45"
+                        ? "border-primary bg-card ring-1 ring-primary/20 shadow-2xs"
+                        : "border-border/45 bg-card hover:border-border"
                     }`}
                   >
                     <View class="flex-row items-start justify-between gap-2">
                       <View class="flex-1 gap-1">
                         <View class="flex-row flex-wrap items-center gap-1.5">
                           <Text class="text-sm font-bold text-foreground">{plan().title}</Text>
-                          <View class="rounded-full border border-border/60 bg-surface-sunken px-2 py-0.5">
-                            <Text class="text-[10px] font-semibold text-atelier-accent">{plan().badge}</Text>
+                          <View class="rounded-full bg-secondary px-2 py-0.5">
+                            <Text class="text-[10px] font-semibold text-primary">{plan().badge}</Text>
                           </View>
                           <If when={isCurrent()}>
                             <View class="rounded-full bg-vital-prime-soft px-2 py-0.5">
@@ -417,13 +417,13 @@ export function QiAtelierModal(props: {
           </View>
 
           {/* 商业消耗型内购：窗台添柴礼赠券 · 赠予社区漂流席位 (+¥12) */}
-          <Card class="border-wax-seal/30 bg-wax-seal-soft/50">
+          <Card>
             <View class="flex-row flex-wrap items-center justify-between gap-2">
               <View class="flex-row items-center gap-2">
                 <HearthEmberIcon size={16} color={token("wax-seal")} />
-                <Text class="text-xs font-bold text-wax-seal">{tr("atelier.hearth_gift_title")}</Text>
+                <Text class="text-xs font-bold text-foreground">{tr("atelier.hearth_gift_title")}</Text>
               </View>
-              <View class="rounded-full border border-wax-seal/30 bg-card px-2 py-0.5">
+              <View class="rounded-full bg-secondary px-2 py-0.5">
                 <Text class="text-[10px] font-semibold text-wax-seal">
                   {tr("atelier.hearth_gift_badge")}
                 </Text>
@@ -436,7 +436,7 @@ export function QiAtelierModal(props: {
               onChange={props.onToggleGuardian}
             />
             <If when={typeof props.hearthGiftCount === "number" && props.hearthGiftCount > 0}>
-              <Text class="text-[11px] font-medium text-wax-seal" style={{ fontVariant: ["tabular-nums"] }}>
+              <Text class="text-[11px] font-medium text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
                 {tr("atelier.hearth_gift_count", { count: props.hearthGiftCount ?? 0 })}
               </Text>
             </If>
@@ -452,9 +452,9 @@ export function QiAtelierModal(props: {
               <Each of={timeline()} key={(step) => step.dayLabel}>
                 {(step, idx) => (
                   <View class="flex-row items-start gap-2.5">
-                    <View class="size-6 items-center justify-center rounded-full bg-atelier-soft">
+                    <View class="size-6 items-center justify-center rounded-full bg-secondary">
                       <Text
-                        class="text-[11px] font-bold text-atelier-accent"
+                        class="text-[11px] font-bold text-primary"
                         style={{ fontVariant: ["tabular-nums"] }}
                       >
                         {`${idx() + 1}`}
@@ -463,7 +463,7 @@ export function QiAtelierModal(props: {
                     <View class="flex-1 gap-0.5">
                       <View class="flex-row items-center gap-2">
                         <Text class="text-xs font-bold text-foreground">{step().dayLabel}</Text>
-                        <Text class="text-xs font-semibold text-atelier-accent">{step().title}</Text>
+                        <Text class="text-xs font-semibold text-primary">{step().title}</Text>
                       </View>
                       <Text class="text-[11px] leading-relaxed text-muted-foreground">{step().detail}</Text>
                     </View>
@@ -514,7 +514,7 @@ export function QiAtelierModal(props: {
           <Hairline />
 
           {/* Apple App Store 合规三联底栏：恢复购买 + 24小时自动续订声明 + 可展开 EULA/隐私政策 */}
-          <View class="gap-2.5 rounded-2xl border border-border/70 bg-surface-sunken p-3.5">
+          <View class="gap-2.5 rounded-2xl bg-surface-sunken p-4">
             {/* 1. Restore purchases */}
             <View class="flex-row flex-wrap items-center justify-between gap-2">
               <Text class="flex-1 text-[11px] text-muted-foreground">
@@ -535,7 +535,7 @@ export function QiAtelierModal(props: {
             </View>
 
             <If when={Boolean(restoreFeedback())}>
-              <View class="rounded-xl border border-border/60 bg-card px-3 py-1.5">
+              <View class="rounded-xl bg-card px-3 py-2">
                 <Text class="text-[11px] font-medium text-foreground">{restoreFeedback()}</Text>
               </View>
             </If>
@@ -551,7 +551,7 @@ export function QiAtelierModal(props: {
                 onPress={() => toggleLegalDrawer("terms")}
                 class="rounded-lg px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Text class="text-[11px] font-semibold text-atelier-accent underline">
+                <Text class="text-[11px] font-semibold text-primary underline">
                   {tr("atelier.compliance.terms_link")}
                 </Text>
               </Button>
@@ -560,7 +560,7 @@ export function QiAtelierModal(props: {
                 onPress={() => toggleLegalDrawer("privacy")}
                 class="rounded-lg px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Text class="text-[11px] font-semibold text-atelier-accent underline">
+                <Text class="text-[11px] font-semibold text-primary underline">
                   {tr("atelier.compliance.privacy_link")}
                 </Text>
               </Button>
@@ -568,7 +568,7 @@ export function QiAtelierModal(props: {
 
             {/* Inline readable Terms / Privacy drawer inside the modal */}
             <If when={legalDrawer() !== null}>
-              <View class="gap-2 rounded-xl border border-border/75 bg-card p-3">
+              <View class="gap-2 rounded-xl bg-card p-3.5 shadow-2xs">
                 <View class="flex-row items-center justify-between gap-2">
                   <Text class="flex-1 text-xs font-bold text-foreground">
                     {legalDrawer() === "terms"
@@ -633,7 +633,7 @@ export function SeasonalPassPanel(props: {
   onClaim: (nodeId: string) => void;
   onOpenAtelier?: () => void;
 }) {
-  const showArchive = signal<boolean>(false);
+  const showArchiveAndDecor = signal<boolean>(false);
 
   const weatherOptions = (): { id: WeatherMood; label: string }[] => [
     { id: "sunny_crisp", label: tr("atelier.seasonal.weather_sunny_crisp") },
@@ -676,7 +676,7 @@ export function SeasonalPassPanel(props: {
           <View class="flex-row flex-wrap gap-2">
             <Each of={freeNodes()} key={(n) => n.id}>
               {(node) => (
-                <View class="min-w-40 flex-1 gap-1.5 rounded-xl border border-border/70 bg-bento-sage/60 p-3">
+                <View class="min-w-40 flex-1 gap-1.5 rounded-xl border border-border/45 bg-card p-3">
                   <View class="flex-row items-center justify-between gap-1">
                     <Text class="text-xs font-bold text-foreground">{node().title}</Text>
                     <View class="flex-row items-center gap-1">
@@ -711,7 +711,7 @@ export function SeasonalPassPanel(props: {
 
         <View class="gap-2">
           <View class="flex-row items-center justify-between">
-            <Text class="text-xs font-semibold text-atelier-accent">{tr("atelier.seasonal.pro_track")}</Text>
+            <Text class="text-xs font-semibold text-primary">{tr("atelier.seasonal.pro_track")}</Text>
             <If when={!props.atelierUnlocked && Boolean(props.onOpenAtelier)}>
               <ActionButton
                 title={tr("atelier.seasonal.learn_atelier")}
@@ -726,10 +726,10 @@ export function SeasonalPassPanel(props: {
             <Each of={atelierNodes()} key={(n) => n.id}>
               {(node) => (
                 <View
-                  class={`min-w-40 flex-1 gap-1.5 rounded-xl border p-3 ${
+                  class={`min-w-40 flex-1 gap-1.5 rounded-xl p-3 ${
                     props.atelierUnlocked
-                      ? "border-atelier-accent/40 bg-atelier-soft/65"
-                      : "border-dashed border-border/65 bg-surface-sunken opacity-85"
+                      ? "border border-border/45 bg-card"
+                      : "bg-surface-sunken opacity-85"
                   }`}
                 >
                   <View class="flex-row items-center justify-between gap-1">
@@ -772,123 +772,136 @@ export function SeasonalPassPanel(props: {
         </View>
       </View>
 
-      <Hairline />
-
-      {/* 窗台天象、服饰、印泥与 3 格摆件槽位 */}
-      <If when={Boolean(props.onSelectWeatherMood)}>
-        <View class="gap-1.5">
-          <Text class="text-xs font-semibold text-foreground">{tr("atelier.seasonal.weather_label")}</Text>
-          <View class="flex-row flex-wrap gap-1.5">
-            <Each of={weatherOptions()} key={(w) => w.id}>
-              {(w) => (
-                <SelectChip
-                  label={w().label}
-                  selected={(props.weatherMood ?? "sunny_crisp") === w().id}
-                  onPress={() => props.onSelectWeatherMood?.(w().id)}
-                />
-              )}
-            </Each>
-          </View>
-        </View>
-      </If>
-
-      <If when={Boolean(props.outfits && props.outfits.length > 0 && props.onSelectOutfit)}>
-        <View class="gap-1.5">
-          <Text class="text-xs font-semibold text-foreground">{tr("atelier.seasonal.outfit_label")}</Text>
-          <View class="flex-row flex-wrap gap-1.5">
-            <Each of={props.outfits ?? []} key={(o) => o.id}>
-              {(o) => (
-                <SelectChip
-                  label={
-                    o().atelierOnly && !props.atelierUnlocked
-                      ? tr("atelier.seasonal.outfit_atelier_suffix", { label: o().label })
-                      : o().label
-                  }
-                  selected={props.activeOutfit === o().id}
-                  onPress={() => props.onSelectOutfit?.(o().id)}
-                />
-              )}
-            </Each>
-          </View>
-        </View>
-      </If>
-
-      <If when={Boolean(props.onSelectSealInk)}>
-        <View class="gap-1.5">
-          <Text class="text-xs font-semibold text-foreground">{tr("atelier.seasonal.seal_ink_label")}</Text>
-          <View class="flex-row flex-wrap gap-1.5">
-            <Each of={sealOptions()} key={(s) => s.id}>
-              {(s) => (
-                <SelectChip
-                  label={s().label}
-                  selected={(props.activeSealInk ?? "cinnabar") === s().id}
-                  onPress={() => props.onSelectSealInk?.(s().id)}
-                />
-              )}
-            </Each>
-          </View>
-        </View>
-      </If>
-
-      <If when={Boolean(props.availableKeepsakes && props.onToggleEquipKeepsake)}>
-        <View class="gap-1.5">
-          <View class="flex-row items-center justify-between">
-            <Text class="text-xs font-semibold text-foreground">
-              {tr("atelier.seasonal.keepsakes_display_label")}
-            </Text>
-            <Text
-              class="text-[11px] text-muted-foreground"
-              style={{ fontVariant: ["tabular-nums"] }}
-            >
-              {tr("atelier.seasonal.keepsakes_equipped_count", {
-                count: (props.equippedKeepsakes ?? []).length,
-              })}
-            </Text>
-          </View>
-          <View class="flex-row flex-wrap gap-1.5">
-            <Each of={props.availableKeepsakes ?? []} key={(k) => k.id}>
-              {(k) => (
-                <SelectChip
-                  label={k().name}
-                  selected={(props.equippedKeepsakes ?? []).includes(k().id)}
-                  disabled={!k().unlocked}
-                  onPress={() => props.onToggleEquipKeepsake?.(k().id)}
-                />
-              )}
-            </Each>
-          </View>
-        </View>
-      </If>
-
-      {/* 往期节气博物架抽屉切换 */}
-      <If when={Boolean(props.archiveItems && props.archiveItems.length > 0)}>
-        <View class="gap-2 pt-1">
+      {/* 往期节气博物架与风物装扮折叠切换 */}
+      <If
+        when={
+          Boolean(props.onSelectWeatherMood) ||
+          Boolean(props.outfits && props.outfits.length > 0 && props.onSelectOutfit) ||
+          Boolean(props.onSelectSealInk) ||
+          Boolean(props.availableKeepsakes && props.onToggleEquipKeepsake) ||
+          Boolean(props.archiveItems && props.archiveItems.length > 0)
+        }
+      >
+        <View class="gap-3 pt-1">
           <ActionButton
             title={
-              showArchive()
+              showArchiveAndDecor()
                 ? tr("atelier.seasonal.archive_collapse")
-                : tr("atelier.seasonal.archive_expand")
+                : isEnglishLocale()
+                  ? "Past seasonal keepsakes & decor"
+                  : tr("atelier.seasonal.archive_expand")
             }
             icon="handscroll"
             size="sm"
             variant="secondary"
-            onPress={() => showArchive.update((v) => !v)}
+            onPress={() => showArchiveAndDecor.update((v) => !v)}
           />
-          <If when={showArchive()}>
-            <View class="flex-row flex-wrap gap-2 rounded-xl border border-border/65 bg-surface-sunken p-3">
-              <Each of={props.archiveItems ?? []} key={(a) => `${a.solarTerm}-${a.title}`}>
-                {(item) => (
-                  <View class="min-w-36 flex-1 gap-1 rounded-xl border border-border/60 bg-card p-2.5">
-                    <View class="flex-row items-center justify-between">
-                      <Text class="text-xs font-bold text-foreground">{item().solarTerm}</Text>
-                      <Text class="text-[10px] font-semibold text-atelier-accent">
-                        {item().unlocked ? item().badge : tr("atelier.seasonal.archive_claimable")}
-                      </Text>
-                    </View>
-                    <Text class="text-[11px] text-muted-foreground">{item().title}</Text>
+
+          <If when={showArchiveAndDecor()}>
+            <View class="gap-3">
+              {/* 窗台天象、服饰、印泥与 3 格摆件槽位 */}
+              <If when={Boolean(props.onSelectWeatherMood)}>
+                <View class="gap-1.5">
+                  <Text class="text-xs font-semibold text-foreground">{tr("atelier.seasonal.weather_label")}</Text>
+                  <View class="flex-row flex-wrap gap-1.5">
+                    <Each of={weatherOptions()} key={(w) => w.id}>
+                      {(w) => (
+                        <SelectChip
+                          label={w().label}
+                          selected={(props.weatherMood ?? "sunny_crisp") === w().id}
+                          onPress={() => props.onSelectWeatherMood?.(w().id)}
+                        />
+                      )}
+                    </Each>
                   </View>
-                )}
-              </Each>
+                </View>
+              </If>
+
+              <If when={Boolean(props.outfits && props.outfits.length > 0 && props.onSelectOutfit)}>
+                <View class="gap-1.5">
+                  <Text class="text-xs font-semibold text-foreground">{tr("atelier.seasonal.outfit_label")}</Text>
+                  <View class="flex-row flex-wrap gap-1.5">
+                    <Each of={props.outfits ?? []} key={(o) => o.id}>
+                      {(o) => (
+                        <SelectChip
+                          label={
+                            o().atelierOnly && !props.atelierUnlocked
+                              ? tr("atelier.seasonal.outfit_atelier_suffix", { label: o().label })
+                              : o().label
+                          }
+                          selected={props.activeOutfit === o().id}
+                          onPress={() => props.onSelectOutfit?.(o().id)}
+                        />
+                      )}
+                    </Each>
+                  </View>
+                </View>
+              </If>
+
+              <If when={Boolean(props.onSelectSealInk)}>
+                <View class="gap-1.5">
+                  <Text class="text-xs font-semibold text-foreground">{tr("atelier.seasonal.seal_ink_label")}</Text>
+                  <View class="flex-row flex-wrap gap-1.5">
+                    <Each of={sealOptions()} key={(s) => s.id}>
+                      {(s) => (
+                        <SelectChip
+                          label={s().label}
+                          selected={(props.activeSealInk ?? "cinnabar") === s().id}
+                          onPress={() => props.onSelectSealInk?.(s().id)}
+                        />
+                      )}
+                    </Each>
+                  </View>
+                </View>
+              </If>
+
+              <If when={Boolean(props.availableKeepsakes && props.onToggleEquipKeepsake)}>
+                <View class="gap-1.5">
+                  <View class="flex-row items-center justify-between">
+                    <Text class="text-xs font-semibold text-foreground">
+                      {tr("atelier.seasonal.keepsakes_display_label")}
+                    </Text>
+                    <Text
+                      class="text-[11px] text-muted-foreground"
+                      style={{ fontVariant: ["tabular-nums"] }}
+                    >
+                      {tr("atelier.seasonal.keepsakes_equipped_count", {
+                        count: (props.equippedKeepsakes ?? []).length,
+                      })}
+                    </Text>
+                  </View>
+                  <View class="flex-row flex-wrap gap-1.5">
+                    <Each of={props.availableKeepsakes ?? []} key={(k) => k.id}>
+                      {(k) => (
+                        <SelectChip
+                          label={k().name}
+                          selected={(props.equippedKeepsakes ?? []).includes(k().id)}
+                          disabled={!k().unlocked}
+                          onPress={() => props.onToggleEquipKeepsake?.(k().id)}
+                        />
+                      )}
+                    </Each>
+                  </View>
+                </View>
+              </If>
+
+              <If when={Boolean(props.archiveItems && props.archiveItems.length > 0)}>
+                <View class="flex-row flex-wrap gap-2 rounded-xl bg-surface-sunken p-3">
+                  <Each of={props.archiveItems ?? []} key={(a) => `${a.solarTerm}-${a.title}`}>
+                    {(item) => (
+                      <View class="min-w-36 flex-1 gap-1 rounded-xl bg-card p-2.5 shadow-2xs">
+                        <View class="flex-row items-center justify-between">
+                          <Text class="text-xs font-bold text-foreground">{item().solarTerm}</Text>
+                          <Text class="text-[10px] font-semibold text-primary">
+                            {item().unlocked ? item().badge : tr("atelier.seasonal.archive_claimable")}
+                          </Text>
+                        </View>
+                        <Text class="text-[11px] text-muted-foreground">{item().title}</Text>
+                      </View>
+                    )}
+                  </Each>
+                </View>
+              </If>
             </View>
           </If>
         </View>
@@ -944,16 +957,11 @@ export function StickerCameraMatPanel(props: {
     <Card>
       <SectionHeader
         title={tr("atelier.camera_mat.title")}
-        subtitle={tr("atelier.camera_mat.subtitle")}
         right={
-          <View
-            class={`rounded-full px-2.5 py-1 ${
-              props.atelierUnlocked ? "bg-atelier-soft" : "border border-border/70 bg-surface-sunken"
-            }`}
-          >
+          <View class="rounded-full bg-secondary px-2.5 py-1">
             <Text
               class={`text-[11px] font-semibold ${
-                props.atelierUnlocked ? "text-atelier-accent" : "text-foreground"
+                props.atelierUnlocked ? "text-primary" : "text-foreground"
               }`}
               style={{ fontVariant: ["tabular-nums"] }}
             >
@@ -969,7 +977,7 @@ export function StickerCameraMatPanel(props: {
       />
 
       {/* Canvas 实时模切贴纸预览框 */}
-      <View class="flex-row flex-wrap items-center gap-3 rounded-2xl border border-border/65 bg-surface-sunken p-3">
+      <View class="flex-row flex-wrap items-center gap-2.5 rounded-2xl bg-surface-sunken p-2.5">
         <Canvas
           style={{ width: 122, height: 122 }}
           draw={(cx, size) => {
@@ -1054,11 +1062,6 @@ export function StickerCameraMatPanel(props: {
               )}
             </Each>
           </View>
-          <View class="flex-row flex-wrap items-center gap-1.5">
-            <View class="rounded-full bg-bento-amber px-2.5 py-0.5">
-              <Text class="text-[11px] font-medium text-foreground">{resolvedHint()}</Text>
-            </View>
-          </View>
           <ActionButton
             title={
               quotaReached()
@@ -1085,23 +1088,21 @@ export function StickerCameraMatPanel(props: {
       </View>
 
       {/* 人间烟火月历垫网格 */}
-      <View class="gap-2 rounded-2xl border border-border/65 bg-bento-amber/40 p-3">
+      <View class="gap-1.5 rounded-2xl bg-surface-sunken p-2.5">
         <View class="flex-row items-center justify-between">
           <Text class="text-xs font-bold text-foreground">{tr("atelier.camera_mat.calendar_title")}</Text>
           <Text class="text-[11px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
             {tr("atelier.camera_mat.calendar_count", { count: props.stickers.length })}
           </Text>
         </View>
-        <View class="flex-row flex-wrap gap-1.5">
+        <View class="flex-row flex-wrap gap-1">
           <Each of={days} key={(d) => `cal-day-${d}`}>
             {(day) => {
               const matched = () => props.stickers.filter((s) => s.dayNumber === day());
               return (
                 <View
-                  class={`h-11 w-10 items-center justify-center rounded-xl border ${
-                    matched().length > 0
-                      ? "border-atelier-accent/45 bg-card"
-                      : "border-border/45 bg-surface-sunken/70"
+                  class={`h-10 w-9 items-center justify-center rounded-xl ${
+                    matched().length > 0 ? "bg-card shadow-2xs" : "bg-card/55"
                   }`}
                 >
                   <Text
@@ -1111,8 +1112,8 @@ export function StickerCameraMatPanel(props: {
                     {`${day()}`}
                   </Text>
                   <If when={matched().length > 0}>
-                    <View class="mt-0.5 rounded-full bg-atelier-soft px-1.5">
-                      <Text class="text-[9px] font-bold text-atelier-accent">
+                    <View class="mt-0.5 rounded-full bg-secondary px-1.5">
+                      <Text class="text-[9px] font-bold text-primary">
                         {tr("atelier.camera_mat.day_sticker_badge", { count: matched().length })}
                       </Text>
                     </View>
@@ -1201,7 +1202,7 @@ export function CompanionLetterModal(props: {
             {(letter) => (
               <View class="gap-3.5">
                 {/* 火漆信封封面 */}
-                <View class="items-center gap-2.5 rounded-2xl border border-wax-seal/30 bg-wax-seal-soft/65 p-4">
+                <View class="items-center gap-2.5 rounded-2xl bg-surface-sunken p-5">
                   <View style={sealMotion.style}>
                     <Button
                       hitSlop={4}
@@ -1209,7 +1210,7 @@ export function CompanionLetterModal(props: {
                         void sealMotion.play("popIn");
                         isUnsealed.update((v) => !v);
                       }}
-                      class="size-14 items-center justify-center rounded-full border-2 border-wax-seal bg-card"
+                      class="size-14 items-center justify-center rounded-full border border-border/45 bg-card shadow-xs"
                     >
                       <WaxSealIcon size={26} color={token("wax-seal")} />
                     </Button>
@@ -1243,20 +1244,20 @@ export function CompanionLetterModal(props: {
                 >
                   <If when={isUnsealed()}>
                     {/* 暖米色信纸正文 */}
-                    <View class="gap-3 rounded-2xl border border-border bg-card p-5">
+                    <View class="gap-3 rounded-2xl border border-border/45 bg-card p-5 shadow-2xs">
                       <Text class="text-sm leading-loose text-foreground">{letter().body}</Text>
                     </View>
 
                     {/* 底部节气藏书票 */}
-                    <View class="flex-row items-center gap-3 rounded-2xl border-2 border-ink-lapis/40 bg-dew-soft/55 p-3.5">
-                      <View class="size-11 items-center justify-center rounded-xl border border-ink-gold/50 bg-card">
+                    <View class="flex-row items-center gap-3 rounded-2xl border border-border/45 bg-card p-3.5">
+                      <View class="size-11 items-center justify-center rounded-xl bg-surface-sunken">
                         <BadgeCeramicIcon size={22} color={token("ink-gold")} />
                       </View>
                       <View class="flex-1 gap-0.5">
-                        <Text class="text-xs font-bold text-ink-lapis">
+                        <Text class="text-xs font-bold text-foreground">
                           {tr("atelier.letter.ex_libris_prefix", { title: letter().exLibrisTitle })}
                         </Text>
-                        <Text class="text-xs italic text-foreground">{letter().exLibrisQuote}</Text>
+                        <Text class="text-xs italic text-muted-foreground">{letter().exLibrisQuote}</Text>
                       </View>
                     </View>
                   </If>
@@ -1298,7 +1299,7 @@ export function CoSanctuarySheet(props: {
   return (
     <SheetDialog open={props.open} title={tr("atelier.co_sanctuary.title")} onClose={props.onClose}>
       {/* 隐私信任盾牌 */}
-      <View class="flex-row items-center gap-2 rounded-2xl border border-vital-prime/35 bg-vital-prime-soft px-3.5 py-2.5">
+      <View class="flex-row items-center gap-2 rounded-2xl bg-vital-prime-soft px-3.5 py-2.5">
         <QiIcon name="user_shield" size={16} color={token("vital-prime")} />
         <Text class="flex-1 text-xs font-semibold text-vital-prime">
           {tr("atelier.co_sanctuary.privacy_banner")}
@@ -1325,7 +1326,7 @@ export function CoSanctuarySheet(props: {
       </Card>
 
       {/* 窗台岁时金桂盆栽 */}
-      <Card class="border-duo-accent/35 bg-duo-soft/45">
+      <Card>
         <View class="flex-row items-center justify-between gap-2">
           <View class="flex-row items-center gap-2">
             <CoSanctuaryIcon size={18} color={token("duo-accent")} />
@@ -1341,7 +1342,7 @@ export function CoSanctuarySheet(props: {
               </Text>
             </View>
           </View>
-          <View class="rounded-full border border-duo-accent/35 bg-card px-2.5 py-1">
+          <View class="rounded-full bg-secondary px-2.5 py-1">
             <Text class="text-xs font-bold text-duo-accent" style={{ fontVariant: ["tabular-nums"] }}>
               {`Lv.${props.osmanthusLevel}`}
             </Text>
@@ -1472,10 +1473,10 @@ export function FourSeasonsScrollModal(props: {
               <Each of={props.badges} key={(b) => b.id}>
                 {(badge) => (
                   <View
-                    class={`min-w-40 flex-1 flex-row items-center gap-2.5 rounded-xl border p-3 ${
+                    class={`min-w-40 flex-1 flex-row items-center gap-2.5 rounded-xl p-3 ${
                       badge().unlocked
-                        ? "border-ink-gold/45 bg-atelier-soft/60"
-                        : "border-dashed border-border/60 bg-surface-sunken opacity-70"
+                        ? "border border-border/45 bg-card"
+                        : "bg-surface-sunken opacity-75"
                     }`}
                   >
                     <BadgeCeramicIcon
@@ -1507,6 +1508,8 @@ export function WristWidgetPreviewCard(props: {
   solarTerm?: string;
   mode?: "poetic" | "numeric";
   onChangeMode?: (mode: "poetic" | "numeric") => void;
+  hideModeSelector?: boolean;
+  embedded?: boolean;
 }) {
   const localMode = signal<"poetic" | "numeric">(props.mode ?? "poetic");
   const activeMode = () => props.mode ?? localMode();
@@ -1529,30 +1532,42 @@ export function WristWidgetPreviewCard(props: {
     Math.max(0, Math.min(100, Number.isFinite(props.score) ? Math.round(props.score) : 0));
 
   return (
-    <View class="gap-3.5 rounded-3xl border border-border/55 bg-card/90 p-4 shadow-2xs">
-      <SectionHeader
-        title={tr("atelier.widget.title")}
-        subtitle={tr("atelier.widget.subtitle")}
-        right={<WidgetIcon size={18} color={token("primary")} />}
-      />
+    <View
+      class={
+        props.embedded
+          ? "gap-3.5"
+          : "gap-3.5 rounded-2xl border border-border/45 bg-card p-4"
+      }
+    >
+      <If
+        when={!props.embedded}
+        else={
+          <Text class="text-xs text-muted-foreground">{tr("atelier.widget.subtitle")}</Text>
+        }
+      >
+        <SectionHeader
+          title={tr("atelier.widget.title")}
+          subtitle={tr("atelier.widget.subtitle")}
+          right={<WidgetIcon size={18} color={token("primary")} />}
+        />
+      </If>
 
-      <View class="flex-row flex-wrap items-center justify-between gap-2">
-        <Text class="text-xs font-semibold text-muted-foreground">
-          {tr("atelier.widget.ios_gallery_title")}
-        </Text>
-        <View class="flex-row gap-1.5">
-          <SelectChip
-            label={tr("atelier.widget.mode_poetic")}
-            selected={activeMode() === "poetic"}
-            onPress={() => setMode("poetic")}
-          />
-          <SelectChip
-            label={tr("atelier.widget.mode_numeric")}
-            selected={activeMode() === "numeric"}
-            onPress={() => setMode("numeric")}
+      <If when={!props.hideModeSelector}>
+        <View class="gap-2">
+          <Text class="text-xs font-semibold text-muted-foreground">
+            {tr("atelier.widget.ios_gallery_title")}
+          </Text>
+          <SegmentedTabs
+            items={[
+              { id: "poetic", label: tr("atelier.widget.mode_poetic") },
+              { id: "numeric", label: tr("atelier.widget.mode_numeric") },
+            ]}
+            activeId={activeMode()}
+            onSelect={(id) => setMode(id)}
+            size="sm"
           />
         </View>
-      </View>
+      </If>
 
       {/* WidgetKit 三态彻底分化微缩艺术场景矩阵 */}
       <View class="gap-3">
@@ -1667,18 +1682,18 @@ export function WristWidgetPreviewCard(props: {
             </Text>
           </Button>
 
-          {/* 小卡 2：锁屏矩形条 — 细长磨砂和纸条 + 左侧手绘线条小猫侧影 + 右侧迷你双行节律波纹与轻提示 */}
+          {/* 小卡 2：锁屏矩形条 — 细长磨砂微件材质 + 左侧手绘线条小猫侧影 + 右侧迷你双行节律波纹与轻提示 */}
           <Button
             hitSlop={4}
             accessibilityLabel={tr("atelier.widget.lock_rect_label")}
             onPress={toggleMode}
-            class="flex-1 justify-between gap-1.5 rounded-3xl border border-atelier-accent/30 bg-bento-amber/80 p-3 shadow-xs transition active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            class="flex-1 justify-between gap-1.5 rounded-3xl border border-border/45 bg-secondary/75 p-3 shadow-xs transition active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
           >
-            <View class="w-full flex-row items-center justify-between gap-1">
-              <Text class="text-[10px] font-bold text-atelier-accent">
+            <View class="w-full flex-row items-center justify-between gap-2">
+              <Text class="text-[10px] font-bold text-primary">
                 {props.solarTerm ? `${tr("app.name")} · ${props.solarTerm}` : tr("app.name")}
               </Text>
-              <Text class="text-[10px] font-medium text-muted-foreground">
+              <Text class="line-clamp-1 text-[10px] font-medium text-muted-foreground">
                 {tr("atelier.widget.lock_rect_label")}
               </Text>
             </View>
@@ -1827,7 +1842,7 @@ export function WristWidgetPreviewCard(props: {
                   }}
                 />
 
-                <Text class="line-clamp-2 text-xs font-bold leading-snug text-foreground">
+                <Text class="line-clamp-2 text-[11px] font-bold leading-snug text-foreground">
                   {lockHeadlineShort()}
                 </Text>
                 <Text class="line-clamp-1 text-[10px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
@@ -1843,7 +1858,7 @@ export function WristWidgetPreviewCard(props: {
           hitSlop={4}
           accessibilityLabel={tr("atelier.widget.home_small_label")}
           onPress={toggleMode}
-          class="relative h-44 w-full overflow-hidden rounded-3xl border-2 border-card shadow-sm transition active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          class="relative h-44 w-full overflow-hidden rounded-3xl border border-border/45 shadow-xs transition active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
         >
           <Image
             src={isNightScene() ? catNightImg : zenDayImg}
@@ -1901,7 +1916,6 @@ export function WristWidgetPreviewCard(props: {
                   {props.solarTerm ? `${tr("app.name")} · ${props.solarTerm}` : tr("app.name")}
                 </Text>
               </View>
-              <VitalBadge tone={props.state} label={props.stateBadge} />
             </View>
 
             <View class="gap-2">
@@ -1981,14 +1995,14 @@ export function FamilyPeaceLetterModal(props: {
             />
           </View>
 
-          <View class="flex-row items-center gap-2 rounded-2xl border border-vital-prime/30 bg-vital-prime-soft px-3.5 py-2">
+          <View class="flex-row items-center gap-2 rounded-2xl bg-vital-prime-soft px-3.5 py-2">
             <QiIcon name="cloud_lock" size={14} color={token("vital-prime")} />
             <Text class="flex-1 text-xs font-semibold text-vital-prime">
               {tr("atelier.family_letter.privacy_banner")}
             </Text>
           </View>
 
-          <View class="gap-4 rounded-3xl border-2 border-border bg-card p-6">
+          <View class="gap-4 rounded-2xl border border-border/45 bg-card p-5 shadow-2xs">
             <View class="flex-row items-center justify-between">
               <Text class="text-base font-bold text-wax-seal">
                 {tr("atelier.family_letter.salutation", { recipient: recipient() })}

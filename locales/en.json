@@ -372,7 +372,13 @@
     "sleep_debt": "%{hours}h slight sleep debt",
     "sleep_surplus": "%{hours}h extra sleep banked",
     "sleep_untracked": "Log last night's sleep to track balance",
-    "steps_count": "%{count} steps"
+    "steps_count": "%{count} steps",
+    "scene_picker_btn": "Scene",
+    "scene_picker_title": "Sanctuary scene",
+    "scene_picker_sub": "Switch illustrated companions anytime without altering your entries",
+    "poster_btn_short": "Card",
+    "feeling_compact_label": "Morning feel",
+    "feeling_adjust": "Adjust"
   },
   "log": {
     "kicker": "Log & labs",
@@ -1006,7 +1012,16 @@
     "tier_c_sub": "No wearable needed — rely on morning feelings and mindful logs",
     "tier_c_title": "Phone & paper · Felt rhythm",
     "healthkit_opt_title": "Also connect Apple Health (last 35 days)",
-    "healthkit_opt_sub": "Opens the iOS read-only permission sheet to replace sample rhythms with your real sleep & steps"
+    "healthkit_opt_sub": "Opens the iOS read-only permission sheet to replace sample rhythms with your real sleep & steps",
+    "beat1_kicker": "Gentle rhythm · Local sanctuary",
+    "beat1_body": "No stressful scores — just a calm space to hear your body's tide.",
+    "beat2_title": "Rest when tired, move when ready",
+    "beat2_body": "Turns complex sleep and heart signals into one gentle morning note.",
+    "beat3_title": "Everything stays on your iPhone",
+    "beat3_body": "Zero accounts or tracking. Encrypted locally, yours to export or erase.",
+    "orb_hint": "Tap the halo · Take one slow breath",
+    "healthkit_pill_on": "Apple Health read-only sync on",
+    "healthkit_pill_off": "Skip Apple Health for now"
   },
   "qa": {
     "title": "QA preview studio",
