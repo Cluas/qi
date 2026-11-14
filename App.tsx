@@ -1,4 +1,4 @@
-import { colorScheme, mount, Scroll, signal, Text, token, View, windowSize } from "nsh";
+import { mount, Scroll, signal, Text, token, View, windowSize } from "nsh";
 import { InsightsPage } from "./pages/InsightsPage";
 import { LogLabsPage } from "./pages/LogLabsPage";
 import { MeVaultPage } from "./pages/MeVaultPage";
@@ -13,9 +13,6 @@ import {
   confirmZdrConsent,
   copyToClipboard,
   coSanctuaryAction,
-  cycleAppearance,
-  getAppearancePref,
-  getAppLocale,
   getDewSummary,
   getHearthGiftCount,
   getHidePosterNumbers,
@@ -44,10 +41,8 @@ import {
   setShowDailyPoster,
   setShowFamilyPeaceLetterModal,
   setShowFourSeasonsScrollModal,
-  setShowQaStudio,
   setShowQuickCaptureModal,
   setTab,
-  toggleAppLocale,
 } from "./store";
 import {
   CompanionLetterModal,
@@ -63,7 +58,6 @@ import {
   DrawerSheet,
   ensureDefaultIosPortraitWindow,
   FieldInput,
-  IconButton,
   ModalSurface,
   NavRail,
   SelectChip,
@@ -91,24 +85,6 @@ function App() {
     { id: "me", label: tr("nav.me"), icon: "user_shield", sfSymbol: "person.crop.circle" },
   ];
 
-  const syncSummary = () => {
-    const mode = getState().settings.sync_mode;
-    switch (mode) {
-      case "icloud_drive":
-        return tr("sync.mode_icloud_summary");
-      case "webdav":
-        return tr("sync.mode_webdav_summary");
-      case "byo_server":
-        return tr("sync.mode_byo_summary");
-      default:
-        return tr("sync.mode_local_summary");
-    }
-  };
-
-  const appearanceIcon = (): QiIconName => {
-    return getAppearancePref() === "dark" ? "moon" : "sun";
-  };
-
   const submitGlobalQuickCapture = () => {
     const text = quickText().trim();
     if (!text) return;
@@ -132,103 +108,11 @@ function App() {
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
-      {/* Dynamic-Island-aware dual micro glass corner capsules (0pt full-bleed overlay on mobile Today) */}
-      <View
-        class={
-          isMobileTodayBleed()
-            ? "absolute inset-x-0 top-0 z-20 px-3 pb-1"
-            : "z-20 px-3 pt-1.5 pb-0.5"
-        }
-        style={{
-          paddingTop: isMobileTodayBleed() ? "env(safe-area-inset-top)" : 0,
-          pointerEvents: "box-none",
-        }}
-      >
-        <View
-          class={`flex-row items-center justify-between gap-2 ${
-            isMobileTodayBleed() ? "pt-1" : ""
-          }`}
-          style={{ pointerEvents: "box-none" }}
-        >
-          {/* Left micro glass capsule: pure brand mark on mobile, sync status only on desktop */}
-          <View
-            ios={{ backdropMaterial: "chrome" }}
-            style={{
-              backdropFilter: "blur(20px)",
-              glassEffect: colorScheme() === "dark" ? "none" : "regular",
-              glassTintColor: token("card"),
-              pointerEvents: "auto",
-            }}
-            class="min-h-8 shrink-0 flex-row items-center gap-2 rounded-full border border-border/60 bg-card/78 px-3 py-1 shadow-xs"
-          >
-            <Text role="header" class="text-sm font-bold tracking-wide text-foreground">
-              {tr("app.name")}
-            </Text>
-            <If when={isDesktop()}>
-              <View class="shrink-0 flex-row items-center gap-1 rounded-full border border-vital-prime/25 bg-vital-prime-soft px-2 py-0.5">
-                <QiIcon name="user_shield" size={10} color={token("vital-prime")} />
-                <Text class="text-[10px] font-semibold text-vital-prime">
-                  {settings().sync_mode === "local_only"
-                    ? tr("status.local_sealed")
-                    : tr("status.synced")}
-                </Text>
-              </View>
-              <Text class="text-xs text-muted-foreground">{syncSummary()}</Text>
-            </If>
-          </View>
-
-          {/* Right micro glass capsule: compact locale switch + QA studio trigger */}
-          <View
-            ios={{ backdropMaterial: "chrome" }}
-            style={{
-              backdropFilter: "blur(20px)",
-              glassEffect: colorScheme() === "dark" ? "none" : "regular",
-              glassTintColor: token("card"),
-              pointerEvents: "auto",
-            }}
-            class="min-h-8 shrink-0 flex-row items-center gap-0.5 rounded-full border border-border/60 bg-card/78 px-1 py-0.5 shadow-xs"
-          >
-            <ActionButton
-              title={tr("common.lang_toggle_compact")}
-              icon="globe"
-              variant="ghost"
-              size="xs"
-              shape="pill"
-              accessibilityLabel={`${tr("common.language")} (${getAppLocale()})`}
-              onPress={() => toggleAppLocale()}
-            />
-            <If when={isDesktop()}>
-              <IconButton
-                icon={appearanceIcon()}
-                size="xs"
-                variant="ghost"
-                accessibilityLabel={tr("common.appearance")}
-                onPress={() => cycleAppearance()}
-              />
-              <IconButton
-                icon="plus"
-                size="xs"
-                variant="secondary"
-                accessibilityLabel={tr("nav.quick_capture")}
-                onPress={() => setShowQuickCaptureModal(true)}
-              />
-            </If>
-            <IconButton
-              icon="sliders"
-              size="xs"
-              variant="ghost"
-              accessibilityLabel={tr("me.qa_studio_btn")}
-              onPress={() => setShowQaStudio(true)}
-            />
-          </View>
-        </View>
-      </View>
-
       <If when={Boolean(getToast())}>
         <View
           class={isMobileTodayBleed() ? "absolute inset-x-0 top-0 z-30" : ""}
           style={{
-            paddingTop: isMobileTodayBleed() ? "calc(env(safe-area-inset-top) + 38px)" : 0,
+            paddingTop: isMobileTodayBleed() ? "calc(env(safe-area-inset-top) + 8px)" : 0,
             pointerEvents: "box-none",
           }}
         >
@@ -270,7 +154,7 @@ function App() {
           <Scroll
             class="flex-1"
             contentStyle={{
-              paddingTop: !isDesktop() && activeTab() === "today" ? 0 : 12,
+              paddingTop: !isDesktop() && activeTab() === "today" ? 0 : 8,
               paddingLeft: 16,
               paddingRight: 16,
               paddingBottom: 24,

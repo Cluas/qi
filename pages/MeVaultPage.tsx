@@ -9,6 +9,8 @@ import {
   generateJsonlExport,
   generateParentsPeaceLetter,
   generatePetWeeklyLetter,
+  getAppearancePref,
+  getAppLocale,
   getCloudEntitlements,
   getDewSummary,
   getDisclaimerText,
@@ -30,6 +32,8 @@ import {
   runE2eeSyncNow,
   sendMorningTestNotification,
   setActiveCustomPet,
+  setAppearancePref,
+  setAppLocale,
   setMeSubTab,
   setSealInk,
   setShowAtelierModal,
@@ -818,6 +822,56 @@ export function MeVaultPage() {
       {/* Subview 3: Vault, Privacy & Export */}
       <If when={getMeSubTab() === "vault_export"}>
         <View class="gap-4">
+          <Card>
+            <SectionHeader
+              title={tr("me.preferences_section")}
+              subtitle={tr("me.preferences_ios_sub")}
+            />
+
+            <View class="gap-2">
+              <Text class="text-xs font-semibold text-muted-foreground">
+                {tr("common.language")}
+              </Text>
+              <View class="flex-row flex-wrap gap-2">
+                <SelectChip
+                  label="简体中文"
+                  selected={getAppLocale() === "zh-CN"}
+                  onPress={() => setAppLocale("zh-CN")}
+                />
+                <SelectChip
+                  label="English"
+                  selected={getAppLocale() === "en"}
+                  onPress={() => setAppLocale("en")}
+                />
+              </View>
+            </View>
+
+            <Hairline />
+
+            <View class="gap-2">
+              <Text class="text-xs font-semibold text-muted-foreground">
+                {tr("common.appearance")}
+              </Text>
+              <View class="flex-row flex-wrap gap-2">
+                <SelectChip
+                  label={tr("common.appearance_auto")}
+                  selected={getAppearancePref() === "system"}
+                  onPress={() => setAppearancePref("system")}
+                />
+                <SelectChip
+                  label={tr("common.appearance_paper")}
+                  selected={getAppearancePref() === "light"}
+                  onPress={() => setAppearancePref("light")}
+                />
+                <SelectChip
+                  label={tr("common.appearance_ink")}
+                  selected={getAppearancePref() === "dark"}
+                  onPress={() => setAppearancePref("dark")}
+                />
+              </View>
+            </View>
+          </Card>
+
           <Card>
             <SectionHeader
               title={tr("me.sync_section")}

@@ -41,9 +41,10 @@ test("知气 v5.0 确定性中文冷启动、极简顶栏、中英双语实时�
   expect(app.shows("欢迎来到知气")).toBe(false);
   await app.press("关闭");
 
-  // 1. Top header decluttered + TodayPage 1 Hero + 1 Focus Card + 1 Disclosure Drawer
+  // 1. Top header removed + TodayPage 1 Hero + 1 Focus Card + 1 Disclosure Drawer
   expect(app.shows("知气")).toBe(true);
-  expect(app.shows("中 / EN")).toBe(true);
+  expect(app.shows("中 / EN")).toBe(false);
+  expect(app.shows("打开体验调试台")).toBe(false);
   expect(app.shows("食光")).toBe(true);
   expect(app.shows("家书")).toBe(true);
   expect(app.shows("同窗")).toBe(true);
@@ -94,10 +95,18 @@ test("知气 v5.0 确定性中文冷启动、极简顶栏、中英双语实时�
   await app.waitFor("展开往期节气博物架");
   await app.press("完成");
 
-  // 2. Toggle zh-CN -> en cleanly via compact header switch
-  await app.press("text:中 / EN");
+  // 2. Toggle zh-CN -> en cleanly via Me -> 隐私与金库 settings card
+  await app.press("我的");
+  await app.press("隐私与金库");
+  await app.waitFor("界面与习惯");
+  await app.press("English");
+  await app.waitFor("Appearance & language");
+  if (app.shows("Close")) await app.press("Close");
+  assertCleanCopy(app.texts());
+
+  await app.press("Today");
   await app.waitFor("Qi");
-  expect(app.shows("ZH / EN")).toBe(true);
+  expect(app.shows("ZH / EN")).toBe(false);
   expect(app.shows("Today's focus & check-in")).toBe(true);
   assertCleanCopy(app.texts());
 
@@ -125,16 +134,19 @@ test("知气 v5.0 确定性中文冷启动、极简顶栏、中英双语实时�
 
   // Me SegmentedTabs in English
   await app.press("Me");
+  await app.press("Pet Studio");
   await app.waitFor("Pet Studio");
   expect(app.shows("Atelier & Billing")).toBe(true);
   expect(app.shows("Vault & Privacy")).toBe(true);
   expect(app.shows("1 custom pet sits free forever — kept intact even if Pro ever expires")).toBe(true);
   assertCleanCopy(app.texts());
 
-  // Switch back to zh-CN
-  await app.press("text:ZH / EN");
-  await app.waitFor("知气");
-  expect(app.shows("中 / EN")).toBe(true);
+  // Switch back to zh-CN inside Me -> Vault & Privacy
+  await app.press("Vault & Privacy");
+  await app.waitFor("Appearance & language");
+  await app.press("简体中文");
+  await app.waitFor("界面与习惯");
+  expect(app.shows("中 / EN")).toBe(false);
   if (app.shows("关闭")) await app.press("关闭");
 
   // 3. LogLabs quick NLP + PII lab sample + Insights scroll
@@ -175,6 +187,7 @@ test("知气 v5.0 确定性中文冷启动、极简顶栏、中英双语实时�
   await app.press("隐私与金库");
   await app.waitFor("本地安全金库");
   await scrollIntoView(app, "本地安全金库", 900);
+  await scrollIntoView(app, "清空本机手账数据…", 600);
   await app.waitFor("清空本机手账数据…");
   await app.press("清空本机手账数据…");
   await app.waitFor("真的要清空本机手账金库吗？");
@@ -197,8 +210,9 @@ test("知气 v5.0 自定陪伴工坊、只读金库零删档、Apple IAP 合规�
 
   await app.scroll("自定陪伴工坊", 260);
   await app.type("比如：糯米、阿福、土豆", "糯米");
+  await scrollIntoView(app, "安放新陪伴", 220);
   await app.press("设为星光纪念窗台");
-  await app.scroll("安放新陪伴", 240);
+  await scrollIntoView(app, "安放新陪伴", 160);
   await app.press("安放至窗台");
   await app.waitFor("「糯米」已在窗台安顿好");
   await app.press("关闭");
@@ -214,30 +228,37 @@ test("知气 v5.0 自定陪伴工坊、只读金库零删档、Apple IAP 合规�
   // Attempt 2nd pet on Free tier -> blocked cleanly by Free=1 cap
   await app.press("我的");
   await app.waitFor("已安放 1/1 位陪伴");
-  await app.scroll("安放新陪伴", 240);
+  await scrollIntoView(app, "安放新陪伴", 320);
   await app.type("比如：糯米、阿福、土豆", "土豆");
-  await app.scroll("安放新陪伴", 240);
+  await scrollIntoView(app, "安放新陪伴", 360);
   await app.press("安放至窗台");
   await app.waitUntil(() =>
     app.texts().some((t) => t.includes("1/1") && t.includes("知气雅集")),
   );
   await app.press("关闭");
 
-  // 2. Unlock Pro via QA Studio -> 3 slots, Ex Libris stamp, weekly first-person letter
+  // 2. Unlock Pro via QA Studio (inside 隐私与金库) -> 3 slots, Ex Libris stamp, weekly first-person letter
+  await scrollIntoView(app, "自定陪伴工坊", -600);
+  await app.press("隐私与金库");
+  await app.waitFor("本地安全金库");
+  await scrollIntoView(app, "本地安全金库", 900);
+  await scrollIntoView(app, "打开体验调试台", 600);
   await app.press("打开体验调试台");
-  await app.waitFor("体验调试台");
-  await app.scroll("体验调试台", 720);
+  await app.waitFor("视口形态与拇指热区预览");
+  await scrollIntoView(app, "StoreKit 与会员状态沙盒", 720);
   await app.waitFor("模拟已启封手作坊 Pro");
   await app.press("模拟已启封手作坊 Pro");
   await app.waitFor("active_atelier");
   await app.press("完成");
   if (app.shows("关闭")) await app.press("关闭");
 
+  await scrollIntoView(app, "本地安全金库", -1600);
+  await app.press("自定陪伴工坊");
   await app.waitFor("已安放 1/3 位陪伴");
-  await scrollIntoView(app, "安放新陪伴", -280);
+  await scrollIntoView(app, "安放新陪伴", 360);
   await app.clear("text:土豆");
   await app.type("比如：糯米、阿福、土豆", "阿福");
-  await scrollIntoView(app, "安放新陪伴", 280);
+  await scrollIntoView(app, "安放新陪伴", 420);
   await app.type("例如：小满印信 / 糯米藏书", "阿福藏书印");
   await app.press("安放至窗台");
   await app.waitFor("「阿福」已在窗台安顿好");
@@ -255,14 +276,21 @@ test("知气 v5.0 自定陪伴工坊、只读金库零删档、Apple IAP 合规�
   await app.press("收好信笺");
 
   // 3. Switch to ExpiredReadOnlyVault -> pets remain 100% intact (non-lockout)
+  await scrollIntoView(app, "自定陪伴工坊", -800);
+  await app.press("隐私与金库");
+  await app.waitFor("本地安全金库");
+  await scrollIntoView(app, "本地安全金库", 900);
+  await scrollIntoView(app, "打开体验调试台", 600);
   await app.press("打开体验调试台");
-  await app.waitFor("体验调试台");
-  await scrollIntoView(app, "体验调试台", 720);
+  await app.waitFor("视口形态与拇指热区预览");
+  await scrollIntoView(app, "StoreKit 与会员状态沙盒", 720);
   await app.press("模拟 Pro 到期只读金库");
   await app.waitFor("expired_read_only_vault");
   await app.press("完成");
   if (app.shows("关闭")) await app.press("关闭");
 
+  await scrollIntoView(app, "本地安全金库", -1600);
+  await app.press("自定陪伴工坊");
   await app.waitFor("自定陪伴工坊");
   expect(app.shows("糯米")).toBe(true);
   expect(app.shows("阿福")).toBe(true);
@@ -304,6 +332,7 @@ test("知气 v5.0 自定陪伴工坊、只读金库零删档、Apple IAP 合规�
   // Clean reset at end
   await app.press("隐私与金库");
   await scrollIntoView(app, "本地安全金库", 900);
+  await scrollIntoView(app, "清空本机手账数据…", 600);
   await app.waitFor("清空本机手账数据…");
   await app.press("清空本机手账数据…");
   await app.waitFor("真的要清空本机手账金库吗？");
@@ -322,6 +351,10 @@ test("知气 v5.5 iOS 竖屏 (393x852 Dynamic Island) 拇指底栏速记抽屉�
   await app.waitFor("今日手账");
   if (app.shows("关闭")) await app.press("关闭");
 
+  expect(app.shows("知气")).toBe(true);
+  expect(app.shows("中 / EN")).toBe(false);
+  expect(app.shows("打开体验调试台")).toBe(false);
+
   // 1. 拇指弧区 5 槽底栏居中 + 速记打开底部抽屉并一步记录饮食芯片
   await app.waitFor("速记");
   await app.press("速记");
@@ -331,15 +364,21 @@ test("知气 v5.5 iOS 竖屏 (393x852 Dynamic Island) 拇指底栏速记抽屉�
   await app.waitFor("今日手账");
   if (app.shows("关闭")) await app.press("关闭");
 
-  // 2. 验证 QA 视口切换器按钮可呈现
+  // 2. 进入 我的 -> 隐私与金库 滚动校验底部 QA 调试台并验证视口切换器按钮可呈现
+  await app.press("我的");
+  await app.press("隐私与金库");
+  await app.waitFor("本地安全金库");
+  await scrollIntoView(app, "本地安全金库", 900);
+  await scrollIntoView(app, "打开体验调试台", 700);
+  await app.waitFor("打开体验调试台");
   await app.press("打开体验调试台");
   await app.waitFor("视口形态与拇指热区预览");
   await app.waitFor("iPhone 竖屏 (402×874)");
   await app.press("完成");
   if (app.shows("关闭")) await app.press("关闭");
 
-  // 3. 验证 我的 -> 雅集与权益 内置 WidgetKit 三态小组件矩阵及中英双语切换
-  await app.press("我的");
+  // 3. 切回 雅集与权益 验证内置 WidgetKit 三态小组件矩阵
+  await scrollIntoView(app, "本地安全金库", -1600);
   await app.press("雅集与权益");
   await scrollIntoView(app, "iOS 锁屏与桌面小组件预览（WidgetKit）", 320);
   await app.waitFor("锁屏圆环 · 元气");
@@ -348,17 +387,28 @@ test("知气 v5.5 iOS 竖屏 (393x852 Dynamic Island) 拇指底栏速记抽屉�
   await app.press("精准数值");
   assertCleanCopy(app.texts());
 
-  // 4. 切至英文验证双语一致性与底部居中 Note 热区
-  await app.press("text:中 / EN");
+  // 4. 进 隐私与金库 切至英文验证底部居中 Note 热区与 WidgetKit 双语一致性
+  await scrollIntoView(app, "iOS 锁屏与桌面小组件预览（WidgetKit）", -600);
+  await app.press("隐私与金库");
+  await app.waitFor("界面与习惯");
+  await app.press("English");
   await app.waitFor("Note");
+  if (app.shows("Close")) await app.press("Close");
+  await app.press("Atelier & Billing");
+  await scrollIntoView(app, "iOS Lock Screen & Home Widgets (WidgetKit)", 320);
   await app.waitFor("iOS Lock Screen & Home Widgets (WidgetKit)");
   await app.waitFor("Lock Ring · Qi");
   assertCleanCopy(app.texts());
 
   // 5. 清理回归初始态
-  await app.press("text:ZH / EN");
-  await app.press("隐私与金库");
+  await scrollIntoView(app, "iOS Lock Screen & Home Widgets (WidgetKit)", -600);
+  await app.press("Vault & Privacy");
+  await app.waitFor("Appearance & language");
+  await app.press("简体中文");
+  await app.waitFor("界面与习惯");
+  if (app.shows("关闭")) await app.press("关闭");
   await scrollIntoView(app, "本地安全金库", 900);
+  await scrollIntoView(app, "清空本机手账数据…", 700);
   await app.press("清空本机手账数据…");
   await app.waitFor("真的要清空本机手账金库吗？");
   await app.press("确认彻底清空本机数据");

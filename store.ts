@@ -892,23 +892,29 @@ export function runDataIntegrityAudit(): DataAuditReport | null {
   }
 }
 
-export function cycleAppearance() {
-  const current = appearancePref();
-  const next: AppearancePreference =
-    current === "system" ? "light" : current === "light" ? "dark" : "system";
+export function setAppearancePref(next: AppearancePreference, silent = false) {
   appearancePref.set(next);
   try {
     setColorScheme(next);
   } catch {
     // Headless test hosts may ignore system color scheme hints.
   }
-  const label =
-    next === "light"
-      ? tr("common.appearance_paper")
-      : next === "dark"
-        ? tr("common.appearance_ink")
-        : tr("common.appearance_auto");
-  notify(tr("toast.appearance_changed", { label }));
+  if (!silent) {
+    const label =
+      next === "light"
+        ? tr("common.appearance_paper")
+        : next === "dark"
+          ? tr("common.appearance_ink")
+          : tr("common.appearance_auto");
+    notify(tr("toast.appearance_changed", { label }));
+  }
+}
+
+export function cycleAppearance() {
+  const current = appearancePref();
+  const next: AppearancePreference =
+    current === "system" ? "light" : current === "light" ? "dark" : "system";
+  setAppearancePref(next);
 }
 
 export function completeOnboarding(goal: string, tier: string) {

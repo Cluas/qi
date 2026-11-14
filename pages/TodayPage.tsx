@@ -230,10 +230,14 @@ export function TodayPage() {
         onOpenPetStudio={() => openPetStudio()}
       />
 
-      {/* 2. 窗台正下方无框极简微行：左侧柔和细标「今日手账」+ 日期，右侧三境屏风切换 */}
+      {/* 2. 窗台正下方无框极简微行：左侧品牌与「今日手账」标头 + 日期，右侧三境屏风切换 */}
       <View class="flex-row flex-wrap items-center justify-between gap-2 px-0.5">
         <View class="flex-row items-center gap-1.5">
-          <Text role="header" class="text-xs font-semibold tracking-wide text-muted-foreground">
+          <Text role="header" class="text-xs font-semibold tracking-wide text-foreground">
+            {tr("app.name")}
+          </Text>
+          <Text class="text-xs text-ink-subtle">·</Text>
+          <Text class="text-xs font-semibold tracking-wide text-muted-foreground">
             {tr("today.kicker")}
           </Text>
           <Text class="text-xs text-ink-subtle">·</Text>

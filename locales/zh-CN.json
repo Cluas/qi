@@ -605,6 +605,7 @@
     "webdav_title": "自建 WebDAV 私密同步",
     "sync_now": "立即同步",
     "preferences_section": "界面与习惯",
+    "preferences_ios_sub": "默认跟随 iOS「设置 › App › 知气」系统语言与深浅外观，也可在此单独设定",
     "theme_section": "心境画卷",
     "vault_section": "本地安全金库",
     "export_backup": "导出加密备份…",

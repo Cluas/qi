@@ -605,6 +605,7 @@
     "webdav_title": "Self-hosted WebDAV vault",
     "sync_now": "Sync now",
     "preferences_section": "Appearance & language",
+    "preferences_ios_sub": "Follows iOS Settings › Apps › Qi by default, with optional overrides below",
     "theme_section": "Sanctuary theme",
     "vault_section": "On-device security vault",
     "export_backup": "Export encrypted backup…",

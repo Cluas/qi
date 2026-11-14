@@ -1021,11 +1021,11 @@ export function SanctuaryStage(props: SanctuaryStageProps) {
     <View
       class={`overflow-hidden rounded-b-3xl border-b border-border/70 bg-card shadow-xs sm:rounded-3xl sm:border ${props.class ?? ""}`}
     >
-      {/* 1. 沉浸式插画主舞台（h-[350px] sm:h-80，背景 0pt 全出血，内部安全区顶栏承载左上微倾和纸便签与右上日签签条） */}
+      {/* 1. 沉浸式插画主舞台（h-[338px] sm:h-80，背景 0pt 全出血，内部安全区顶栏承载左上微倾和纸便签与右上日签签条） */}
       <View
-        class="relative h-[362px] overflow-hidden bg-surface-sunken px-3 pb-3 sm:h-80"
+        class="relative h-[338px] overflow-hidden bg-surface-sunken px-3 pb-3 sm:h-80"
         style={{
-          paddingTop: isDesktopStage() ? 14 : "calc(env(safe-area-inset-top) + 50px)",
+          paddingTop: isDesktopStage() ? 14 : "calc(env(safe-area-inset-top) + 10px)",
         }}
       >
         <SceneCrossfade
