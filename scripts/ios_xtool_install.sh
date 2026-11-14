@@ -12,6 +12,8 @@ DO_LAUNCH=false
 DRY_RUN=false
 IPA_PATH=""
 UDID=""
+TARGET_REF=""
+RESOLVED_REF=""
 
 usage() {
   cat <<'EOF'
@@ -21,7 +23,8 @@ usage() {
   ./scripts/ios_xtool_install.sh [选项]
 
 选项:
-  --build          触发 GitHub Actions 手动打包并等待完成后下载产物（消耗云端分钟数）
+  --build          触发 GitHub Actions 手动打包并等待完成后下载产物（Public 仓享无限免费 macOS 构建额度）
+  --ref <branch>   指定触发云端打包的远端分支（默认取当前分支；若处于空壳 main 则自动回退到 dev）
   --ipa <path>     跳过 GitHub 下载，直接安装指定的本地 .ipa 或 .app 文件
   --udid <udid>    多台设备连接时指定目标 iPhone UDID（透传 xtool -u）
   --launch         安装完成后立即在真机启动《知气》（eu.org.cluas.qi）
@@ -31,6 +34,7 @@ usage() {
 示例:
   ./scripts/ios_xtool_install.sh --dry-run
   ./scripts/ios_xtool_install.sh --build --launch
+  ./scripts/ios_xtool_install.sh --build --ref dev --launch
   ./scripts/ios_xtool_install.sh --ipa ~/Downloads/qi-ios-unsigned.ipa --launch
 EOF
 }
@@ -60,8 +64,9 @@ check_github_ready() {
   local origin_url
   origin_url="$(git -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || true)"
   if [ -z "${origin_url}" ]; then
-    echo "❌ 当前仓库尚未配置 origin 远端，请先创建私有 GitHub 仓库并推送：" >&2
-    echo "   gh repo create qi --private --source=. --remote=origin --push" >&2
+    echo "❌ 当前仓库尚未配置 origin 远端，请先创建 Public GitHub 仓库并按序推送 main 与 dev 双分支：" >&2
+    echo "   gh repo create qi --public --source=. --remote=origin -d \"Qi (知气)\"" >&2
+    echo "   git push -u origin main && git push -u origin dev" >&2
     return 1
   fi
   echo "✓ GitHub 远端就绪: ${origin_url}"
@@ -103,12 +108,46 @@ find_latest_run_id() {
   fi
 }
 
+get_current_branch() {
+  local branch
+  branch="$(git -C "${REPO_ROOT}" branch --show-current 2>/dev/null || true)"
+  if [ -z "${branch}" ]; then
+    branch="$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  fi
+  echo "${branch}"
+}
+
+resolve_target_ref() {
+  if [ -n "${TARGET_REF}" ]; then
+    RESOLVED_REF="${TARGET_REF}"
+    return 0
+  fi
+
+  local current_branch
+  current_branch="$(get_current_branch)"
+  if [ ! -f "${REPO_ROOT}/nsh.json" ]; then
+    if [ "${current_branch}" = "main" ]; then
+      echo "ℹ️  当前位于空壳占位 'main' 分支（缺少 nsh.json），已自动回退云端打包目标分支为 'dev'。"
+      RESOLVED_REF="dev"
+      return 0
+    fi
+    echo "❌ 当前目录缺少 nsh.json（当前分支: ${current_branch:-unknown}），无法作为完整应用源码打包。" >&2
+    echo "   请先执行 git checkout dev，或显式传入 --ref dev。" >&2
+    exit 1
+  fi
+
+  if [ -z "${current_branch}" ] || [ "${current_branch}" = "HEAD" ]; then
+    echo "❌ 无法识别当前本地分支（detached HEAD），请先切换到 dev 分支或传入 --ref dev。" >&2
+    exit 1
+  fi
+
+  RESOLVED_REF="${current_branch}"
+}
+
 trigger_and_watch_build() {
   local ref prev_run_id new_run_id attempt
-  ref="$(git -C "${REPO_ROOT}" branch --show-current)"
-  if [ -z "${ref}" ]; then
-    ref="$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD)"
-  fi
+  resolve_target_ref
+  ref="${RESOLVED_REF}"
 
   if [ -n "$(git -C "${REPO_ROOT}" status --porcelain)" ]; then
     echo "⚠️  检测到本地存在未提交改动；GitHub Actions 仅会打包已 push 到远端 '${ref}' 的提交。"
@@ -166,6 +205,14 @@ parse_args() {
         DO_BUILD=true
         shift
         ;;
+      --ref)
+        if [ "$#" -lt 2 ] || [ -z "${2:-}" ]; then
+          echo "❌ --ref 需要传入远端分支名。" >&2
+          exit 1
+        fi
+        TARGET_REF="$2"
+        shift 2
+        ;;
       --ipa)
         if [ "$#" -lt 2 ] || [ -z "${2:-}" ]; then
           echo "❌ --ipa 需要传入 .ipa 或 .app 路径。" >&2
@@ -205,6 +252,10 @@ main() {
   if [ "${DRY_RUN}" = true ]; then
     echo "=== 《知气》iOS xtool 装机环境预检 (--dry-run) ==="
     local gh_ok=0 xtool_ok=0
+    local local_branch
+    local_branch="$(get_current_branch)"
+    resolve_target_ref
+
     if [ -z "${IPA_PATH}" ]; then
       check_github_ready || gh_ok=1
     else
@@ -215,7 +266,9 @@ main() {
     if command -v nsh >/dev/null 2>&1; then
       echo "✓ 本机 NSH CLI: $(nsh --version)"
     fi
-    echo "→ 计划模式: $([ "${DO_BUILD}" = true ] && echo '触发云端打包 (--build) 后装机' || ([ -n "${IPA_PATH}" ] && echo '安装本地指定包' || echo '复用最近一次成功云端构建产物（0 分钟额度消耗）'))"
+    echo "→ 当前本地分支: ${local_branch:-unknown}"
+    echo "→ 云端打包目标 ref: ${RESOLVED_REF}"
+    echo "→ 计划模式: $([ "${DO_BUILD}" = true ] && echo "触发云端打包 (--build, ref: ${RESOLVED_REF}) 后装机" || ([ -n "${IPA_PATH}" ] && echo '安装本地指定包' || echo '复用最近一次成功云端构建产物（0 分钟额度消耗）'))"
     [ "${DO_LAUNCH}" = true ] && echo "→ 安装后自动拉起: ${BUNDLE_ID}"
     [ -n "${UDID}" ] && echo "→ 指定设备 UDID: ${UDID}"
 

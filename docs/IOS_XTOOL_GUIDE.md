@@ -8,7 +8,7 @@
 | **iOS 交叉编译 & 打包** | GitHub Actions（`macos-15`） | `aarch64-apple-ios` 与 `iPhoneOS.sdk` 均在云端运行；本机**不安装 40 GB+ `Xcode.app` 和模拟器** |
 | **正式签名 & USB 装真机** | 本机 Mac（`xtool` CLI） | `xtool.app` 仅约 **`21 MB`**，通过官方 App Store Connect API 完成 **1 年有效期**签名并经 USB 安装到 iPhone |
 
-> 本项目 `.github/workflows/ios-package.yml` 设为 **仅 `workflow_dispatch` 手动触发**（不监听 `push`/`PR`），开启 Rust 增量缓存后每次云端打包约 3–5 分钟，产物保留 1 天自动清理；私有仓库每月 200 分钟 macOS 免费额度可支撑约 **40–65 次** 真机包构建。
+> 本项目已托管于 Public 公开仓库 `Cluas/qi`，享有 GitHub Actions `macos-15` **无限免费分钟数**；`.github/workflows/ios-package.yml` 设为 **仅 `workflow_dispatch` 手动触发**（不监听 `push`/`PR`），开启 Rust 增量缓存后每次云端打包约 3–5 分钟，产物保留 1 天自动清理。默认分支 `main` 仅保留工作流注册定义、暂不存放业务代码，日常开发与云端构建均在 `dev` 分支进行。
 
 ---
 
@@ -51,18 +51,28 @@ xtool setup
 
 ---
 
-## 二、首次推送私有 GitHub 仓库（如尚未绑定远端）
+## 二、分支约定与远端仓库结构（main 空壳占位 + dev 开发分支）
 
-首先运行环境预检确认本机配置是否完整：
+远端公开仓库为 `https://github.com/Cluas/qi`（Public 仓库），采用以下双分支结构：
+
+- **`main`（默认分支，空壳占位 + workflow 注册）**：仅保留 `.gitignore`、`LICENSE`、`README.md` 与 `.github/workflows/` 工作流定义文件，暂不存放业务源码，确保 GitHub Actions 能正常注册手动打包与 PR 检查流水线。
+- **`dev`（日常开发分支）**：存放完整应用源码与原生宿主工程，所有日常迭代与云端构建均在 `dev` 分支进行。
+
+首先切换到 `dev` 分支并运行环境预检，确认本机配置与目标分支就绪：
 
 ```bash
+git checkout dev
 ./scripts/ios_xtool_install.sh --dry-run
 ```
 
-如果 `gh` 已登录（未登录先运行 `gh auth login`）且本地尚未设置 GitHub `origin` 远端，可执行一条命令创建私有仓库并推送当前代码：
+在 `dev` 分支下直接执行 `./scripts/ios_xtool_install.sh --build --launch`（或显式传入 `--ref dev`）即可触发远端打包并装机；若误停留在空壳 `main` 分支执行脚本，也会自动检测并回退到 `dev` 分支触发云端构建。
+
+如需首次初始化远端仓库并推送双分支，可按序执行：
 
 ```bash
-gh repo create qi --private --source=. --remote=origin --push
+gh repo create qi --public --source=. --remote=origin -d "Qi (知气)"
+git push -u origin main
+git push -u origin dev
 ```
 
 ---
