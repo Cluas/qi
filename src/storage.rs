@@ -310,8 +310,12 @@ impl VaultDatabase {
     }
 
     pub fn open_file(path: &Path) -> Result<Self, String> {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!("无法创建数据库目录 {}: {e}", parent.display())
+            })?;
         }
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
         let _ = conn.execute_batch("PRAGMA journal_mode = WAL;");

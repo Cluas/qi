@@ -132,11 +132,13 @@ jobs:
           STAGE_DIR="$(mktemp -d)"
           trap 'rm -rf "${STAGE_DIR}"' EXIT
           mkdir -p "${STAGE_DIR}/Payload"
-          cp -R "${APP_BUNDLE}" "${STAGE_DIR}/Payload/$(basename "${APP_BUNDLE}")"
+          # 规范化包内目录名为纯 ASCII 的 Qi.app，避免非 UTF-8 ZIP 目录头编码在跨工具解包时乱码；
+          # 真机桌面显示名由 Info.plist 的 CFBundleDisplayName="知气" 决定。
+          cp -R "${APP_BUNDLE}" "${STAGE_DIR}/Payload/Qi.app"
           xattr -cr "${STAGE_DIR}/Payload"
 
           IPA_PATH="${GITHUB_WORKSPACE}/.nsh/out/qi-ios-unsigned.ipa"
-          (cd "${STAGE_DIR}" && zip -qry "${IPA_PATH}" Payload)
+          /usr/bin/ditto -c -k --norsrc --keepParent "${STAGE_DIR}/Payload" "${IPA_PATH}"
           ls -lh "${IPA_PATH}"
           unzip -l "${IPA_PATH}" | head -n 20 || test "${PIPESTATUS[0]}" -eq 141
 

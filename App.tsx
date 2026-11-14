@@ -1,4 +1,4 @@
-import { mount, Scroll, signal, Text, token, View, windowSize } from "nsh";
+import { ErrorBoundary, mount, Scroll, signal, Text, token, View, windowSize } from "nsh";
 import { InsightsPage } from "./pages/InsightsPage";
 import { LogLabsPage } from "./pages/LogLabsPage";
 import { MeVaultPage } from "./pages/MeVaultPage";
@@ -487,4 +487,39 @@ function App() {
   );
 }
 
-mount(App);
+function RootApp() {
+  return (
+    <ErrorBoundary
+      fallback={(error, reset) => (
+        <View
+          class="flex-1 items-center justify-center bg-background px-6"
+          style={{
+            paddingTop: "env(safe-area-inset-top)",
+            paddingBottom: "env(safe-area-inset-bottom)",
+          }}
+        >
+          <View class="w-full max-w-md gap-3 rounded-2xl border border-border bg-card p-5">
+            <Text role="header" class="text-base font-semibold text-foreground">
+              知气启动遇到了一点波动
+            </Text>
+            <Text class="text-xs leading-relaxed text-muted-foreground">
+              本地健康库保护已生效。你可以点击下方按钮重新渲染界面，所有已记录数据均安全保存在本机。
+            </Text>
+            <Text class="rounded-lg bg-surface-sunken p-2.5 font-mono text-[11px] text-muted-foreground">
+              {String(error)}
+            </Text>
+            <ActionButton
+              title="重试加载知气"
+              icon="sparkles"
+              onPress={() => reset()}
+            />
+          </View>
+        </View>
+      )}
+    >
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+mount(RootApp);

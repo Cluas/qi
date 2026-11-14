@@ -559,6 +559,47 @@ pub struct QiEngine {
 }
 
 impl QiEngine {
+    fn default_db_candidates_for_home(home: &std::path::Path) -> Vec<PathBuf> {
+        let mut candidates = Vec::new();
+        if cfg!(target_os = "ios") {
+            // iOS Seatbelt 沙盒禁止直接在容器根目录 ($HOME) 下创建隐藏目录，仅 Library / Documents / tmp 可写
+            candidates.push(
+                home.join("Library")
+                    .join("Application Support")
+                    .join("qi")
+                    .join("qi_vault.sqlite3"),
+            );
+            candidates.push(home.join("Documents").join("qi").join("qi_vault.sqlite3"));
+        } else {
+            candidates.push(home.join(".qi").join("qi_vault.sqlite3"));
+            candidates.push(
+                home.join("Library")
+                    .join("Application Support")
+                    .join("qi")
+                    .join("qi_vault.sqlite3"),
+            );
+        }
+        candidates.push(std::env::temp_dir().join("qi_vault.sqlite3"));
+        candidates
+    }
+
+    fn open_db_with_candidates(candidates: &[PathBuf]) -> Result<VaultDatabase, String> {
+        let mut errors = Vec::new();
+        for path in candidates {
+            match VaultDatabase::open_file(path) {
+                Ok(db) => return Ok(db),
+                Err(err) => {
+                    errors.push(format!("{}: {err}", path.display()));
+                }
+            }
+        }
+        eprintln!(
+            "[Qi] 所有文件数据库候选路径均不可写，已自动降级为内存数据库 ({})",
+            errors.join(" | ")
+        );
+        VaultDatabase::open_memory()
+    }
+
     fn open_db(db_path: Option<String>) -> Result<VaultDatabase, String> {
         match db_path.as_deref() {
             Some(":memory:") => VaultDatabase::open_memory(),
@@ -574,12 +615,12 @@ impl QiEngine {
                         return VaultDatabase::open_file(&PathBuf::from(trimmed));
                     }
                 }
-                if let Some(home) = std::env::var_os("HOME") {
-                    let path = PathBuf::from(home).join(".qi").join("qi_vault.sqlite3");
-                    VaultDatabase::open_file(&path)
+                let candidates = if let Some(home) = std::env::var_os("HOME") {
+                    Self::default_db_candidates_for_home(&PathBuf::from(home))
                 } else {
-                    VaultDatabase::open_memory()
-                }
+                    vec![std::env::temp_dir().join("qi_vault.sqlite3")]
+                };
+                Self::open_db_with_candidates(&candidates)
             }
         }
     }
@@ -2933,5 +2974,21 @@ mod e2e_tests {
                 .iter()
                 .any(|x| x["item_name"] == "轻食鸡胸沙拉")
         );
+    }
+
+    #[test]
+    fn open_db_falls_back_when_primary_parent_unwritable() {
+        let fallback_dir = std::env::temp_dir().join(format!(
+            "qi_open_db_fallback_{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let fallback_db = fallback_dir.join("qi_vault.sqlite3");
+        let unwritable_primary = PathBuf::from("/dev/null/qi_sub/qi_vault.sqlite3");
+        let db = QiEngine::open_db_with_candidates(&[unwritable_primary, fallback_db.clone()])
+            .expect("primary failure should fall back to writable path");
+        let settings = db.load_settings().expect("fallback db should initialize settings");
+        assert!(!settings.locale.is_empty());
+        assert!(fallback_db.exists());
+        let _ = std::fs::remove_dir_all(&fallback_dir);
     }
 }

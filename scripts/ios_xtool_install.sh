@@ -97,6 +97,27 @@ run_gh() {
   (cd "${REPO_ROOT}" && gh "$@")
 }
 
+resolve_launch_bundle_id() {
+  local xtool_bin="$1"
+  local listed=""
+  listed="$("${xtool_bin}" ds identifiers list 2>/dev/null || true)"
+  local matched=""
+  matched="$(printf '%s\n' "${listed}" | awk -v suffix=".${BUNDLE_ID}" '
+    /identifier:/ {
+      id=$2
+      if (substr(id, length(id) - length(suffix) + 1) == suffix) {
+        print id
+        exit
+      }
+    }
+  ')"
+  if [ -n "${matched}" ]; then
+    echo "${matched}"
+    return 0
+  fi
+  echo "${BUNDLE_ID}"
+}
+
 find_latest_run_id() {
   local conclusion_filter="${1:-}"
   if [ -n "${conclusion_filter}" ]; then
@@ -325,11 +346,19 @@ main() {
   fi
 
   if [ "${DO_LAUNCH}" = true ]; then
-    echo "→ 正在真机启动 ${BUNDLE_ID}..."
+    local launch_id
+    launch_id="$(resolve_launch_bundle_id "${xtool_bin}")"
+    echo "→ 正在真机启动 ${launch_id}..."
+    local launch_ok=0
     if [ "${#conn_args[@]}" -gt 0 ]; then
-      "${xtool_bin}" launch "${conn_args[@]}" "${BUNDLE_ID}"
+      "${xtool_bin}" launch "${conn_args[@]}" "${launch_id}" || launch_ok=$?
     else
-      "${xtool_bin}" launch "${BUNDLE_ID}"
+      "${xtool_bin}" launch "${launch_id}" || launch_ok=$?
+    fi
+    if [ "${launch_ok}" -ne 0 ]; then
+      echo "⚠️  真机已安装完成，但自动拉起返回状态码 ${launch_ok}（通常因 iPhone 处于锁屏状态）。"
+      echo "   请解锁 iPhone 后直接在桌面点击「知气」图标，或手动执行："
+      echo "   ${xtool_bin} launch ${conn_args[*]:-} ${launch_id}"
     fi
   fi
 

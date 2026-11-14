@@ -659,9 +659,31 @@ const DEFAULT_APPLE_PRODUCT_MAP: Record<string, string> = {
 };
 
 // Single source of truth: mutations persist in Rust QiEngine; TSX holds reactive signals.
-const engine = new QiEngine(null);
-const initialPayload = JSON.parse(engine.stateJson()) as UiStatePayload;
-applyLocale(normalizeLocale(initialPayload.settings?.locale || "zh-CN"));
+function createBootEngine(): QiEngine {
+  try {
+    return new QiEngine(null);
+  } catch (err) {
+    console.error("[Qi] Primary vault init failed, falling back to :memory:", err);
+    return new QiEngine(":memory:");
+  }
+}
+
+const engine = createBootEngine();
+const initialPayload = (() => {
+  try {
+    return JSON.parse(engine.stateJson()) as UiStatePayload;
+  } catch (err) {
+    console.error("[Qi] Failed to parse initial state JSON, resetting to memory vault:", err);
+    const fallback = new QiEngine(":memory:");
+    return JSON.parse(fallback.stateJson()) as UiStatePayload;
+  }
+})();
+
+try {
+  applyLocale(normalizeLocale(initialPayload.settings?.locale || "zh-CN"));
+} catch (err) {
+  console.error("[Qi] applyLocale during boot failed:", err);
+}
 
 const uiState = signal<UiStatePayload>(initialPayload);
 const activeTab = signal<ActiveTab>("today");

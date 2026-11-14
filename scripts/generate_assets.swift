@@ -119,5 +119,11 @@ func renderSampleLab(to path: String) {
 }
 
 let root = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "."
-renderIcon(to: "\(root)/assets/icon-1024.png")
+let iconPath = "\(root)/assets/icon-1024.png"
+let forcePlaceholderIcon = CommandLine.arguments.contains("--force-placeholder-icon")
+if forcePlaceholderIcon || !FileManager.default.fileExists(atPath: iconPath) {
+    renderIcon(to: iconPath)
+} else {
+    print("Preserving existing custom icon at \(iconPath) (pass --force-placeholder-icon to overwrite)")
+}
 renderSampleLab(to: "\(root)/tests/fixtures/sample_lab_report.png")

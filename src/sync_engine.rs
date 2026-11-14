@@ -52,6 +52,17 @@ pub fn resolve_icloud_vault_dir() -> PathBuf {
         if cloud_docs.is_dir() {
             return cloud_docs.join("QiVault");
         }
+        if cfg!(target_os = "ios") {
+            let docs = home_pb.join("Documents");
+            if docs.is_dir() {
+                return docs.join("QiVault");
+            }
+            return home_pb
+                .join("Library")
+                .join("Application Support")
+                .join("qi")
+                .join("QiVault");
+        }
         return home_pb.join(".qi").join("icloud_vault");
     }
     PathBuf::from(".qi_icloud_vault")
